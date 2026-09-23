@@ -1,16 +1,29 @@
 # Dependencies
 node_modules/
 .pnpm-store/
+.pnpm/
 
 # Build outputs
 dist/
 build/
 *.tsbuildinfo
 
+# AI Agents & IDE Artifacts
+.gemini/
+.agents/
+.agent/
+.system_generated/
+.vscode/
+.idea/
+brain/
+presentation/
+
 # Environment & Secrets
 .env
 .env.local
 .env.*.local
+*.pem
+*.key
 
 # Persistent Database & Storage
 data/
@@ -21,5 +34,6 @@ cargona-store.json
 # Archives & Temporary files
 *.tar.gz
 *.zip
+*.tar
 .DS_Store
 Thumbs.db
