@@ -1,0 +1,8 @@
+**/node_modules
+**/.git
+**/.gemini
+**/.turbo
+**/dist
+**/.env
+**/data
+**/backups

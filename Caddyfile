@@ -1,0 +1,15 @@
+{
+    email {$SUPERADMIN_EMAIL:admin@cargona.io}
+}
+
+{$APP_DOMAIN:cargona.akii.world} {
+    encode gzip zstd
+
+    handle /api/* {
+        reverse_proxy backend:4000
+    }
+
+    handle {
+        reverse_proxy frontend:80
+    }
+}

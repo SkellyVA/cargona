@@ -1,0 +1,24 @@
+{
+  "name": "cargona-os",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CargonaOS — Universal Multi-Tenant Vertical SaaS for Cargo & Logistics",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0",
+    "turbo": "^2.4.4",
+    "typescript": "^5.8.2"
+  },
+  "packageManager": "pnpm@12.5.1",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "@turbo/windows-64"
+    ]
+  }
+}

@@ -1,0 +1,101 @@
+# ==============================================================================
+# CargonaOS — Multi-Tenant SaaS Production Stack
+# Persistent volumes ensure database and state NEVER reset on recreates!
+# ==============================================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cargona_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-cargona}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-cargona_sec_db_2026}
+      POSTGRES_DB: ${DB_NAME:-cargona_db}
+    volumes:
+      # Persistent host directory: Database data survives container recreate / updates!
+      - ./data/postgres:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    ports:
+      - "127.0.0.1:5432:5432"
+    networks:
+      - cargona_net
+
+  backend:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: cargona_api
+    restart: unless-stopped
+    environment:
+      PORT: 4000
+      HOST: 0.0.0.0
+      DATA_DIR: /app/data
+      DATABASE_URL: postgres://${DB_USER:-cargona}:${DB_PASSWORD:-cargona_sec_db_2026}@postgres:5432/${DB_NAME:-cargona_db}
+      JWT_SECRET: ${JWT_SECRET:-cargona_super_secret_jwt_key_2026}
+      APP_DOMAIN: ${APP_DOMAIN:-cargona.akii.world}
+      SUPERADMIN_EMAIL: ${SUPERADMIN_EMAIL:-admin@cargona.io}
+      SUPERADMIN_PASSWORD: ${SUPERADMIN_PASSWORD:-password123}
+      SUPERADMIN_NAME: ${SUPERADMIN_NAME:-Администратор Платформы}
+      MAX_TENANTS_LIMIT: ${MAX_TENANTS_LIMIT:-0}
+    depends_on:
+      - postgres
+    volumes:
+      # Persistent host directory: Store state survives container recreate / updates!
+      - ./data/backend:/app/data
+    ports:
+      - "127.0.0.1:4000:4000"
+    networks:
+      cargona_net:
+        aliases:
+          - backend
+          - api
+
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: cargona_web
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:8080:80"
+    networks:
+      - cargona_net
+
+  bot:
+    build:
+      context: .
+      dockerfile: apps/bot/Dockerfile
+    container_name: cargona_bot
+    restart: unless-stopped
+    environment:
+      API_URL: http://backend:4000/api
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      WEBAPP_URL: ${WEBAPP_URL:-https://${APP_DOMAIN:-cargona.akii.world}/o/mir-cargo/app}
+    depends_on:
+      - backend
+  caddy:
+    image: caddy:2-alpine
+    container_name: cargona_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - APP_DOMAIN=${APP_DOMAIN:-cargona.akii.world}
+      - SUPERADMIN_EMAIL=${SUPERADMIN_EMAIL:-admin@cargona.io}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy_data:/data
+      - ./data/caddy_config:/config
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - cargona_net
+
+networks:
+  cargona_net:
+    driver: bridge

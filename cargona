@@ -1,0 +1,154 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# CargonaOS CLI Manager
+# Universal CLI tool for managing CargonaOS production services
+# ==============================================================================
+
+set -e
+
+CARGONA_DIR="/opt/cargona"
+
+if [ ! -d "$CARGONA_DIR" ]; then
+    CARGONA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+
+cd "$CARGONA_DIR"
+
+# Colors
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+BOLD='\033[1m'
+
+print_banner() {
+    echo -e "${CYAN}${BOLD}"
+    echo "   ______                                      ____  _____"
+    echo "  / ____/___ __________ _____  ____  ____ _   / __ \/ ___/"
+    echo " / /   / __ \`/ ___/ __ \`/ __ \/ __ \/ __ \`/  / / / /\__ \ "
+    echo "/ /___/ /_/ / /  / /_/ / /_/ / / / / /_/ /  / /_/ /___/ / "
+    echo "\____/\__,_/_/   \__, /\____/_/ /_/\__,_/   \____//____/  "
+    echo "                /____/                                    "
+    echo -e "${NC}"
+    echo -e "       ${GREEN}CargonaOS Management CLI${NC} — Modern Cargo & Logistics OS"
+    echo ""
+}
+
+show_help() {
+    print_banner
+    echo -e "${BOLD}Использование:${NC} cargona [команда] [опции]"
+    echo ""
+    echo -e "${BOLD}Команды управления:${NC}"
+    echo -e "  ${CYAN}status${NC}          Показать статус работы всех контейнеров и портов"
+    echo -e "  ${CYAN}start${NC}           Запустить сервисы CargonaOS"
+    echo -e "  ${CYAN}stop${NC}            Остановить сервисы"
+    echo -e "  ${CYAN}restart${NC} [svc]   Перезапустить все сервисы или конкретный (api, web, bot, postgres)"
+    echo -e "  ${CYAN}logs${NC} [svc]      Смотреть логи (например: cargona logs api)"
+    echo -e "  ${CYAN}update${NC}          Пересобрать и обновить контейнеры (с сохранением БД!)"
+    echo ""
+    echo -e "${BOLD}База данных и резервные копии:${NC}"
+    echo -e "  ${CYAN}backup${NC}          Создать полный бэкап PostgreSQL в ./backups/"
+    echo -e "  ${CYAN}restore${NC} <файл>  Восстановить БД из бэкапа"
+    echo ""
+    echo -e "${BOLD}Конфигурация:${NC}"
+    echo -e "  ${CYAN}config${NC}          Показать текущие переменные окружения (.env)"
+    echo -e "  ${CYAN}help${NC}            Показать эту справку"
+    echo ""
+}
+
+case "$1" in
+    status)
+        print_banner
+        echo -e "${BOLD}Статус контейнеров CargonaOS:${NC}"
+        docker compose ps
+        echo ""
+        echo -e "${BOLD}Состояние базы данных (PostgreSQL):${NC}"
+        if docker compose exec -T postgres pg_isready -U cargona -d cargona_db >/dev/null 2>&1; then
+            echo -e "  ${GREEN}✓ PostgreSQL активен и принимает подключения${NC}"
+        else
+            echo -e "  ${RED}✗ PostgreSQL недоступен${NC}"
+        fi
+        echo -e "${BOLD}Постоянные хранилища данных (Persistent Volumes):${NC}"
+        echo -e "  ✓ Postgres Data: ${CARGONA_DIR}/data/postgres (Не сбрасывается при пересоздании!)"
+        echo -e "  ✓ Backend Data:  ${CARGONA_DIR}/data/backend"
+        ;;
+
+    start)
+        echo -e "${GREEN}Запуск сервисов CargonaOS...${NC}"
+        docker compose up -d
+        echo -e "${GREEN}Все сервисы запущены!${NC}"
+        ;;
+
+    stop)
+        echo -e "${YELLOW}Остановка сервисов CargonaOS...${NC}"
+        docker compose stop
+        echo -e "${YELLOW}Сервисы остановлены.${NC}"
+        ;;
+
+    restart)
+        SERVICE="$2"
+        if [ -n "$SERVICE" ]; then
+            echo -e "${CYAN}Перезапуск сервиса $SERVICE...${NC}"
+            docker compose restart "$SERVICE"
+        else
+            echo -e "${CYAN}Перезапуск всех сервисов CargonaOS...${NC}"
+            docker compose restart
+        fi
+        echo -e "${GREEN}Перезапуск завершен.${NC}"
+        ;;
+
+    logs)
+        SERVICE="$2"
+        if [ -n "$SERVICE" ]; then
+            docker compose logs -f --tail=100 "$SERVICE"
+        else
+            docker compose logs -f --tail=50
+        fi
+        ;;
+
+    update)
+        print_banner
+        echo -e "${CYAN}Пересборка и обновление CargonaOS...${NC}"
+        echo -e "${YELLOW}Данные в PostgreSQL и хранилище сохраняются в неизменном виде.${NC}"
+        docker compose up -d --build
+        echo -e "${GREEN}Обновление успешно завершено!${NC}"
+        ;;
+
+    backup)
+        mkdir -p "${CARGONA_DIR}/backups"
+        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+        BACKUP_FILE="${CARGONA_DIR}/backups/cargona_backup_${TIMESTAMP}.sql"
+        echo -e "${CYAN}Создание резервной копии PostgreSQL в ${BACKUP_FILE}...${NC}"
+        docker compose exec -T postgres pg_dump -U cargona cargona_db > "$BACKUP_FILE"
+        echo -e "${GREEN}✓ Резервная копия успешно создана (${BACKUP_FILE})${NC}"
+        ls -lh "$BACKUP_FILE"
+        ;;
+
+    restore)
+        BACKUP_FILE="$2"
+        if [ -z "$BACKUP_FILE" ] || [ ! -f "$BACKUP_FILE" ]; then
+            echo -e "${RED}Ошибка: Укажите существующий файл бэкапа!${NC}"
+            echo "Пример: cargona restore backups/cargona_backup_20260922.sql"
+            exit 1
+        fi
+        echo -e "${RED}${BOLD}ВНИМАНИЕ! Текущие данные БД будут заменены содержимым из ${BACKUP_FILE}!${NC}"
+        read -p "Вы уверены, что хотите продолжить? (y/N): " CONFIRM
+        if [ "$CONFIRM" = "y" ] || [ "$CONFIRM" = "Y" ]; then
+            echo -e "${CYAN}Восстановление базы данных...${NC}"
+            docker compose exec -T postgres psql -U cargona -d cargona_db < "$BACKUP_FILE"
+            echo -e "${GREEN}✓ База данных успешно восстановлена!${NC}"
+        else
+            echo "Отменено."
+        fi
+        ;;
+
+    config)
+        echo -e "${BOLD}Конфигурация окружения (.env):${NC}"
+        cat "${CARGONA_DIR}/.env"
+        ;;
+
+    help|--help|-h|*)
+        show_help
+        ;;
+esac

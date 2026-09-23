@@ -1,0 +1,1 @@
+{"files":{"apps/bot/.turbo/turbo-build.log":{"size":301,"mtime_nanos":1790095667746774300,"mode":420,"is_dir":false},"apps/bot/dist/index.mjs":{"size":533,"mtime_nanos":1790095667686093000,"mode":420,"is_dir":false},"apps/bot/dist":{"size":0,"mtime_nanos":0,"mode":0,"is_dir":true}},"order":["apps/bot/.turbo/turbo-build.log","apps/bot/dist","apps/bot/dist/index.mjs"]}
