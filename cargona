@@ -1,154 +1,372 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# CargonaOS CLI Manager
-# Universal CLI tool for managing CargonaOS production services
+# CargonaOS — Unified Server Administration CLI
+# Usage: ./cargona [command] or run interactively: ./cargona
 # ==============================================================================
 
 set -e
 
-CARGONA_DIR="/opt/cargona"
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+if [ -L "$SCRIPT_PATH" ]; then
+  SCRIPT_PATH="$(readlink -f "$SCRIPT_PATH")"
+fi
+APP_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+if [ ! -f "${APP_DIR}/docker-compose.yml" ] && [ -d "/opt/cargona" ]; then
+  APP_DIR="/opt/cargona"
+fi
+cd "$APP_DIR"
 
-if [ ! -d "$CARGONA_DIR" ]; then
-    CARGONA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+ENV_FILE="${APP_DIR}/.env"
+BACKUP_DIR="${APP_DIR}/data/backups"
+STORE_FILE="${APP_DIR}/data/backend/cargona-store.json"
+if [ ! -f "$STORE_FILE" ] && [ -f "${APP_DIR}/cargona-store.json" ]; then
+  STORE_FILE="${APP_DIR}/cargona-store.json"
 fi
 
-cd "$CARGONA_DIR"
+mkdir -p "$BACKUP_DIR"
 
-# Colors
-CYAN='\033[0;36m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
-BOLD='\033[1m'
+# Helper to read .env variable
+get_env_var() {
+  local var_name="$1"
+  if [ -f "$ENV_FILE" ]; then
+    grep "^${var_name}=" "$ENV_FILE" | cut -d '=' -f2- | tr -d '\r"' || echo ""
+  fi
+}
 
-print_banner() {
+# Helper to set/update .env variable
+set_env_var() {
+  local var_name="$1"
+  local var_value="$2"
+  if [ ! -f "$ENV_FILE" ]; then
+    touch "$ENV_FILE"
+  fi
+  if grep -q "^${var_name}=" "$ENV_FILE"; then
+    sed -i "s|^${var_name}=.*|${var_name}=${var_value}|" "$ENV_FILE"
+  else
+    echo "${var_name}=${var_value}" >> "$ENV_FILE"
+  fi
+}
+
+# Docker compose command wrapper
+dc_cmd() {
+  if docker compose version &> /dev/null; then
+    docker compose "$@"
+  else
+    docker-compose "$@"
+  fi
+}
+
+# 1. STATUS
+cmd_status() {
+  echo -e "\n${BLUE}================================================================${NC}"
+  echo -e "${BOLD}              Статус системы CargonaOS${NC}"
+  echo -e "${BLUE}================================================================${NC}"
+  
+  local domain=$(get_env_var "APP_DOMAIN")
+  local email=$(get_env_var "SUPERADMIN_EMAIL")
+  local limit=$(get_env_var "MAX_TENANTS_LIMIT")
+  [ -z "$limit" ] && limit="0"
+
+  echo -e "🌐 ${BOLD}Домен:${NC}               https://${domain:-cargona.local}"
+  echo -e "📧 ${BOLD}Супер-Админ:${NC}         ${email:-admin@cargona.io}"
+  if [ "$limit" -gt 0 ] 2>/dev/null; then
+    echo -e "🏢 ${BOLD}Лимит организаций:${NC}   ${limit} (Ограничено лицензией)"
+  else
+    echo -e "🏢 ${BOLD}Лимит организаций:${NC}   Безлимит (SaaS Platform)"
+  fi
+  echo -e "${BLUE}----------------------------------------------------------------${NC}"
+  echo -e "${BOLD}Статус Docker контейнеров:${NC}\n"
+  dc_cmd ps
+  echo ""
+}
+
+# 2. ADMIN PASSWORD & EMAIL RESET
+cmd_reset_admin() {
+  echo -e "\n${CYAN}=== Сброс учетных данных Супер-Администратора ===${NC}"
+  local current_email=$(get_env_var "SUPERADMIN_EMAIL")
+  
+  read -p "$(echo -e "${BOLD}Новый Email Супер-Админа${NC} [${current_email:-admin@cargona.io}]: ")" new_email
+  new_email=${new_email:-${current_email:-admin@cargona.io}}
+  
+  while true; do
+    echo -ne "${BOLD}Новый Пароль Супер-Админа${NC} (ввод скрыт): "
+    read -s pass1
+    echo ""
+    if [ -z "$pass1" ]; then
+      echo -e "${YELLOW}[!] Пароль не может быть пустым.${NC}"
+      continue
+    fi
+    if [ ${#pass1} -lt 6 ]; then
+      echo -e "${YELLOW}[!] Минимальная длина пароля — 6 символов.${NC}"
+      continue
+    fi
+    echo -ne "${BOLD}Подтвердите пароль${NC}: "
+    read -s pass2
+    echo ""
+    if [ "$pass1" != "$pass2" ]; then
+      echo -e "${RED}[!] Пароли не совпадают! Попробуйте снова.${NC}\n"
+    else
+      break
+    fi
+  done
+
+  set_env_var "SUPERADMIN_EMAIL" "$new_email"
+  set_env_var "SUPERADMIN_PASSWORD" "$pass1"
+
+  echo -e "${CYAN}Перезапуск бэкенда для применения новых учетных данных...${NC}"
+  dc_cmd restart backend 2>/dev/null || dc_cmd restart api 2>/dev/null || true
+
+  echo -e "\n${GREEN}✓ Учетные данные Супер-Админа успешно обновлены!${NC}"
+  echo -e "📧 Email:  ${BOLD}${new_email}${NC}"
+  echo -e "🔑 Пароль: ${BOLD}${pass1}${NC}"
+  echo -e "🌐 Вход:   https://$(get_env_var "APP_DOMAIN")/admin\n"
+}
+
+# 3. CHANGE TENANTS LIMIT
+cmd_set_limit() {
+  echo -e "\n${CYAN}=== Изменение лимита организаций (Лицензия) ===${NC}"
+  local current_limit=$(get_env_var "MAX_TENANTS_LIMIT")
+  [ -z "$current_limit" ] && current_limit="0"
+
+  echo -e "Текущий лимит: ${BOLD}${current_limit}${NC} (0 = безлимит, 1 = Single-Tenant)"
+  read -p "Введите новый лимит [${current_limit}]: " new_limit
+  new_limit=${new_limit:-$current_limit}
+
+  set_env_var "MAX_TENANTS_LIMIT" "$new_limit"
+
+  echo -e "${CYAN}Применение нового лимита...${NC}"
+  dc_cmd restart backend 2>/dev/null || dc_cmd restart api 2>/dev/null || true
+
+  if [ "$new_limit" -gt 0 ] 2>/dev/null; then
+    echo -e "${GREEN}✓ Лимит успешно установлен: ${BOLD}максимум ${new_limit} организаций${NC}.\n"
+  else
+    echo -e "${GREEN}✓ Лимит успешно снят: ${BOLD}полный безлимит (SaaS)${NC}.\n"
+  fi
+}
+
+# 4. BACKUP CREATE
+cmd_backup_create() {
+  echo -e "\n${CYAN}=== Создание резервной копии базы данных ===${NC}"
+  local ts=$(date +%Y%m%d_%H%M%S)
+  local bkp_file="${BACKUP_DIR}/cargona_backup_${ts}.json"
+  local env_bkp="${BACKUP_DIR}/env_backup_${ts}.env"
+
+  if [ -f "$STORE_FILE" ]; then
+    cp "$STORE_FILE" "$bkp_file"
+    echo -e "${GREEN}✓ База данных сохранена:${NC} ${bkp_file}"
+  else
+    echo -e "${YELLOW}[!] Файл базы данных не найден по пути $STORE_FILE${NC}"
+  fi
+
+  if [ -f "$ENV_FILE" ]; then
+    cp "$ENV_FILE" "$env_bkp"
+    echo -e "${GREEN}✓ Конфигурация сохранена:${NC} ${env_bkp}"
+  fi
+
+  echo -e "${GREEN}${BOLD}Резервная копия успешно создана!${NC}\n"
+}
+
+# 5. BACKUP RESTORE
+cmd_backup_restore() {
+  echo -e "\n${CYAN}=== Восстановление базы данных из бэкапа ===${NC}"
+  local backups=($(ls -t "${BACKUP_DIR}"/*.json 2>/dev/null || true))
+
+  if [ ${#backups[@]} -eq 0 ]; then
+    echo -e "${RED}[!] В папке ${BACKUP_DIR} нет сохраненных бэкапов.${NC}\n"
+    return
+  fi
+
+  echo -e "Доступные резервные копии:"
+  local idx=1
+  for bkp in "${backups[@]}"; do
+    local fname=$(basename "$bkp")
+    local size=$(ls -lh "$bkp" | awk '{print $5}')
+    echo -e "  ${BOLD}[$idx]${NC} $fname ($size)"
+    idx=$((idx + 1))
+  done
+
+  read -p "Выберите номер бэкапа для восстановления [1-${#backups[@]}]: " choice
+  if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#backups[@]}" ]; then
+    echo -e "${RED}[!] Неверный выбор.${NC}\n"
+    return
+  fi
+
+  local selected_bkp="${backups[$((choice - 1))]}"
+  echo -e "${YELLOW}[!] ВНИМАНИЕ: Текущая база данных будет заменена на копию: $(basename "$selected_bkp")${NC}"
+  read -p "Вы уверены? (y/n): " confirm
+  if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+    echo -e "Восстановление отменено.\n"
+    return
+  fi
+
+  # Stop api to safely write file
+  echo -e "${CYAN}Восстановление данных...${NC}"
+  dc_cmd stop backend 2>/dev/null || dc_cmd stop api 2>/dev/null || true
+  cp "$selected_bkp" "$STORE_FILE"
+  dc_cmd start backend 2>/dev/null || dc_cmd start api 2>/dev/null || true
+
+  echo -e "\n${GREEN}${BOLD}✓ База данных успешно восстановлена!${NC}\n"
+}
+
+# 6. UPDATE SYSTEM
+cmd_update() {
+  if [ -f "${APP_DIR}/update.sh" ]; then
+    bash "${APP_DIR}/update.sh"
+  else
+    cmd_backup_create
+    if [ -d .git ]; then
+      git pull
+    fi
+    dc_cmd up -d --build
+    echo -e "${GREEN}✓ Обновление завершено!${NC}\n"
+  fi
+}
+
+# 7. RESTART SERVICES
+cmd_restart() {
+  echo -e "\n${CYAN}Перезапуск всех сервисов CargonaOS...${NC}"
+  dc_cmd restart
+  echo -e "${GREEN}✓ Все контейнеры успешно перезапущены.${NC}\n"
+}
+
+# 8. CHANGE DOMAIN & SSL
+cmd_domain() {
+  echo -e "\n${CYAN}=== Смена домена и перевыпуск SSL ===${NC}"
+  local current_domain=$(get_env_var "APP_DOMAIN")
+  read -p "Введите новый домен [${current_domain}]: " new_dom
+  new_dom=${new_dom:-$current_domain}
+  new_dom=$(echo "$new_dom" | sed -e 's|^https://||' -e 's|^http://||' -e 's|/$||')
+
+  set_env_var "APP_DOMAIN" "$new_dom"
+
+  echo -e "${CYAN}Перезапуск веб-сервера и перевыпуск SSL-сертификата...${NC}"
+  dc_cmd restart caddy 2>/dev/null || dc_cmd restart
+  echo -e "\n${GREEN}✓ Домен изменен на: https://${new_dom}${NC}"
+  echo -e "🔒 SSL-сертификат будет автоматически активирован при переходе.\n"
+}
+
+# 9. VIEW LOGS
+cmd_logs() {
+  local service="$1"
+  if [ -n "$service" ]; then
+    dc_cmd logs -f --tail 50 "$service"
+  else
+    dc_cmd logs -f --tail 30
+  fi
+}
+
+# 10. INSTALL AS GLOBAL COMMAND
+cmd_install_global() {
+  if [ "$EUID" -eq 0 ]; then
+    ln -sf "${APP_DIR}/cargona" /usr/local/bin/cargona
+    chmod +x /usr/local/bin/cargona
+    echo -e "${GREEN}✓ Команда 'cargona' теперь доступна глобально из любой папки в терминале!${NC}\n"
+  fi
+}
+
+# INTERACTIVE MENU
+interactive_menu() {
+  while true; do
+    clear
     echo -e "${CYAN}${BOLD}"
-    echo "   ______                                      ____  _____"
-    echo "  / ____/___ __________ _____  ____  ____ _   / __ \/ ___/"
-    echo " / /   / __ \`/ ___/ __ \`/ __ \/ __ \/ __ \`/  / / / /\__ \ "
-    echo "/ /___/ /_/ / /  / /_/ / /_/ / / / / /_/ /  / /_/ /___/ / "
-    echo "\____/\__,_/_/   \__, /\____/_/ /_/\__,_/   \____//____/  "
-    echo "                /____/                                    "
+    cat << "EOF"
+   ______                                        ____  _____
+  / ____/___ _____________ _____  ____  ____ _   / __ \/ ___/
+ / /   / __ `/ ___/ __  // __ \/ __ \/ __ `/  / / / /\__ \ 
+/ /___/ /_/ / /  / /_/ // /_/ / / / / /_/ /  / /_/ /___/ / 
+\____/\__,_/_/   \__, / \____/_/ /_/\__,_/   \____//____/  
+                /____/                                     
+           Server Administration Console & Tool
+EOF
     echo -e "${NC}"
-    echo -e "       ${GREEN}CargonaOS Management CLI${NC} — Modern Cargo & Logistics OS"
-    echo ""
+    local domain=$(get_env_var "APP_DOMAIN")
+    local limit=$(get_env_var "MAX_TENANTS_LIMIT")
+    [ -z "$limit" ] && limit="0"
+    echo -e "🌐 Домен: ${BOLD}https://${domain:-cargona.local}${NC} | 🏢 Лимит организаций: ${BOLD}$([ "$limit" -gt 0 ] && echo "$limit" || echo "Безлимит")${NC}"
+    echo -e "${BLUE}================================================================${NC}"
+    echo -e " ${BOLD}1)${NC} 📊 Статус системы и контейнеров"
+    echo -e " ${BOLD}2)${NC} 🔑 Сменить пароль / email Супер-Админа"
+    echo -e " ${BOLD}3)${NC} 🏢 Изменить лимит организаций (Лицензия)"
+    echo -e " ${BOLD}4)${NC} 💾 Создать резервную копию (Бэкап БД)"
+    echo -e " ${BOLD}5)${NC} 🔄 Восстановить базу из бэкапа"
+    echo -e " ${BOLD}6)${NC} 🚀 Обновить систему до последней версии"
+    echo -e " ${BOLD}7)${NC} 🔄 Перезапустить сервисы"
+    echo -e " ${BOLD}8)${NC} 🌐 Сменить домен / перевыпустить SSL"
+    echo -e " ${BOLD}9)${NC} 📋 Просмотр системных логов (live logs)"
+    echo -e " ${BOLD}0)${NC} 🚪 Выход"
+    echo -e "${BLUE}================================================================${NC}"
+    read -p "Выберите действие [0-9]: " choice
+
+    case "$choice" in
+      1) cmd_status; read -p "Нажмите Enter для продолжения...";;
+      2) cmd_reset_admin; read -p "Нажмите Enter для продолжения...";;
+      3) cmd_set_limit; read -p "Нажмите Enter для продолжения...";;
+      4) cmd_backup_create; read -p "Нажмите Enter для продолжения...";;
+      5) cmd_backup_restore; read -p "Нажмите Enter для продолжения...";;
+      6) cmd_update; read -p "Нажмите Enter для продолжения...";;
+      7) cmd_restart; read -p "Нажмите Enter для продолжения...";;
+      8) cmd_domain; read -p "Нажмите Enter для продолжения...";;
+      9) cmd_logs;;
+      0) echo -e "\nДо свидания!\n"; exit 0;;
+      *) echo -e "${RED}Неверный пункт меню${NC}"; sleep 1;;
+    esac
+  done
 }
 
-show_help() {
-    print_banner
-    echo -e "${BOLD}Использование:${NC} cargona [команда] [опции]"
-    echo ""
-    echo -e "${BOLD}Команды управления:${NC}"
-    echo -e "  ${CYAN}status${NC}          Показать статус работы всех контейнеров и портов"
-    echo -e "  ${CYAN}start${NC}           Запустить сервисы CargonaOS"
-    echo -e "  ${CYAN}stop${NC}            Остановить сервисы"
-    echo -e "  ${CYAN}restart${NC} [svc]   Перезапустить все сервисы или конкретный (api, web, bot, postgres)"
-    echo -e "  ${CYAN}logs${NC} [svc]      Смотреть логи (например: cargona logs api)"
-    echo -e "  ${CYAN}update${NC}          Пересобрать и обновить контейнеры (с сохранением БД!)"
-    echo ""
-    echo -e "${BOLD}База данных и резервные копии:${NC}"
-    echo -e "  ${CYAN}backup${NC}          Создать полный бэкап PostgreSQL в ./backups/"
-    echo -e "  ${CYAN}restore${NC} <файл>  Восстановить БД из бэкапа"
-    echo ""
-    echo -e "${BOLD}Конфигурация:${NC}"
-    echo -e "  ${CYAN}config${NC}          Показать текущие переменные окружения (.env)"
-    echo -e "  ${CYAN}help${NC}            Показать эту справку"
-    echo ""
-}
+# CLI Router
+cmd_install_global 2>/dev/null || true
 
 case "$1" in
-    status)
-        print_banner
-        echo -e "${BOLD}Статус контейнеров CargonaOS:${NC}"
-        docker compose ps
-        echo ""
-        echo -e "${BOLD}Состояние базы данных (PostgreSQL):${NC}"
-        if docker compose exec -T postgres pg_isready -U cargona -d cargona_db >/dev/null 2>&1; then
-            echo -e "  ${GREEN}✓ PostgreSQL активен и принимает подключения${NC}"
-        else
-            echo -e "  ${RED}✗ PostgreSQL недоступен${NC}"
-        fi
-        echo -e "${BOLD}Постоянные хранилища данных (Persistent Volumes):${NC}"
-        echo -e "  ✓ Postgres Data: ${CARGONA_DIR}/data/postgres (Не сбрасывается при пересоздании!)"
-        echo -e "  ✓ Backend Data:  ${CARGONA_DIR}/data/backend"
-        ;;
-
-    start)
-        echo -e "${GREEN}Запуск сервисов CargonaOS...${NC}"
-        docker compose up -d
-        echo -e "${GREEN}Все сервисы запущены!${NC}"
-        ;;
-
-    stop)
-        echo -e "${YELLOW}Остановка сервисов CargonaOS...${NC}"
-        docker compose stop
-        echo -e "${YELLOW}Сервисы остановлены.${NC}"
-        ;;
-
-    restart)
-        SERVICE="$2"
-        if [ -n "$SERVICE" ]; then
-            echo -e "${CYAN}Перезапуск сервиса $SERVICE...${NC}"
-            docker compose restart "$SERVICE"
-        else
-            echo -e "${CYAN}Перезапуск всех сервисов CargonaOS...${NC}"
-            docker compose restart
-        fi
-        echo -e "${GREEN}Перезапуск завершен.${NC}"
-        ;;
-
-    logs)
-        SERVICE="$2"
-        if [ -n "$SERVICE" ]; then
-            docker compose logs -f --tail=100 "$SERVICE"
-        else
-            docker compose logs -f --tail=50
-        fi
-        ;;
-
-    update)
-        print_banner
-        echo -e "${CYAN}Пересборка и обновление CargonaOS...${NC}"
-        echo -e "${YELLOW}Данные в PostgreSQL и хранилище сохраняются в неизменном виде.${NC}"
-        docker compose up -d --build
-        echo -e "${GREEN}Обновление успешно завершено!${NC}"
-        ;;
-
-    backup)
-        mkdir -p "${CARGONA_DIR}/backups"
-        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-        BACKUP_FILE="${CARGONA_DIR}/backups/cargona_backup_${TIMESTAMP}.sql"
-        echo -e "${CYAN}Создание резервной копии PostgreSQL в ${BACKUP_FILE}...${NC}"
-        docker compose exec -T postgres pg_dump -U cargona cargona_db > "$BACKUP_FILE"
-        echo -e "${GREEN}✓ Резервная копия успешно создана (${BACKUP_FILE})${NC}"
-        ls -lh "$BACKUP_FILE"
-        ;;
-
-    restore)
-        BACKUP_FILE="$2"
-        if [ -z "$BACKUP_FILE" ] || [ ! -f "$BACKUP_FILE" ]; then
-            echo -e "${RED}Ошибка: Укажите существующий файл бэкапа!${NC}"
-            echo "Пример: cargona restore backups/cargona_backup_20260922.sql"
-            exit 1
-        fi
-        echo -e "${RED}${BOLD}ВНИМАНИЕ! Текущие данные БД будут заменены содержимым из ${BACKUP_FILE}!${NC}"
-        read -p "Вы уверены, что хотите продолжить? (y/N): " CONFIRM
-        if [ "$CONFIRM" = "y" ] || [ "$CONFIRM" = "Y" ]; then
-            echo -e "${CYAN}Восстановление базы данных...${NC}"
-            docker compose exec -T postgres psql -U cargona -d cargona_db < "$BACKUP_FILE"
-            echo -e "${GREEN}✓ База данных успешно восстановлена!${NC}"
-        else
-            echo "Отменено."
-        fi
-        ;;
-
-    config)
-        echo -e "${BOLD}Конфигурация окружения (.env):${NC}"
-        cat "${CARGONA_DIR}/.env"
-        ;;
-
-    help|--help|-h|*)
-        show_help
-        ;;
+  status) cmd_status ;;
+  "admin:reset"|"admin:password") cmd_reset_admin ;;
+  "license:limit"|"limit")
+    if [ -n "$2" ]; then
+      set_env_var "MAX_TENANTS_LIMIT" "$2"
+      dc_cmd restart backend 2>/dev/null || true
+      echo -e "${GREEN}✓ Лимит обновлен на: $2${NC}"
+    else
+      cmd_set_limit
+    fi
+    ;;
+  "backup:create"|"backup") cmd_backup_create ;;
+  "backup:restore") cmd_backup_restore ;;
+  update) cmd_update ;;
+  restart) cmd_restart ;;
+  domain)
+    if [ -n "$2" ]; then
+      set_env_var "APP_DOMAIN" "$2"
+      dc_cmd restart caddy 2>/dev/null || true
+      echo -e "${GREEN}✓ Домен изменен на: $2${NC}"
+    else
+      cmd_domain
+    fi
+    ;;
+  logs) cmd_logs "$2" ;;
+  help|--help|-h)
+    echo -e "Использование: cargona [команда]"
+    echo -e "Команды:"
+    echo -e "  status           - Показать статус системы и контейнеров"
+    echo -e "  admin:reset      - Сбросить email/пароль Супер-Админа"
+    echo -e "  limit [N]        - Установить лимит организаций"
+    echo -e "  backup           - Создать резервную копию базы"
+    echo -e "  backup:restore   - Восстановить базу из бэкапа"
+    echo -e "  update           - Безопасно обновить систему"
+    echo -e "  restart          - Перезапустить контейнеры"
+    echo -e "  domain [domain]  - Изменить домен и перевыпустить SSL"
+    echo -e "  logs [service]   - Смотреть логи в реальном времени"
+    ;;
+  "") interactive_menu ;;
+  *)
+    echo -e "${RED}Неизвестная команда: $1${NC}. Используйте './cargona help' для списка команд."
+    exit 1
+    ;;
 esac
