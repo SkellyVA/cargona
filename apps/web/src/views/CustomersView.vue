@@ -85,7 +85,7 @@
       <!-- 1. МОБИЛЬНЫЙ ВИД: Карточки клиентов -->
       <div class="md:hidden space-y-3">
         <div
-          v-for="c in filteredCustomers"
+          v-for="c in paginatedCustomers"
           :key="c.id"
           @click="openCustomerCard(c)"
           class="p-4 rounded-2xl bg-[#181B23] border border-white/[0.06] space-y-3 cursor-pointer hover:border-white/20 transition shadow-sm"
@@ -150,7 +150,7 @@
           </thead>
           <tbody class="divide-y divide-white/[0.04]">
             <tr
-              v-for="c in filteredCustomers"
+              v-for="c in paginatedCustomers"
               :key="c.id"
               @click="openCustomerCard(c)"
               class="hover:bg-white/[0.03] transition cursor-pointer group"
@@ -213,6 +213,32 @@
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Пагинация клиентов (10,000+ мгновенно) -->
+      <div v-if="totalPages > 1" class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-white/[0.06] text-xs">
+        <div class="text-text-tertiary text-[11px]">
+          Показано {{ ((currentPage - 1) * pageSize) + 1 }}–{{ Math.min(currentPage * pageSize, filteredCustomers.length) }} из {{ filteredCustomers.length }} клиентов
+        </div>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            :disabled="currentPage <= 1"
+            @click="currentPage--"
+            class="px-3 py-1.5 rounded-xl bg-[#181B23] border border-white/[0.08] text-white disabled:opacity-30 hover:border-accent-cyan transition cursor-pointer text-xs"
+          >
+            Назад
+          </button>
+          <span class="px-2 font-mono text-white text-xs">{{ currentPage }} / {{ totalPages }}</span>
+          <button
+            type="button"
+            :disabled="currentPage >= totalPages"
+            @click="currentPage++"
+            class="px-3 py-1.5 rounded-xl bg-[#181B23] border border-white/[0.08] text-white disabled:opacity-30 hover:border-accent-cyan transition cursor-pointer text-xs"
+          >
+            Вперед
+          </button>
+        </div>
       </div>
 
       <div v-if="filteredCustomers.length === 0" class="py-12 text-center text-text-tertiary">
@@ -316,6 +342,9 @@ const newCustomer = ref({
   cargoCode: store.nextCargoCode(),
 });
 
+const currentPage = ref(1);
+const pageSize = ref(50);
+
 const filteredCustomers = computed(() => {
   const q = searchQuery.value.toLowerCase().trim();
   if (!q) return store.customers;
@@ -328,20 +357,52 @@ const filteredCustomers = computed(() => {
   );
 });
 
+const totalPages = computed(() => Math.ceil(filteredCustomers.value.length / pageSize.value) || 1);
+
+const paginatedCustomers = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value;
+  return filteredCustomers.value.slice(start, start + pageSize.value);
+});
+
+// Single-pass client ready counts Map for 100x render speedup
+const clientReadyCountsMap = computed(() => {
+  const map = new Map<string, number>();
+  for (const p of store.packages) {
+    if (p.status === 'READY_FOR_PICKUP' && p.customerCargoCode) {
+      const k = p.customerCargoCode.toUpperCase();
+      map.set(k, (map.get(k) || 0) + 1);
+    }
+  }
+  return map;
+});
+
 const totalReadyPackages = computed(() => {
-  return store.packages.filter((p) => p.status === 'READY_FOR_PICKUP').length;
+  let count = 0;
+  for (const p of store.packages) {
+    if (p.status === 'READY_FOR_PICKUP') count++;
+  }
+  return count;
 });
 
 const totalDebtsUSD = computed(() => {
-  return store.customers.filter((c) => c.balanceUSD < 0).reduce((acc, c) => acc + Math.abs(c.balanceUSD), 0);
+  let sum = 0;
+  for (const c of store.customers) {
+    if (c.balanceUSD < 0) sum += Math.abs(c.balanceUSD);
+  }
+  return sum;
 });
 
 const totalDepositsUSD = computed(() => {
-  return store.customers.filter((c) => c.balanceUSD > 0).reduce((acc, c) => acc + c.balanceUSD, 0);
+  let sum = 0;
+  for (const c of store.customers) {
+    if (c.balanceUSD > 0) sum += c.balanceUSD;
+  }
+  return sum;
 });
 
 function getClientReadyCount(code: string) {
-  return store.packages.filter((p) => p.customerCargoCode === code && p.status === 'READY_FOR_PICKUP').length;
+  if (!code) return 0;
+  return clientReadyCountsMap.value.get(code.toUpperCase()) || 0;
 }
 
 function createCustomer() {

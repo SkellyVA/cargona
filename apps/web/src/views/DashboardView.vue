@@ -55,14 +55,14 @@
         </div>
 
         <div class="text-xs font-mono font-medium text-text-tertiary shrink-0 hidden sm:block">
-          {{ filteredPackages.length }}
+          {{ filteredPackagesCount }}
         </div>
       </div>
 
-      <!-- Список посылок -->
+      <!-- Список посылок (топ-15 последних для мгновенной загрузки) -->
       <div class="divide-y divide-white/[0.04]">
         <div
-          v-for="pkg in filteredPackages"
+          v-for="pkg in recentPackages"
           :key="pkg.id"
           class="py-3 flex items-center justify-between hover:bg-white/[0.02] px-1 sm:px-2 rounded-xl transition group gap-2.5"
         >
@@ -99,9 +99,18 @@
           </div>
         </div>
 
-        <div v-if="filteredPackages.length === 0" class="py-12 text-center text-text-tertiary text-xs">
+        <div v-if="recentPackages.length === 0" class="py-12 text-center text-text-tertiary text-xs">
           {{ t('dashboard.noPackages') }}
         </div>
+      </div>
+
+      <!-- Быстрый переход в полный каталог посылок -->
+      <div v-if="filteredPackagesCount > 0" class="pt-3 border-t border-white/[0.06] flex items-center justify-between text-xs">
+        <span class="text-text-tertiary">Показано {{ recentPackages.length }} из {{ filteredPackagesCount }} посылок</span>
+        <router-link :to="`/o/${slug}/packages`" class="text-accent-cyan hover:underline font-bold flex items-center gap-1">
+          <span>Смотреть все в каталоге</span>
+          <ChevronRight class="w-3.5 h-3.5" />
+        </router-link>
       </div>
     </div>
   </div>
@@ -123,35 +132,73 @@ const { t } = useI18n();
 const slug = computed(() => (route.params.slug as string) || store.activeTenantSlug || store.tenants[0]?.slug || '');
 
 const totalWeightFormatted = computed(() => {
-  const tripWeight = store.trips.reduce((sum, t) => sum + t.totalWeightKg, 0);
-  const pkgWeight = store.packages.reduce((sum, p) => sum + p.weightKg, 0);
+  let tripWeight = 0;
+  for (const t of store.trips) tripWeight += (t.totalWeightKg || 0);
+  let pkgWeight = 0;
+  for (const p of store.packages) pkgWeight += (p.weightKg || 0);
   return `${(tripWeight + pkgWeight).toLocaleString()} ${t('common.kg')}`;
 });
 
 const totalPvzCashUSD = computed(() => {
-  return store.branches.reduce((sum, b) => sum + (b.cashBalanceUSD || 0), 0);
+  let sum = 0;
+  for (const b of store.branches) sum += (b.cashBalanceUSD || 0);
+  return sum;
+});
+
+const statusCounts = computed(() => {
+  let ready = 0;
+  let transit = 0;
+  let origin = 0;
+  for (const p of store.packages) {
+    if (p.status === 'READY_FOR_PICKUP') ready++;
+    else if (p.status === 'IN_TRANSIT') transit++;
+    else if (p.status === 'RECEIVED_AT_ORIGIN') origin++;
+  }
+  return { ready, transit, origin, all: store.packages.length };
 });
 
 const heroSubtext = computed(() => {
-  const inTransitTrips = store.trips.filter((t) => t.status === 'IN_TRANSIT').length;
-  const readyPkgs = store.packages.filter((p) => p.status === 'READY_FOR_PICKUP').length;
-  return t('dashboard.totalTonnageSubtext', { trips: inTransitTrips, packages: readyPkgs });
+  let inTransitTrips = 0;
+  for (const t of store.trips) {
+    if (t.status === 'IN_TRANSIT') inTransitTrips++;
+  }
+  return t('dashboard.totalTonnageSubtext', { trips: inTransitTrips, packages: statusCounts.value.ready });
 });
 
 const activeTab = ref<'ALL' | 'READY' | 'TRANSIT' | 'ORIGIN'>('ALL');
 
 const tabs = computed(() => [
-  { id: 'ALL' as const, label: t('common.all'), count: store.packages.length },
-  { id: 'READY' as const, label: t('statuses.READY_FOR_PICKUP'), count: store.packages.filter((p) => p.status === 'READY_FOR_PICKUP').length },
-  { id: 'TRANSIT' as const, label: t('statuses.IN_TRANSIT'), count: store.packages.filter((p) => p.status === 'IN_TRANSIT').length },
-  { id: 'ORIGIN' as const, label: t('statuses.RECEIVED_AT_ORIGIN'), count: store.packages.filter((p) => p.status === 'RECEIVED_AT_ORIGIN').length },
+  { id: 'ALL' as const, label: t('common.all'), count: statusCounts.value.all },
+  { id: 'READY' as const, label: t('statuses.READY_FOR_PICKUP'), count: statusCounts.value.ready },
+  { id: 'TRANSIT' as const, label: t('statuses.IN_TRANSIT'), count: statusCounts.value.transit },
+  { id: 'ORIGIN' as const, label: t('statuses.RECEIVED_AT_ORIGIN'), count: statusCounts.value.origin },
 ]);
 
-const filteredPackages = computed(() => {
-  if (activeTab.value === 'READY') return store.packages.filter((p) => p.status === 'READY_FOR_PICKUP');
-  if (activeTab.value === 'TRANSIT') return store.packages.filter((p) => p.status === 'IN_TRANSIT');
-  if (activeTab.value === 'ORIGIN') return store.packages.filter((p) => p.status === 'RECEIVED_AT_ORIGIN');
-  return store.packages;
+const filteredPackagesCount = computed(() => {
+  if (activeTab.value === 'READY') return statusCounts.value.ready;
+  if (activeTab.value === 'TRANSIT') return statusCounts.value.transit;
+  if (activeTab.value === 'ORIGIN') return statusCounts.value.origin;
+  return statusCounts.value.all;
+});
+
+const recentPackages = computed(() => {
+  if (activeTab.value === 'ALL') {
+    return store.packages.slice(0, 15);
+  }
+  const statusMap: Record<string, string> = {
+    READY: 'READY_FOR_PICKUP',
+    TRANSIT: 'IN_TRANSIT',
+    ORIGIN: 'RECEIVED_AT_ORIGIN',
+  };
+  const target = statusMap[activeTab.value];
+  const list: any[] = [];
+  for (const p of store.packages) {
+    if (p.status === target) {
+      list.push(p);
+      if (list.length >= 15) break;
+    }
+  }
+  return list;
 });
 
 function getStatusLabel(status: string) {

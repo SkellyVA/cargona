@@ -60,7 +60,7 @@
       <!-- 1. МОБИЛЬНЫЙ ВИД: Карточки посылок (для смартфонов) -->
       <div class="md:hidden space-y-3">
         <div
-          v-for="pkg in filteredPackages"
+          v-for="pkg in paginatedPackages"
           :key="pkg.id"
           class="p-4 rounded-2xl bg-[#181B23] border border-white/[0.06] space-y-3 shadow-sm hover:border-white/[0.15] transition"
         >
@@ -156,7 +156,7 @@
           </thead>
           <tbody class="divide-y divide-white/[0.04]">
             <tr
-              v-for="pkg in filteredPackages"
+              v-for="pkg in paginatedPackages"
               :key="pkg.id"
               class="hover:bg-white/[0.02] transition"
             >
@@ -254,6 +254,32 @@
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Пагинация (Ультра-быстрая работа со списками 10,000+ посылок) -->
+      <div v-if="totalPages > 1" class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-white/[0.06] text-xs">
+        <div class="text-text-tertiary text-[11px]">
+          Показано {{ ((currentPage - 1) * pageSize) + 1 }}–{{ Math.min(currentPage * pageSize, filteredPackages.length) }} из {{ filteredPackages.length }} посылок
+        </div>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            :disabled="currentPage <= 1"
+            @click="currentPage--"
+            class="px-3 py-1.5 rounded-xl bg-[#181B23] border border-white/[0.08] text-white disabled:opacity-30 hover:border-accent-cyan transition cursor-pointer text-xs"
+          >
+            Назад
+          </button>
+          <span class="px-2 font-mono text-white text-xs">{{ currentPage }} / {{ totalPages }}</span>
+          <button
+            type="button"
+            :disabled="currentPage >= totalPages"
+            @click="currentPage++"
+            class="px-3 py-1.5 rounded-xl bg-[#181B23] border border-white/[0.08] text-white disabled:opacity-30 hover:border-accent-cyan transition cursor-pointer text-xs"
+          >
+            Вперед
+          </button>
+        </div>
       </div>
     </div>
 
@@ -769,26 +795,58 @@ const calculatedMetrics = computed(() => {
   };
 });
 
+const statusCounts = computed(() => {
+  const counts: Record<string, number> = {
+    ALL: 0,
+    READY_FOR_PICKUP: 0,
+    IN_TRANSIT: 0,
+    RECEIVED_AT_ORIGIN: 0,
+    RELEASED: 0,
+    RETURNED: 0,
+  };
+  for (const p of store.packages) {
+    counts.ALL++;
+    if (counts[p.status] !== undefined) counts[p.status]++;
+  }
+  return counts;
+});
+
 const tabs = computed(() => [
-  { id: 'ALL' as const, label: t('common.all'), count: store.packages.length },
-  { id: 'READY_FOR_PICKUP' as const, label: t('statuses.READY_FOR_PICKUP'), count: store.packages.filter((p) => p.status === 'READY_FOR_PICKUP').length },
-  { id: 'IN_TRANSIT' as const, label: t('statuses.IN_TRANSIT'), count: store.packages.filter((p) => p.status === 'IN_TRANSIT').length },
-  { id: 'RECEIVED_AT_ORIGIN' as const, label: t('statuses.RECEIVED_AT_ORIGIN'), count: store.packages.filter((p) => p.status === 'RECEIVED_AT_ORIGIN').length },
-  { id: 'RELEASED' as const, label: t('statuses.RELEASED'), count: store.packages.filter((p) => p.status === 'RELEASED').length },
-  { id: 'RETURNED' as const, label: t('statuses.RETURNED'), count: store.packages.filter((p) => p.status === 'RETURNED').length },
+  { id: 'ALL' as const, label: t('common.all'), count: statusCounts.value.ALL || 0 },
+  { id: 'READY_FOR_PICKUP' as const, label: t('statuses.READY_FOR_PICKUP'), count: statusCounts.value.READY_FOR_PICKUP || 0 },
+  { id: 'IN_TRANSIT' as const, label: t('statuses.IN_TRANSIT'), count: statusCounts.value.IN_TRANSIT || 0 },
+  { id: 'RECEIVED_AT_ORIGIN' as const, label: t('statuses.RECEIVED_AT_ORIGIN'), count: statusCounts.value.RECEIVED_AT_ORIGIN || 0 },
+  { id: 'RELEASED' as const, label: t('statuses.RELEASED'), count: statusCounts.value.RELEASED || 0 },
+  { id: 'RETURNED' as const, label: t('statuses.RETURNED'), count: statusCounts.value.RETURNED || 0 },
 ]);
 
+const currentPage = ref(1);
+const pageSize = ref(50);
+
 const filteredPackages = computed(() => {
+  const q = searchQuery.value.toLowerCase().trim();
+  const tab = activeTab.value;
   return store.packages.filter((p) => {
-    const matchTab = activeTab.value === 'ALL' || p.status === activeTab.value;
-    const q = searchQuery.value.toLowerCase().trim();
-    const matchQuery =
-      !q ||
+    const matchTab = tab === 'ALL' || p.status === tab;
+    if (!matchTab) return false;
+    if (!q) return true;
+    return (
       p.trackingNumber.toLowerCase().includes(q) ||
       p.customerCargoCode.toLowerCase().includes(q) ||
-      p.description.toLowerCase().includes(q);
-    return matchTab && matchQuery;
+      p.description.toLowerCase().includes(q)
+    );
   });
+});
+
+const totalPages = computed(() => Math.ceil(filteredPackages.value.length / pageSize.value) || 1);
+
+const paginatedPackages = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value;
+  return filteredPackages.value.slice(start, start + pageSize.value);
+});
+
+watch([searchQuery, activeTab], () => {
+  currentPage.value = 1;
 });
 
 function openChangeStatus(pkg: any) {

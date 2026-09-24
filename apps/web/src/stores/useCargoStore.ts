@@ -635,10 +635,11 @@ export const useCargoStore = defineStore('cargo', () => {
         settings.value = { ...settings.value, ...data.settings };
       }
       if (Array.isArray(data.branches) && data.branches.length > 0) {
+        const branchMap = new Map(rawBranches.value.map((b) => [b.id, b]));
         for (const b of data.branches) {
-          const existing = rawBranches.value.find((x) => x.id === b.id);
+          const existing = branchMap.get(b.id);
           if (!existing) {
-            rawBranches.value.push({
+            const newBranch = {
               id: b.id,
               name: b.name,
               city: b.city,
@@ -647,7 +648,9 @@ export const useCargoStore = defineStore('cargo', () => {
               cashBalanceUSD: b.cashBalance || b.cashBalanceUSD || 0,
               cells: b.cells || [],
               tenantSlug: slug,
-            });
+            };
+            rawBranches.value.push(newBranch);
+            branchMap.set(b.id, newBranch as any);
           } else {
             existing.name = b.name;
             existing.city = b.city;
@@ -657,11 +660,19 @@ export const useCargoStore = defineStore('cargo', () => {
           }
         }
       }
-      if (Array.isArray(data.customers)) {
+
+      if (Array.isArray(data.customers) && data.customers.length > 0) {
+        const customerMap = new Map<string, Customer>();
+        for (const c of rawCustomers.value) {
+          if (c.id) customerMap.set(c.id, c);
+          if (c.cargoCode) customerMap.set(c.cargoCode.toUpperCase(), c);
+        }
+        const toAdd: Customer[] = [];
         for (const c of data.customers) {
-          const existing = rawCustomers.value.find((x) => x.id === c.id || x.cargoCode === c.cargoCode);
+          const key = c.cargoCode ? c.cargoCode.toUpperCase() : c.id;
+          const existing = customerMap.get(c.id) || (key ? customerMap.get(key) : undefined);
           if (!existing) {
-            rawCustomers.value.push({
+            const newCust: Customer = {
               id: c.id,
               cargoCode: c.cargoCode,
               fullName: c.fullName,
@@ -672,7 +683,10 @@ export const useCargoStore = defineStore('cargo', () => {
               preferredBranchId: c.preferredBranchId || '',
               notes: c.notes || '',
               tenantSlug: slug,
-            });
+            };
+            toAdd.push(newCust);
+            customerMap.set(c.id, newCust);
+            if (c.cargoCode) customerMap.set(c.cargoCode.toUpperCase(), newCust);
           } else {
             existing.fullName = c.fullName;
             existing.phone = c.phone;
@@ -680,12 +694,22 @@ export const useCargoStore = defineStore('cargo', () => {
             existing.isBlocked = c.isBlocked || false;
           }
         }
+        if (toAdd.length > 0) {
+          rawCustomers.value.push(...toAdd);
+        }
       }
-      if (Array.isArray(data.packages)) {
+
+      if (Array.isArray(data.packages) && data.packages.length > 0) {
+        const pkgMap = new Map<string, PackageItem>();
+        for (const p of rawPackages.value) {
+          if (p.id) pkgMap.set(p.id, p);
+          if (p.trackingNumber) pkgMap.set(p.trackingNumber, p);
+        }
+        const toAdd: PackageItem[] = [];
         for (const p of data.packages) {
-          const existing = rawPackages.value.find((x) => x.id === p.id || x.trackingNumber === p.trackingNumber);
+          const existing = pkgMap.get(p.id) || (p.trackingNumber ? pkgMap.get(p.trackingNumber) : undefined);
           if (!existing) {
-            rawPackages.value.push({
+            const newPkg: PackageItem = {
               id: p.id,
               trackingNumber: p.trackingNumber,
               customerCargoCode: p.customerCargoCode || '',
@@ -702,7 +726,10 @@ export const useCargoStore = defineStore('cargo', () => {
               status: p.status || 'RECEIVED_AT_ORIGIN',
               createdAt: p.createdAt ? new Date(p.createdAt).toLocaleDateString('ru-RU') : '01.01.2026',
               tenantSlug: slug,
-            });
+            };
+            toAdd.push(newPkg);
+            pkgMap.set(p.id, newPkg);
+            if (p.trackingNumber) pkgMap.set(p.trackingNumber, newPkg);
           } else {
             existing.status = p.status;
             existing.weightKg = p.weightKg;
@@ -710,12 +737,17 @@ export const useCargoStore = defineStore('cargo', () => {
             if (p.shelfLocation) existing.shelfLocation = p.shelfLocation;
           }
         }
+        if (toAdd.length > 0) {
+          rawPackages.value.push(...toAdd);
+        }
       }
-      if (Array.isArray(data.staff)) {
+
+      if (Array.isArray(data.staff) && data.staff.length > 0) {
+        const staffMap = new Map(rawStaff.value.map((s) => [s.id, s]));
         for (const u of data.staff) {
-          const existing = rawStaff.value.find((x) => x.id === u.id || x.email === u.email);
+          const existing = staffMap.get(u.id);
           if (!existing) {
-            rawStaff.value.push({
+            const newStaff = {
               id: u.id,
               fullName: u.fullName,
               email: u.email,
@@ -726,17 +758,21 @@ export const useCargoStore = defineStore('cargo', () => {
               branchName: u.branchName || 'Главный офис',
               isActive: u.isActive !== false,
               tenantSlug: slug,
-            });
+            };
+            rawStaff.value.push(newStaff as any);
+            staffMap.set(u.id, newStaff as any);
           }
         }
       }
-      if (Array.isArray(data.trips)) {
+
+      if (Array.isArray(data.trips) && data.trips.length > 0) {
+        const tripMap = new Map(rawTrips.value.map((t) => [t.id, t]));
         for (const t of data.trips) {
-          const existing = rawTrips.value.find((x) => x.id === t.id || x.tripCode === t.tripCode);
+          const existing = tripMap.get(t.id);
           if (!existing) {
-            rawTrips.value.push({
+            const newTrip = {
               id: t.id,
-              tripCode: t.tripCode,
+              tripCode: t.code || t.tripCode,
               type: t.transportType || t.type || 'AUTO',
               route: t.route || 'Китай → Таджикистан',
               driverName: t.driverName || '',
@@ -749,7 +785,9 @@ export const useCargoStore = defineStore('cargo', () => {
               estimatedArrival: t.estimatedArrivalDate || '',
               manifestItems: t.manifestItems || [],
               tenantSlug: slug,
-            });
+            };
+            rawTrips.value.push(newTrip as any);
+            tripMap.set(t.id, newTrip as any);
           } else {
             existing.status = t.status;
             existing.totalWeightKg = t.totalWeightKg;
@@ -1004,14 +1042,6 @@ export const useCargoStore = defineStore('cargo', () => {
   if (typeof window !== 'undefined') {
     watch(rawBranches, (val) => {
       localStorage.setItem('cargona_branches', JSON.stringify(val));
-    }, { deep: true });
-
-    watch(rawPackages, (val) => {
-      localStorage.setItem('cargona_packages', JSON.stringify(val));
-    }, { deep: true });
-
-    watch(rawCustomers, (val) => {
-      localStorage.setItem('cargona_customers', JSON.stringify(val));
     }, { deep: true });
 
     watch(rawTrips, (val) => {
