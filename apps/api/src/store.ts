@@ -20,8 +20,35 @@ import {
   TripExpense,
 } from '@cargona/types';
 
-const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
-const STORE_FILE = path.join(DATA_DIR, 'cargona-store.json');
+function resolveStorePaths() {
+  if (process.env.DATA_DIR) {
+    return {
+      dataDir: process.env.DATA_DIR,
+      storeFile: path.join(process.env.DATA_DIR, 'cargona-store.json'),
+    };
+  }
+
+  const candidateDirs = [
+    path.join(process.cwd(), 'data', 'backend'),
+    '/opt/cargona/data/backend',
+    path.join(process.cwd(), 'data'),
+    '/app/data',
+  ];
+
+  for (const dir of candidateDirs) {
+    const file = path.join(dir, 'cargona-store.json');
+    if (fs.existsSync(file)) {
+      return { dataDir: dir, storeFile: file };
+    }
+  }
+
+  const defaultDir = fs.existsSync(path.join(process.cwd(), 'data', 'backend'))
+    ? path.join(process.cwd(), 'data', 'backend')
+    : path.join(process.cwd(), 'data');
+  return { dataDir: defaultDir, storeFile: path.join(defaultDir, 'cargona-store.json') };
+}
+
+const { dataDir: DATA_DIR, storeFile: STORE_FILE } = resolveStorePaths();
 
 /**
  * CargonaOS In-Memory & Persistent State Store

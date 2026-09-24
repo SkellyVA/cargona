@@ -80,14 +80,33 @@ export async function runSmartMigration(
   }
 
   // 2. Identify Tenant
-  const tenant = store.tenants.find(
-    (t) => t.slug === options.tenantSlug || t.id === options.tenantSlug
+  const cleanSlug = (options.tenantSlug || 'cargona').toLowerCase().trim();
+  let tenant = store.tenants.find(
+    (t) => t.slug?.toLowerCase() === cleanSlug || t.id?.toLowerCase() === cleanSlug
   );
-  if (!tenant && !options.dryRun) {
-    throw new Error(`Tenant '${options.tenantSlug}' not found in CargonaOS`);
+
+  if (!tenant) {
+    tenant = {
+      id: `tenant-${cleanSlug}`,
+      name: cleanSlug.toUpperCase(),
+      slug: cleanSlug,
+      codePrefix: cleanSlug.toUpperCase().slice(0, 5),
+      baseCurrency: 'USD',
+      timezone: 'Asia/Dushanbe',
+      defaultLanguage: 'ru',
+      status: 'ACTIVE',
+      planId: 'enterprise',
+      planName: 'Бизнес / Enterprise',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    if (!options.dryRun) {
+      store.tenants.push(tenant);
+    }
   }
-  const tenantId = tenant ? tenant.id : `tenant-${options.tenantSlug}`;
-  const tenantSlug = tenant ? tenant.slug : options.tenantSlug;
+
+  const tenantId = tenant.id;
+  const tenantSlug = tenant.slug;
 
   // 3. Analyze all collections
   const analyses: CollectionAnalysis[] = [];
