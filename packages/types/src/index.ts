@@ -284,3 +284,93 @@ export interface TelegramBotConfig {
   webhookSecret: string;
   updatedAt: string;
 }
+
+// ==========================================
+// 11. Accounting & Financial Management
+// ==========================================
+export type CashAccountType = 'CASH_PVZ' | 'BANK' | 'SAFE';
+
+export interface CashAccount {
+  id: string;
+  tenantId: string;
+  branchId?: string | null;
+  name: string;
+  type: CashAccountType;
+  currency: string;
+  balance: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type FinancialTransactionType = 
+  | 'INCOME' 
+  | 'EXPENSE' 
+  | 'TRANSFER' 
+  | 'COLLECTION' 
+  | 'CUSTOMER_PAYMENT'
+  | 'CUSTOMER_REFUND';
+
+export interface FinancialTransaction {
+  id: string;
+  tenantId: string;
+  accountId: string;
+  type: FinancialTransactionType;
+  category: string;
+  amount: number;
+  currency: string;
+  amountUSD: number;
+  exchangeRate: number;
+  relatedPackageId?: string | null;
+  relatedTripId?: string | null;
+  relatedCustomerId?: string | null;
+  relatedBranchId?: string | null;
+  targetAccountId?: string | null;
+  comment?: string | null;
+  receiptUrl?: string | null;
+  createdBy: string;
+  createdAt: string;
+}
+
+export type CashCollectionStatus = 'REQUESTED' | 'CONFIRMED' | 'REJECTED';
+
+export interface CashCollection {
+  id: string;
+  tenantId: string;
+  receiptNumber: string; // 'COL-2026-001'
+  sourceBranchId: string;
+  sourceAccountId: string;
+  targetAccountId: string;
+  amount: number;
+  currency: string;
+  amountUSD: number;
+  status: CashCollectionStatus;
+  requestedBy: string;
+  confirmedBy?: string | null;
+  rejectionReason?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  confirmedAt?: string | null;
+}
+
+export interface ExpenseCategory {
+  id: string;
+  tenantId: string;
+  name: string;
+  code: string;
+  isDirectCost: boolean; // true = прямые затраты на логистику (COGS), false = OPEX
+  isActive: boolean;
+}
+
+export interface TripExpense {
+  id: string;
+  tenantId: string;
+  tripId: string;
+  category: string; // 'TRUCK_FREIGHT' | 'CUSTOMS' | 'WAREHOUSE' | 'ROAD_TOLLS' | 'OTHER'
+  amount: number;
+  currency: string;
+  amountUSD: number;
+  comment?: string | null;
+  createdAt: string;
+}
+

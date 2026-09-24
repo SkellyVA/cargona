@@ -343,6 +343,12 @@ fastify.get<{ Params: { slug: string } }>('/api/o/:slug/all', async (request, re
     baseCurrency: tenant.baseCurrency || 'USD',
   };
 
+  const tenantCashAccounts = store.cashAccounts.filter((a) => a.tenantId === tenant.id);
+  const tenantTransactions = store.financialTransactions.filter((t) => t.tenantId === tenant.id);
+  const tenantCollections = store.cashCollections.filter((c) => c.tenantId === tenant.id);
+  const tenantTripExpenses = store.tripExpenses.filter((e) => e.tenantId === tenant.id);
+  const tenantCategories = store.expenseCategories.filter((c) => c.tenantId === tenant.id);
+
   return {
     tenant,
     settings,
@@ -353,6 +359,11 @@ fastify.get<{ Params: { slug: string } }>('/api/o/:slug/all', async (request, re
     packages: tenantPackages,
     auditLogs: tenantAuditLogs,
     warehouses: tenantWarehouses,
+    cashAccounts: tenantCashAccounts,
+    financialTransactions: tenantTransactions,
+    cashCollections: tenantCollections,
+    tripExpenses: tenantTripExpenses,
+    expenseCategories: tenantCategories,
   };
 });
 
@@ -1012,6 +1023,457 @@ fastify.delete<{ Params: { slug: string; id: string } }>('/api/o/:slug/trips/:id
   store.trips.splice(idx, 1);
   store.saveToFile();
   return { success: true, message: 'Trip deleted' };
+});
+
+// ==========================================
+// 3.8. Accounting, Cash Desks & Financial API
+// ==========================================
+
+// Helper: Ensure default cash accounts for a tenant (Safe, Bank, PVZ accounts)
+function ensureDefaultCashAccounts(tenantId: string) {
+  let accounts = store.cashAccounts.filter((a) => a.tenantId === tenantId);
+  const tenant = store.tenants.find((t) => t.id === tenantId);
+  const currency = tenant?.baseCurrency || 'USD';
+
+  if (accounts.length === 0) {
+    // 1. Main Safe (Сейф)
+    const safeAccount = {
+      id: store.nextId('acc', store.cashAccounts),
+      tenantId,
+      branchId: null,
+      name: 'Главный сейф (Офис)',
+      type: 'SAFE' as const,
+      currency,
+      balance: 0,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    store.cashAccounts.push(safeAccount);
+
+    // 2. Bank / Acquiring (Безнал)
+    const bankAccount = {
+      id: store.nextId('acc', store.cashAccounts),
+      tenantId,
+      branchId: null,
+      name: 'Расчетный счет / Эквайринг',
+      type: 'BANK' as const,
+      currency,
+      balance: 0,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    store.cashAccounts.push(bankAccount);
+
+    // 3. Branches Cash Desks
+    const branches = store.branches.filter((b) => b.tenantId === tenantId);
+    for (const b of branches) {
+      const pvzAccount = {
+        id: store.nextId('acc', store.cashAccounts),
+        tenantId,
+        branchId: b.id,
+        name: `Касса: ${b.name}`,
+        type: 'CASH_PVZ' as const,
+        currency,
+        balance: b.cashBalance || 0,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      store.cashAccounts.push(pvzAccount);
+    }
+
+    store.saveToFile();
+    accounts = store.cashAccounts.filter((a) => a.tenantId === tenantId);
+  }
+  return accounts;
+}
+
+// 1. Get Financial Summary & P&L
+fastify.get<{ Params: { slug: string } }>('/api/o/:slug/finance/summary', async (request, reply) => {
+  const { slug } = request.params;
+  const tenant = store.tenants.find((t) => t.slug === slug);
+  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
+
+  ensureDefaultCashAccounts(tenant.id);
+
+  const accounts = store.cashAccounts.filter((a) => a.tenantId === tenant.id);
+  const transactions = store.financialTransactions.filter((t) => t.tenantId === tenant.id);
+  const packages = store.packages.filter((p) => p.tenantId === tenant.id);
+  const tripExpenses = store.tripExpenses.filter((e) => e.tenantId === tenant.id);
+  const collections = store.cashCollections.filter((c) => c.tenantId === tenant.id);
+  const customers = store.customers.filter((c) => c.tenantId === tenant.id);
+
+  // Total Cash in PVZ, Bank, Safe
+  const pvzCash = accounts.filter((a) => a.type === 'CASH_PVZ').reduce((acc, a) => acc + (a.balance || 0), 0);
+  const bankBalance = accounts.filter((a) => a.type === 'BANK').reduce((acc, a) => acc + (a.balance || 0), 0);
+  const safeBalance = accounts.filter((a) => a.type === 'SAFE').reduce((acc, a) => acc + (a.balance || 0), 0);
+  const totalCashAssets = pvzCash + bankBalance + safeBalance;
+
+  // Total Delivered / In-transit Package Revenue (USD)
+  const deliveredRevenue = packages
+    .filter((p) => p.status === 'RELEASED' || p.status === 'READY_FOR_PICKUP')
+    .reduce((acc, p) => acc + (p.cost || 0), 0);
+
+  // Direct Logistics Costs (COGS)
+  const directFreightCosts = tripExpenses.reduce((acc, e) => acc + (e.amountUSD || e.amount || 0), 0);
+
+  // Operational Expenses (OPEX)
+  const opexExpenses = transactions
+    .filter((t) => t.type === 'EXPENSE')
+    .reduce((acc, t) => acc + (t.amountUSD || t.amount || 0), 0);
+
+  // Net Profit
+  const netProfit = deliveredRevenue - directFreightCosts - opexExpenses;
+  const marginPercent = deliveredRevenue > 0 ? ((netProfit / deliveredRevenue) * 100).toFixed(1) : '0';
+
+  // Customer Debtors
+  const debtors = customers.filter((c) => (c.balance || 0) < 0);
+  const totalDebt = Math.abs(debtors.reduce((acc, c) => acc + (c.balance || 0), 0));
+
+  return {
+    baseCurrency: tenant.baseCurrency || 'USD',
+    totalCashAssets,
+    pvzCash,
+    bankBalance,
+    safeBalance,
+    deliveredRevenue,
+    directFreightCosts,
+    opexExpenses,
+    netProfit,
+    marginPercent: Number(marginPercent),
+    totalDebt,
+    debtorsCount: debtors.length,
+    accounts,
+  };
+});
+
+// 2. Financial Transactions: List & Create
+fastify.get<{ Params: { slug: string } }>('/api/o/:slug/finance/transactions', async (request, reply) => {
+  const { slug } = request.params;
+  const tenant = store.tenants.find((t) => t.slug === slug);
+  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
+  const list = store.financialTransactions.filter((t) => t.tenantId === tenant.id);
+  return { transactions: list };
+});
+
+fastify.post<{
+  Params: { slug: string };
+  Body: {
+    accountId: string;
+    type: 'INCOME' | 'EXPENSE' | 'TRANSFER' | 'CUSTOMER_PAYMENT' | 'CUSTOMER_REFUND';
+    category: string;
+    amount: number;
+    currency?: string;
+    amountUSD?: number;
+    exchangeRate?: number;
+    relatedPackageId?: string;
+    relatedTripId?: string;
+    relatedCustomerId?: string;
+    relatedBranchId?: string;
+    targetAccountId?: string;
+    comment?: string;
+    receiptUrl?: string;
+    createdBy?: string;
+  };
+}>('/api/o/:slug/finance/transactions', async (request, reply) => {
+  const { slug } = request.params;
+  const tenant = store.tenants.find((t) => t.slug === slug);
+  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
+
+  const {
+    accountId,
+    type,
+    category,
+    amount,
+    currency = tenant.baseCurrency || 'USD',
+    amountUSD = amount,
+    exchangeRate = 1,
+    relatedPackageId,
+    relatedTripId,
+    relatedCustomerId,
+    relatedBranchId,
+    targetAccountId,
+    comment,
+    receiptUrl,
+    createdBy = 'Бухгалтерия',
+  } = request.body;
+
+  if (!amount || amount <= 0) {
+    return reply.status(400).send({ error: 'Сумма транзакции должна быть больше нуля' });
+  }
+
+  ensureDefaultCashAccounts(tenant.id);
+
+  const sourceAcc = store.cashAccounts.find((a) => a.id === accountId && a.tenantId === tenant.id);
+  if (!sourceAcc && type !== 'TRANSFER') {
+    return reply.status(400).send({ error: 'Указанный счет не найден' });
+  }
+
+  // Adjust account balances
+  if (sourceAcc) {
+    if (type === 'INCOME' || type === 'CUSTOMER_PAYMENT') {
+      sourceAcc.balance = Number((sourceAcc.balance + amount).toFixed(2));
+    } else if (type === 'EXPENSE' || type === 'CUSTOMER_REFUND') {
+      sourceAcc.balance = Number((sourceAcc.balance - amount).toFixed(2));
+    } else if (type === 'TRANSFER' && targetAccountId) {
+      const targetAcc = store.cashAccounts.find((a) => a.id === targetAccountId && a.tenantId === tenant.id);
+      if (targetAcc) {
+        sourceAcc.balance = Number((sourceAcc.balance - amount).toFixed(2));
+        targetAcc.balance = Number((targetAcc.balance + amount).toFixed(2));
+        targetAcc.updatedAt = new Date().toISOString();
+      }
+    }
+    sourceAcc.updatedAt = new Date().toISOString();
+  }
+
+  const transaction = {
+    id: store.nextId('tx', store.financialTransactions),
+    tenantId: tenant.id,
+    accountId,
+    type,
+    category: category || 'Прочие операции',
+    amount,
+    currency,
+    amountUSD,
+    exchangeRate,
+    relatedPackageId: relatedPackageId || null,
+    relatedTripId: relatedTripId || null,
+    relatedCustomerId: relatedCustomerId || null,
+    relatedBranchId: relatedBranchId || null,
+    targetAccountId: targetAccountId || null,
+    comment: comment || null,
+    receiptUrl: receiptUrl || null,
+    createdBy,
+    createdAt: new Date().toISOString(),
+  };
+
+  store.financialTransactions.unshift(transaction);
+
+  // Add audit log
+  store.auditLogs.unshift({
+    id: store.nextId('audit', store.auditLogs),
+    tenantId: tenant.id,
+    branchId: relatedBranchId || sourceAcc?.branchId || null,
+    userId: 'user-admin',
+    userName: createdBy,
+    userRole: 'TENANT_OWNER',
+    entityType: 'PAYMENT',
+    entityId: transaction.id,
+    action: type === 'EXPENSE' ? 'CREATE' : 'UPDATE',
+    details: `Финансовая операция [${type}]: ${amount} ${currency} (${category})`,
+    createdAt: new Date().toISOString(),
+  });
+
+  store.saveToFile();
+  return { success: true, transaction, account: sourceAcc };
+});
+
+// 3. Cash Collections (Инкассация ПВЗ -> Сейф)
+fastify.post<{
+  Params: { slug: string };
+  Body: {
+    sourceBranchId: string;
+    amount: number;
+    notes?: string;
+    requestedBy?: string;
+  };
+}>('/api/o/:slug/finance/collections', async (request, reply) => {
+  const { slug } = request.params;
+  const tenant = store.tenants.find((t) => t.slug === slug);
+  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
+
+  const { sourceBranchId, amount, notes, requestedBy = 'Оператор ПВЗ' } = request.body;
+  if (!amount || amount <= 0) {
+    return reply.status(400).send({ error: 'Укажите сумму для инкассации' });
+  }
+
+  ensureDefaultCashAccounts(tenant.id);
+
+  const pvzAccount = store.cashAccounts.find(
+    (a) => a.tenantId === tenant.id && a.branchId === sourceBranchId && a.type === 'CASH_PVZ'
+  ) || store.cashAccounts.find((a) => a.tenantId === tenant.id && a.type === 'CASH_PVZ');
+
+  const safeAccount = store.cashAccounts.find(
+    (a) => a.tenantId === tenant.id && a.type === 'SAFE'
+  );
+
+  const receiptNumber = `COL-${new Date().getFullYear()}-${String(store.cashCollections.length + 1).padStart(4, '0')}`;
+
+  const collection = {
+    id: store.nextId('col', store.cashCollections),
+    tenantId: tenant.id,
+    receiptNumber,
+    sourceBranchId,
+    sourceAccountId: pvzAccount?.id || 'acc-pvz',
+    targetAccountId: safeAccount?.id || 'acc-safe',
+    amount,
+    currency: tenant.baseCurrency || 'USD',
+    amountUSD: amount,
+    status: 'REQUESTED' as const,
+    requestedBy,
+    notes: notes || null,
+    createdAt: new Date().toISOString(),
+  };
+
+  store.cashCollections.unshift(collection);
+
+  // Immediately deduct from branch balance pending confirmation
+  const branch = store.branches.find((b) => b.id === sourceBranchId && b.tenantId === tenant.id);
+  if (branch) {
+    branch.cashBalance = Math.max(0, (branch.cashBalance || 0) - amount);
+    branch.updatedAt = new Date().toISOString();
+  }
+  if (pvzAccount) {
+    pvzAccount.balance = Math.max(0, (pvzAccount.balance || 0) - amount);
+    pvzAccount.updatedAt = new Date().toISOString();
+  }
+
+  store.saveToFile();
+  return { success: true, collection };
+});
+
+// Confirm Collection (Приемка в Главный сейф)
+fastify.post<{
+  Params: { slug: string; id: string };
+  Body: { confirmedBy?: string };
+}>('/api/o/:slug/finance/collections/:id/confirm', async (request, reply) => {
+  const { slug, id } = request.params;
+  const tenant = store.tenants.find((t) => t.slug === slug);
+  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
+
+  const collection = store.cashCollections.find((c) => c.id === id && c.tenantId === tenant.id);
+  if (!collection) return reply.status(404).send({ error: 'Инкассация не найдена' });
+
+  collection.status = 'CONFIRMED';
+  collection.confirmedBy = request.body?.confirmedBy || 'Главный кассир / Владелец';
+  collection.confirmedAt = new Date().toISOString();
+
+  // Credit safe account
+  const safeAccount = store.cashAccounts.find((a) => a.id === collection.targetAccountId) ||
+    store.cashAccounts.find((a) => a.tenantId === tenant.id && a.type === 'SAFE');
+
+  if (safeAccount) {
+    safeAccount.balance = Number(((safeAccount.balance || 0) + collection.amount).toFixed(2));
+    safeAccount.updatedAt = new Date().toISOString();
+  }
+
+  // Record transfer transaction
+  store.financialTransactions.unshift({
+    id: store.nextId('tx', store.financialTransactions),
+    tenantId: tenant.id,
+    accountId: collection.targetAccountId,
+    type: 'COLLECTION',
+    category: 'Инкассация в сейф',
+    amount: collection.amount,
+    currency: collection.currency,
+    amountUSD: collection.amountUSD,
+    exchangeRate: 1,
+    targetAccountId: collection.sourceAccountId,
+    comment: `Приемка инкассации №${collection.receiptNumber}`,
+    createdBy: collection.confirmedBy,
+    createdAt: new Date().toISOString(),
+  });
+
+  store.saveToFile();
+  return { success: true, collection, safeAccount };
+});
+
+// 4. Trip Direct Expenses (Себестоимость рейса / COGS)
+fastify.post<{
+  Params: { slug: string };
+  Body: {
+    tripId: string;
+    category: string;
+    amount: number;
+    currency?: string;
+    comment?: string;
+  };
+}>('/api/o/:slug/finance/trip-expenses', async (request, reply) => {
+  const { slug } = request.params;
+  const tenant = store.tenants.find((t) => t.slug === slug);
+  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
+
+  const { tripId, category, amount, currency = 'USD', comment } = request.body;
+  if (!tripId || !amount) {
+    return reply.status(400).send({ error: 'Укажите рейс и сумму расхода' });
+  }
+
+  const tripExpense = {
+    id: store.nextId('te', store.tripExpenses),
+    tenantId: tenant.id,
+    tripId,
+    category: category || 'TRUCK_FREIGHT',
+    amount,
+    currency,
+    amountUSD: amount,
+    comment: comment || null,
+    createdAt: new Date().toISOString(),
+  };
+
+  store.tripExpenses.unshift(tripExpense);
+  store.saveToFile();
+  return { success: true, tripExpense };
+});
+
+// 5. Customer Balance Adjustments (Депозит / Погашение долга)
+fastify.post<{
+  Params: { slug: string; id: string };
+  Body: {
+    amount: number;
+    type: 'TOP_UP' | 'PAYMENT' | 'REFUND';
+    comment?: string;
+    accountId?: string;
+  };
+}>('/api/o/:slug/finance/customers/:id/balance', async (request, reply) => {
+  const { slug, id } = request.params;
+  const tenant = store.tenants.find((t) => t.slug === slug);
+  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
+
+  const customer = store.customers.find((c) => (c.id === id || c.cargoCode === id) && c.tenantId === tenant.id);
+  if (!customer) return reply.status(404).send({ error: 'Customer not found' });
+
+  const { amount, type, comment, accountId } = request.body;
+  if (!amount || amount <= 0) return reply.status(400).send({ error: 'Сумма должна быть положительной' });
+
+  if (type === 'TOP_UP') {
+    customer.balance = Number(((customer.balance || 0) + amount).toFixed(2));
+  } else if (type === 'PAYMENT') {
+    customer.balance = Number(((customer.balance || 0) - amount).toFixed(2));
+  } else if (type === 'REFUND') {
+    customer.balance = Number(((customer.balance || 0) + amount).toFixed(2));
+  }
+
+  ensureDefaultCashAccounts(tenant.id);
+  const targetAcc = accountId
+    ? store.cashAccounts.find((a) => a.id === accountId)
+    : store.cashAccounts.find((a) => a.tenantId === tenant.id && a.type === 'CASH_PVZ');
+
+  if (targetAcc && (type === 'TOP_UP' || type === 'PAYMENT')) {
+    targetAcc.balance = Number(((targetAcc.balance || 0) + amount).toFixed(2));
+    targetAcc.updatedAt = new Date().toISOString();
+  }
+
+  // Record financial transaction
+  store.financialTransactions.unshift({
+    id: store.nextId('tx', store.financialTransactions),
+    tenantId: tenant.id,
+    accountId: targetAcc?.id || 'acc-pvz',
+    type: 'CUSTOMER_PAYMENT',
+    category: type === 'TOP_UP' ? 'Пополнение баланса' : 'Оплата задолженности',
+    amount,
+    currency: customer.currency || 'USD',
+    amountUSD: amount,
+    exchangeRate: 1,
+    relatedCustomerId: customer.id,
+    comment: comment || `Пополнение баланса клиента ${customer.cargoCode} (${customer.fullName})`,
+    createdBy: 'Касса ПВЗ',
+    createdAt: new Date().toISOString(),
+  });
+
+  store.saveToFile();
+  return { success: true, customer, targetAccount: targetAcc };
 });
 
 // ==========================================

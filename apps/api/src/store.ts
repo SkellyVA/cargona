@@ -13,6 +13,11 @@ import {
   SubscriptionPlan,
   TelegramBotConfig,
   User,
+  CashAccount,
+  FinancialTransaction,
+  CashCollection,
+  ExpenseCategory,
+  TripExpense,
 } from '@cargona/types';
 
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
@@ -137,6 +142,11 @@ class CargonaDataStore {
   public botConfigs: TelegramBotConfig[] = [];
   public tenantSettings: Record<string, any> = {};
   public originWarehouses: any[] = [];
+  public cashAccounts: CashAccount[] = [];
+  public financialTransactions: FinancialTransaction[] = [];
+  public cashCollections: CashCollection[] = [];
+  public tripExpenses: TripExpense[] = [];
+  public expenseCategories: ExpenseCategory[] = [];
 
   constructor() {
     this.loadFromFile();
@@ -164,6 +174,11 @@ class CargonaDataStore {
         if (Array.isArray(data.users)) this.users = data.users;
         if (data.tenantSettings && typeof data.tenantSettings === 'object') this.tenantSettings = data.tenantSettings;
         if (Array.isArray(data.originWarehouses)) this.originWarehouses = data.originWarehouses;
+        if (Array.isArray(data.cashAccounts)) this.cashAccounts = data.cashAccounts;
+        if (Array.isArray(data.financialTransactions)) this.financialTransactions = data.financialTransactions;
+        if (Array.isArray(data.cashCollections)) this.cashCollections = data.cashCollections;
+        if (Array.isArray(data.tripExpenses)) this.tripExpenses = data.tripExpenses;
+        if (Array.isArray(data.expenseCategories)) this.expenseCategories = data.expenseCategories;
         console.log(`[Store] Successfully loaded persistent state from ${STORE_FILE}`);
       } else {
         this.saveToFile();
@@ -193,6 +208,11 @@ class CargonaDataStore {
         users: this.users,
         tenantSettings: this.tenantSettings,
         originWarehouses: this.originWarehouses,
+        cashAccounts: this.cashAccounts,
+        financialTransactions: this.financialTransactions,
+        cashCollections: this.cashCollections,
+        tripExpenses: this.tripExpenses,
+        expenseCategories: this.expenseCategories,
       };
       fs.writeFileSync(STORE_FILE, JSON.stringify(data, null, 2), 'utf8');
     } catch (err) {

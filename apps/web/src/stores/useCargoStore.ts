@@ -108,6 +108,75 @@ export interface TariffPlan {
   };
 }
 
+export interface CashAccount {
+  id: string;
+  name: string;
+  type: 'CASH_PVZ' | 'BANK' | 'SAFE';
+  branchId?: string | null;
+  currency: string;
+  balanceUSD: number;
+  isActive: boolean;
+  tenantSlug?: string;
+}
+
+export interface FinancialTransaction {
+  id: string;
+  accountId: string;
+  accountName?: string;
+  type: 'INCOME' | 'EXPENSE' | 'TRANSFER' | 'COLLECTION' | 'CUSTOMER_PAYMENT' | 'CUSTOMER_REFUND';
+  category: string;
+  amountUSD: number;
+  amountLocal?: number;
+  currency?: string;
+  relatedPackageId?: string | null;
+  relatedTripId?: string | null;
+  relatedCustomerId?: string | null;
+  relatedBranchId?: string | null;
+  targetAccountId?: string | null;
+  comment?: string | null;
+  receiptUrl?: string | null;
+  createdBy: string;
+  createdAt: string;
+  tenantSlug?: string;
+}
+
+export interface CashCollection {
+  id: string;
+  receiptNumber: string;
+  sourceBranchId: string;
+  sourceBranchName?: string;
+  sourceAccountId: string;
+  targetAccountId: string;
+  amountUSD: number;
+  status: 'REQUESTED' | 'CONFIRMED' | 'REJECTED';
+  requestedBy: string;
+  confirmedBy?: string | null;
+  rejectionReason?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  confirmedAt?: string | null;
+  tenantSlug?: string;
+}
+
+export interface TripExpense {
+  id: string;
+  tripId: string;
+  category: string;
+  amountUSD: number;
+  comment?: string | null;
+  createdAt: string;
+  tenantSlug?: string;
+}
+
+export interface ExpenseCategory {
+  id: string;
+  name: string;
+  code: string;
+  isDirectCost: boolean;
+  isActive: boolean;
+}
+
+
 export interface Customer {
   id: string;
   cargoCode: string;
@@ -930,6 +999,34 @@ export const useCargoStore = defineStore('cargo', () => {
     savedAuditLogs ? JSON.parse(savedAuditLogs) : defaultAuditLogs
   );
 
+  // 9. Бухгалтерия и Финансы (Кассы, Счета, Транзакции, Инкассация)
+  const defaultExpenseCategories: ExpenseCategory[] = [
+    { id: 'cat-rent', name: 'Аренда складов и ПВЗ', code: 'RENT', isDirectCost: false, isActive: true },
+    { id: 'cat-salaries', name: 'Зарплаты персонала', code: 'SALARIES', isDirectCost: false, isActive: true },
+    { id: 'cat-freight', name: 'Магистральный фрахт (фура/авиа)', code: 'FREIGHT', isDirectCost: true, isActive: true },
+    { id: 'cat-customs', name: 'Таможенные сборы и очистка', code: 'CUSTOMS', isDirectCost: true, isActive: true },
+    { id: 'cat-warehouse', name: 'Складские расходы (Иу/Гуанчжоу)', code: 'WAREHOUSE', isDirectCost: true, isActive: true },
+    { id: 'cat-supplies', name: 'Расходные материалы (термолента/скотч)', code: 'SUPPLIES', isDirectCost: false, isActive: true },
+    { id: 'cat-marketing', name: 'Маркетинг и реклама', code: 'MARKETING', isDirectCost: false, isActive: true },
+    { id: 'cat-utilities', name: 'Коммунальные и хоз. нужды', code: 'UTILITIES', isDirectCost: false, isActive: true },
+    { id: 'cat-taxes', name: 'Налоги и банковские комиссии', code: 'TAXES', isDirectCost: false, isActive: true },
+    { id: 'cat-other', name: 'Прочие операционные расходы', code: 'OTHER', isDirectCost: false, isActive: true },
+  ];
+
+  const savedCashAccounts = typeof window !== 'undefined' ? localStorage.getItem('cargona_cash_accounts') : null;
+  const rawCashAccounts = ref<CashAccount[]>(savedCashAccounts ? JSON.parse(savedCashAccounts) : []);
+
+  const savedTransactions = typeof window !== 'undefined' ? localStorage.getItem('cargona_fin_transactions') : null;
+  const rawFinancialTransactions = ref<FinancialTransaction[]>(savedTransactions ? JSON.parse(savedTransactions) : []);
+
+  const savedCollections = typeof window !== 'undefined' ? localStorage.getItem('cargona_cash_collections') : null;
+  const rawCashCollections = ref<CashCollection[]>(savedCollections ? JSON.parse(savedCollections) : []);
+
+  const savedTripExpenses = typeof window !== 'undefined' ? localStorage.getItem('cargona_trip_expenses') : null;
+  const rawTripExpenses = ref<TripExpense[]>(savedTripExpenses ? JSON.parse(savedTripExpenses) : []);
+
+  const rawExpenseCategories = ref<ExpenseCategory[]>(defaultExpenseCategories);
+
   // Реактивная синхронизация с LocalStorage
   if (typeof window !== 'undefined') {
     watch(rawBranches, (val) => {
@@ -954,6 +1051,22 @@ export const useCargoStore = defineStore('cargo', () => {
 
     watch(rawStaff, (val) => {
       localStorage.setItem('cargona_staff', JSON.stringify(val));
+    }, { deep: true });
+
+    watch(rawCashAccounts, (val) => {
+      localStorage.setItem('cargona_cash_accounts', JSON.stringify(val));
+    }, { deep: true });
+
+    watch(rawFinancialTransactions, (val) => {
+      localStorage.setItem('cargona_fin_transactions', JSON.stringify(val));
+    }, { deep: true });
+
+    watch(rawCashCollections, (val) => {
+      localStorage.setItem('cargona_cash_collections', JSON.stringify(val));
+    }, { deep: true });
+
+    watch(rawTripExpenses, (val) => {
+      localStorage.setItem('cargona_trip_expenses', JSON.stringify(val));
     }, { deep: true });
 
     watch(settings, (val) => {
@@ -1001,6 +1114,148 @@ export const useCargoStore = defineStore('cargo', () => {
     const slug = activeTenantSlug.value;
     if (!slug) return rawAuditLogs.value;
     return rawAuditLogs.value.filter((a) => (a.tenantSlug ? a.tenantSlug === slug : false));
+  });
+
+  const cashAccounts = computed<CashAccount[]>(() => {
+    const slug = activeTenantSlug.value;
+    const baseList = slug ? rawCashAccounts.value.filter((a) => !a.tenantSlug || a.tenantSlug === slug) : rawCashAccounts.value;
+    const list = [...baseList];
+
+    // Ensure Safe account exists
+    if (!list.some((a) => a.type === 'SAFE')) {
+      list.unshift({
+        id: `acc-safe-${slug || 'cargona'}`,
+        name: 'Главный сейф (Офис)',
+        type: 'SAFE',
+        currency: activeCurrency.value,
+        balanceUSD: 0,
+        isActive: true,
+        tenantSlug: slug,
+      });
+    }
+
+    // Ensure Bank account exists
+    if (!list.some((a) => a.type === 'BANK')) {
+      list.unshift({
+        id: `acc-bank-${slug || 'cargona'}`,
+        name: 'Расчетный счет / Эквайринг',
+        type: 'BANK',
+        currency: activeCurrency.value,
+        balanceUSD: 0,
+        isActive: true,
+        tenantSlug: slug,
+      });
+    }
+
+    // Ensure account for each PVZ branch
+    for (const b of branches.value) {
+      if (!list.some((a) => a.branchId === b.id || a.id === `acc-pvz-${b.id}`)) {
+        list.push({
+          id: `acc-pvz-${b.id}`,
+          name: `Касса: ${b.name}`,
+          type: 'CASH_PVZ',
+          branchId: b.id,
+          currency: activeCurrency.value,
+          balanceUSD: b.cashBalanceUSD || 0,
+          isActive: true,
+          tenantSlug: slug,
+        });
+      }
+    }
+
+    return list;
+  });
+
+  const financialTransactions = computed<FinancialTransaction[]>(() => {
+    const slug = activeTenantSlug.value;
+    const list = slug ? rawFinancialTransactions.value.filter((t) => !t.tenantSlug || t.tenantSlug === slug) : rawFinancialTransactions.value;
+    return [...list].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  });
+
+  const cashCollections = computed<CashCollection[]>(() => {
+    const slug = activeTenantSlug.value;
+    const list = slug ? rawCashCollections.value.filter((c) => !c.tenantSlug || c.tenantSlug === slug) : rawCashCollections.value;
+    return [...list].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  });
+
+  const tripExpenses = computed<TripExpense[]>(() => {
+    const slug = activeTenantSlug.value;
+    return slug ? rawTripExpenses.value.filter((e) => !e.tenantSlug || e.tenantSlug === slug) : rawTripExpenses.value;
+  });
+
+  const expenseCategories = computed<ExpenseCategory[]>(() => rawExpenseCategories.value);
+
+  // P&L and Financial Summary
+  const financialSummary = computed(() => {
+    let pvzUSD = 0;
+    for (const b of branches.value) {
+      pvzUSD += (b.cashBalanceUSD || 0);
+    }
+    const safeAccount = cashAccounts.value.find((a) => a.type === 'SAFE');
+    const bankAccount = cashAccounts.value.find((a) => a.type === 'BANK');
+    const safeUSD = safeAccount ? (safeAccount.balanceUSD || 0) : 0;
+    const bankUSD = bankAccount ? (bankAccount.balanceUSD || 0) : 0;
+    const totalCashUSD = pvzUSD + safeUSD + bankUSD;
+
+    const deliveredPkgs = packages.value.filter((p) => p.status === 'RELEASED' || p.status === 'READY_FOR_PICKUP');
+    const deliveredRevenueUSD = deliveredPkgs.reduce((acc, p) => acc + (p.costUSD || 0), 0);
+
+    const directFreightCostsUSD = tripExpenses.value.reduce((acc, e) => acc + (e.amountUSD || 0), 0);
+
+    const opexUSD = financialTransactions.value
+      .filter((t) => t.type === 'EXPENSE')
+      .reduce((acc, t) => acc + (t.amountUSD || 0), 0);
+
+    const netProfitUSD = deliveredRevenueUSD - directFreightCostsUSD - opexUSD;
+    const marginPercent = deliveredRevenueUSD > 0 ? ((netProfitUSD / deliveredRevenueUSD) * 100).toFixed(1) : '0';
+
+    const debtors = customers.value.filter((c) => (c.balanceUSD || 0) < 0);
+    const totalDebtUSD = Math.abs(debtors.reduce((acc, c) => acc + (c.balanceUSD || 0), 0));
+
+    return {
+      totalCashUSD,
+      pvzUSD,
+      safeUSD,
+      bankUSD,
+      deliveredRevenueUSD,
+      directFreightCostsUSD,
+      opexUSD,
+      netProfitUSD,
+      marginPercent: Number(marginPercent),
+      totalDebtUSD,
+      debtorsCount: debtors.length,
+      debtors,
+    };
+  });
+
+  // Trip Unit Economics & Margins
+  const tripFinancials = computed(() => {
+    return trips.value.map((t) => {
+      const tripPkgs = packages.value.filter((p) => p.tripId === t.id);
+      const totalWeight = tripPkgs.reduce((acc, p) => acc + (p.weightKg || 0), 0) || t.totalWeightKg || 0;
+      const revenueUSD = tripPkgs.reduce((acc, p) => acc + (p.costUSD || 0), 0);
+      
+      const directExpenses = tripExpenses.value.filter((e) => e.tripId === t.id);
+      const directCostUSD = directExpenses.reduce((acc, e) => acc + (e.amountUSD || 0), 0);
+
+      const marginUSD = revenueUSD - directCostUSD;
+      const marginPercent = revenueUSD > 0 ? ((marginUSD / revenueUSD) * 100).toFixed(1) : '0';
+      const costPerKg = totalWeight > 0 ? (directCostUSD / totalWeight).toFixed(2) : '0.00';
+      const revenuePerKg = totalWeight > 0 ? (revenueUSD / totalWeight).toFixed(2) : '0.00';
+
+      return {
+        ...t,
+        packageCount: tripPkgs.length,
+        actualWeightKg: totalWeight,
+        revenueUSD,
+        directCostUSD,
+        marginUSD,
+        marginPercent: Number(marginPercent),
+        costPerKg: Number(costPerKg),
+        revenuePerKg: Number(revenuePerKg),
+        expenses: directExpenses,
+      };
+    });
   });
 
   function addAudit(
@@ -1877,6 +2132,499 @@ export const useCargoStore = defineStore('cargo', () => {
     addAudit('TARIFF_CHANGE', 'Курсы валют', 'Мультивалютность', 'Обновлены курсы конвертации');
   }
 
+  // ==========================================
+  // 10. Financial Actions & Accounting Logic
+  // ==========================================
+
+  // Внесение расхода (OPEX)
+  function addExpense(data: {
+    accountId?: string;
+    category: string;
+    amount: number;
+    currency?: string;
+    branchId?: string;
+    comment?: string;
+    receiptUrl?: string;
+  }) {
+    const curr = data.currency || activeCurrency.value;
+    const rate = ratesToUSD.value[curr] || 1;
+    const amountUSD = Math.round((data.amount / rate) * 100) / 100;
+
+    const safeAcc = cashAccounts.value.find((a) => a.type === 'SAFE');
+    const targetAccountId = data.accountId || safeAcc?.id || 'acc-safe';
+
+    const account = rawCashAccounts.value.find((a) => a.id === targetAccountId);
+    if (account) {
+      account.balanceUSD = Number(((account.balanceUSD || 0) - amountUSD).toFixed(2));
+    }
+    if (data.branchId) {
+      const branch = rawBranches.value.find((b) => b.id === data.branchId);
+      if (branch && targetAccountId.includes(data.branchId)) {
+        branch.cashBalanceUSD = Math.max(0, Number(((branch.cashBalanceUSD || 0) - amountUSD).toFixed(2)));
+      }
+    }
+
+    const tx: FinancialTransaction = {
+      id: nextSeqId('tx', rawFinancialTransactions.value),
+      accountId: targetAccountId,
+      type: 'EXPENSE',
+      category: data.category || 'Прочие расходы',
+      amountUSD,
+      amountLocal: data.amount,
+      currency: curr,
+      relatedBranchId: data.branchId || null,
+      comment: data.comment || null,
+      receiptUrl: data.receiptUrl || null,
+      createdBy: currentUser.value?.name || 'Бухгалтер',
+      createdAt: new Date().toISOString(),
+      tenantSlug: activeTenantSlug.value,
+    };
+
+    rawFinancialTransactions.value.unshift(tx);
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('cargona_fin_transactions', JSON.stringify(rawFinancialTransactions.value));
+      localStorage.setItem('cargona_cash_accounts', JSON.stringify(rawCashAccounts.value));
+      localStorage.setItem('cargona_branches', JSON.stringify(rawBranches.value));
+    }
+
+    addAudit('PAYMENT', 'Расход компании', data.category, `Списано ${formatMoney(amountUSD)} (${data.category})${data.comment ? `: ${data.comment}` : ''}`);
+
+    try {
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        fetch(`/api/o/${slug}/finance/transactions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accountId: targetAccountId,
+            type: 'EXPENSE',
+            category: data.category,
+            amount: data.amount,
+            currency: curr,
+            amountUSD,
+            relatedBranchId: data.branchId,
+            comment: data.comment,
+            receiptUrl: data.receiptUrl,
+            createdBy: currentUser.value?.name || 'Бухгалтер',
+          }),
+        });
+      }
+    } catch {}
+
+    return tx;
+  }
+
+  // Внесение прочего дохода (Доп. услуги, выкуп, аренда)
+  function addIncome(data: {
+    accountId?: string;
+    category: string;
+    amount: number;
+    currency?: string;
+    branchId?: string;
+    comment?: string;
+  }) {
+    const curr = data.currency || activeCurrency.value;
+    const rate = ratesToUSD.value[curr] || 1;
+    const amountUSD = Math.round((data.amount / rate) * 100) / 100;
+
+    const safeAcc = cashAccounts.value.find((a) => a.type === 'SAFE');
+    const targetAccountId = data.accountId || safeAcc?.id || 'acc-safe';
+
+    const account = rawCashAccounts.value.find((a) => a.id === targetAccountId);
+    if (account) {
+      account.balanceUSD = Number(((account.balanceUSD || 0) + amountUSD).toFixed(2));
+    }
+
+    const tx: FinancialTransaction = {
+      id: nextSeqId('tx', rawFinancialTransactions.value),
+      accountId: targetAccountId,
+      type: 'INCOME',
+      category: data.category || 'Прочий доход',
+      amountUSD,
+      amountLocal: data.amount,
+      currency: curr,
+      relatedBranchId: data.branchId || null,
+      comment: data.comment || null,
+      createdBy: currentUser.value?.name || 'Бухгалтер',
+      createdAt: new Date().toISOString(),
+      tenantSlug: activeTenantSlug.value,
+    };
+
+    rawFinancialTransactions.value.unshift(tx);
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('cargona_fin_transactions', JSON.stringify(rawFinancialTransactions.value));
+      localStorage.setItem('cargona_cash_accounts', JSON.stringify(rawCashAccounts.value));
+    }
+
+    addAudit('PAYMENT', 'Доход компании', data.category, `Поступило ${formatMoney(amountUSD)} (${data.category})${data.comment ? `: ${data.comment}` : ''}`);
+
+    try {
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        fetch(`/api/o/${slug}/finance/transactions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accountId: targetAccountId,
+            type: 'INCOME',
+            category: data.category,
+            amount: data.amount,
+            currency: curr,
+            amountUSD,
+            relatedBranchId: data.branchId,
+            comment: data.comment,
+            createdBy: currentUser.value?.name || 'Бухгалтер',
+          }),
+        });
+      }
+    } catch {}
+
+    return tx;
+  }
+
+  // Перемещение денег между счетами / кассами
+  function transferFunds(data: {
+    sourceAccountId: string;
+    targetAccountId: string;
+    amount: number;
+    currency?: string;
+    comment?: string;
+  }) {
+    const curr = data.currency || activeCurrency.value;
+    const rate = ratesToUSD.value[curr] || 1;
+    const amountUSD = Math.round((data.amount / rate) * 100) / 100;
+
+    const source = rawCashAccounts.value.find((a) => a.id === data.sourceAccountId);
+    const target = rawCashAccounts.value.find((a) => a.id === data.targetAccountId);
+
+    if (source) source.balanceUSD = Number(((source.balanceUSD || 0) - amountUSD).toFixed(2));
+    if (target) target.balanceUSD = Number(((target.balanceUSD || 0) + amountUSD).toFixed(2));
+
+    const tx: FinancialTransaction = {
+      id: nextSeqId('tx', rawFinancialTransactions.value),
+      accountId: data.sourceAccountId,
+      targetAccountId: data.targetAccountId,
+      type: 'TRANSFER',
+      category: 'Перемещение средств',
+      amountUSD,
+      amountLocal: data.amount,
+      currency: curr,
+      comment: data.comment || null,
+      createdBy: currentUser.value?.name || 'Бухгалтер',
+      createdAt: new Date().toISOString(),
+      tenantSlug: activeTenantSlug.value,
+    };
+
+    rawFinancialTransactions.value.unshift(tx);
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('cargona_fin_transactions', JSON.stringify(rawFinancialTransactions.value));
+      localStorage.setItem('cargona_cash_accounts', JSON.stringify(rawCashAccounts.value));
+    }
+
+    addAudit('PAYMENT', 'Перемещение средств', `${source?.name || 'Счет 1'} → ${target?.name || 'Счет 2'}`, `Переведено ${formatMoney(amountUSD)}`);
+
+    try {
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        fetch(`/api/o/${slug}/finance/transactions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accountId: data.sourceAccountId,
+            targetAccountId: data.targetAccountId,
+            type: 'TRANSFER',
+            category: 'Перемещение средств',
+            amount: data.amount,
+            currency: curr,
+            amountUSD,
+            comment: data.comment,
+            createdBy: currentUser.value?.name || 'Бухгалтер',
+          }),
+        });
+      }
+    } catch {}
+
+    return tx;
+  }
+
+  // Создание заявки на инкассацию из ПВЗ в Главный сейф
+  function requestCashCollection(data: {
+    branchId: string;
+    amount?: number;
+    notes?: string;
+  }) {
+    const branch = rawBranches.value.find((b) => b.id === data.branchId);
+    if (!branch) return null;
+
+    const amountUSD = data.amount !== undefined ? data.amount : (branch.cashBalanceUSD || 0);
+    if (amountUSD <= 0) return null;
+
+    // Списываем баланс с кассы ПВЗ
+    branch.cashBalanceUSD = Math.max(0, Number(((branch.cashBalanceUSD || 0) - amountUSD).toFixed(2)));
+
+    const pvzAccount = rawCashAccounts.value.find((a) => a.branchId === data.branchId && a.type === 'CASH_PVZ');
+    if (pvzAccount) {
+      pvzAccount.balanceUSD = Math.max(0, Number(((pvzAccount.balanceUSD || 0) - amountUSD).toFixed(2)));
+    }
+
+    const safeAcc = cashAccounts.value.find((a) => a.type === 'SAFE');
+    const receiptNumber = `COL-${new Date().getFullYear()}-${String(rawCashCollections.value.length + 1).padStart(4, '0')}`;
+
+    const collection: CashCollection = {
+      id: nextSeqId('col', rawCashCollections.value),
+      receiptNumber,
+      sourceBranchId: branch.id,
+      sourceBranchName: branch.name,
+      sourceAccountId: pvzAccount?.id || `acc-pvz-${branch.id}`,
+      targetAccountId: safeAcc?.id || 'acc-safe',
+      amountUSD,
+      status: 'REQUESTED',
+      requestedBy: currentUser.value?.name || 'Оператор ПВЗ',
+      notes: data.notes || null,
+      createdAt: new Date().toISOString(),
+      tenantSlug: activeTenantSlug.value,
+    };
+
+    rawCashCollections.value.unshift(collection);
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('cargona_cash_collections', JSON.stringify(rawCashCollections.value));
+      localStorage.setItem('cargona_branches', JSON.stringify(rawBranches.value));
+      localStorage.setItem('cargona_cash_accounts', JSON.stringify(rawCashAccounts.value));
+    }
+
+    addAudit('CASH_COLLECT', 'Заявка на инкассацию', branch.name, `Создана заявка №${receiptNumber} на сумму ${formatMoney(amountUSD)}. Деньги переданы курьеру-инкассатору.`);
+
+    try {
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        fetch(`/api/o/${slug}/finance/collections`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sourceBranchId: branch.id,
+            amount: amountUSD,
+            notes: data.notes,
+            requestedBy: currentUser.value?.name || 'Оператор ПВЗ',
+          }),
+        });
+      }
+    } catch {}
+
+    return collection;
+  }
+
+  // Подтверждение приемки инкассации в Главный сейф
+  function confirmCashCollection(collectionId: string) {
+    const col = rawCashCollections.value.find((c) => c.id === collectionId);
+    if (!col || col.status !== 'REQUESTED') return;
+
+    col.status = 'CONFIRMED';
+    col.confirmedBy = currentUser.value?.name || 'Главный кассир / Владелец';
+    col.confirmedAt = new Date().toISOString();
+
+    // Зачисляем в Главный сейф
+    const safeAccount = rawCashAccounts.value.find((a) => a.type === 'SAFE' || a.id === col.targetAccountId);
+    if (safeAccount) {
+      safeAccount.balanceUSD = Number(((safeAccount.balanceUSD || 0) + col.amountUSD).toFixed(2));
+    }
+
+    // Записываем проводку в журнал
+    rawFinancialTransactions.value.unshift({
+      id: nextSeqId('tx', rawFinancialTransactions.value),
+      accountId: col.targetAccountId,
+      type: 'COLLECTION',
+      category: 'Инкассация в сейф',
+      amountUSD: col.amountUSD,
+      comment: `Приемка инкассации №${col.receiptNumber} (${col.sourceBranchName || 'ПВЗ'})`,
+      createdBy: col.confirmedBy,
+      createdAt: new Date().toISOString(),
+      tenantSlug: activeTenantSlug.value,
+    });
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('cargona_cash_collections', JSON.stringify(rawCashCollections.value));
+      localStorage.setItem('cargona_cash_accounts', JSON.stringify(rawCashAccounts.value));
+      localStorage.setItem('cargona_fin_transactions', JSON.stringify(rawFinancialTransactions.value));
+    }
+
+    addAudit('PAYMENT', 'Приемка инкассации', col.receiptNumber, `Сумма ${formatMoney(col.amountUSD)} успешно оприходована в Главный сейф.`);
+
+    try {
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        fetch(`/api/o/${slug}/finance/collections/${collectionId}/confirm`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ confirmedBy: col.confirmedBy }),
+        });
+      }
+    } catch {}
+  }
+
+  // Отклонение инкассации (возврат средств на баланс кассы ПВЗ)
+  function rejectCashCollection(collectionId: string, reason: string = 'Отклонено кассиром') {
+    const col = rawCashCollections.value.find((c) => c.id === collectionId);
+    if (!col || col.status !== 'REQUESTED') return;
+
+    col.status = 'REJECTED';
+    col.rejectionReason = reason;
+
+    // Возвращаем баланс в ПВЗ
+    const branch = rawBranches.value.find((b) => b.id === col.sourceBranchId);
+    if (branch) {
+      branch.cashBalanceUSD = Number(((branch.cashBalanceUSD || 0) + col.amountUSD).toFixed(2));
+    }
+    const pvzAccount = rawCashAccounts.value.find((a) => a.id === col.sourceAccountId);
+    if (pvzAccount) {
+      pvzAccount.balanceUSD = Number(((pvzAccount.balanceUSD || 0) + col.amountUSD).toFixed(2));
+    }
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('cargona_cash_collections', JSON.stringify(rawCashCollections.value));
+      localStorage.setItem('cargona_branches', JSON.stringify(rawBranches.value));
+      localStorage.setItem('cargona_cash_accounts', JSON.stringify(rawCashAccounts.value));
+    }
+
+    addAudit('PAYMENT', 'Инкассация отклонена', col.receiptNumber, `Инкассация на сумму ${formatMoney(col.amountUSD)} отклонена: ${reason}. Средства возвращены в кассу ПВЗ.`);
+  }
+
+  // Внесение прямого расхода на рейс (Себестоимость перевозки / COGS)
+  function addTripExpense(data: {
+    tripId: string;
+    category: string;
+    amount: number;
+    currency?: string;
+    comment?: string;
+  }) {
+    const curr = data.currency || 'USD';
+    const rate = ratesToUSD.value[curr] || 1;
+    const amountUSD = Math.round((data.amount / rate) * 100) / 100;
+
+    const te: TripExpense = {
+      id: nextSeqId('te', rawTripExpenses.value),
+      tripId: data.tripId,
+      category: data.category,
+      amountUSD,
+      comment: data.comment || null,
+      createdAt: new Date().toISOString(),
+      tenantSlug: activeTenantSlug.value,
+    };
+
+    rawTripExpenses.value.unshift(te);
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('cargona_trip_expenses', JSON.stringify(rawTripExpenses.value));
+    }
+
+    const trip = trips.value.find((t) => t.id === data.tripId);
+    addAudit('PAYMENT', 'Расход на рейс', trip?.tripCode || data.tripId, `Внесен расход: ${formatMoney(amountUSD)} (${data.category})`);
+
+    try {
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        fetch(`/api/o/${slug}/finance/trip-expenses`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tripId: data.tripId,
+            category: data.category,
+            amount: data.amount,
+            currency: curr,
+            comment: data.comment,
+          }),
+        });
+      }
+    } catch {}
+
+    return te;
+  }
+
+  // Экспорт финансового отчета в CSV (Excel-ready)
+  function exportFinancialReportToCsv(reportType: 'TRANSACTIONS' | 'PL' | 'COLLECTIONS' | 'TRIPS' | 'DEBTORS') {
+    let rows: string[][] = [];
+    let filename = `cargona_${reportType.toLowerCase()}_${new Date().toISOString().slice(0, 10)}.csv`;
+
+    if (reportType === 'TRANSACTIONS') {
+      rows.push(['ID', 'Дата', 'Тип', 'Категория', 'Сумма (USD)', 'Валюта', 'Счет', 'Филиал', 'Комментарий', 'Создал']);
+      for (const t of financialTransactions.value) {
+        const acc = cashAccounts.value.find((a) => a.id === t.accountId);
+        const br = branches.value.find((b) => b.id === t.relatedBranchId);
+        rows.push([
+          t.id,
+          new Date(t.createdAt).toLocaleString('ru-RU'),
+          t.type,
+          t.category,
+          t.amountUSD.toFixed(2),
+          t.currency || 'USD',
+          acc?.name || t.accountId,
+          br?.name || '-',
+          t.comment || '',
+          t.createdBy,
+        ]);
+      }
+    } else if (reportType === 'COLLECTIONS') {
+      rows.push(['№ Квитанции', 'Дата заявки', 'Филиал', 'Сумма (USD)', 'Статус', 'Запросил', 'Принял', 'Дата подтверждения', 'Примечания']);
+      for (const c of cashCollections.value) {
+        rows.push([
+          c.receiptNumber,
+          new Date(c.createdAt).toLocaleString('ru-RU'),
+          c.sourceBranchName || c.sourceBranchId,
+          c.amountUSD.toFixed(2),
+          c.status,
+          c.requestedBy,
+          c.confirmedBy || '-',
+          c.confirmedAt ? new Date(c.confirmedAt).toLocaleString('ru-RU') : '-',
+          c.notes || '',
+        ]);
+      }
+    } else if (reportType === 'TRIPS') {
+      rows.push(['Код рейса', 'Маршрут', 'Статус', 'Вес (кг)', 'Посылок', 'Выручка (USD)', 'Себестоимость (USD)', 'Прибыль (USD)', 'Рентабельность (%)', 'Себестоимость/кг']);
+      for (const tf of tripFinancials.value) {
+        rows.push([
+          tf.tripCode,
+          tf.route,
+          tf.status,
+          tf.actualWeightKg.toFixed(2),
+          String(tf.packageCount),
+          tf.revenueUSD.toFixed(2),
+          tf.directCostUSD.toFixed(2),
+          tf.marginUSD.toFixed(2),
+          `${tf.marginPercent}%`,
+          `$${tf.costPerKg}`,
+        ]);
+      }
+    } else if (reportType === 'DEBTORS') {
+      rows.push(['Карго-код', 'ФИО клиента', 'Телефон', 'Задолженность (USD)', 'ПВЗ']);
+      for (const d of financialSummary.value.debtors) {
+        const br = branches.value.find((b) => b.id === d.preferredBranchId);
+        rows.push([
+          d.cargoCode,
+          d.fullName,
+          d.phone,
+          Math.abs(d.balanceUSD).toFixed(2),
+          br?.name || '-',
+        ]);
+      }
+    }
+
+    if (rows.length === 0) return;
+
+    // Build CSV string with UTF-8 BOM
+    const csvContent = '\uFEFF' + rows.map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
   return {
     currentUser,
     login,
@@ -1946,5 +2694,21 @@ export const useCargoStore = defineStore('cargo', () => {
     updateRates,
     nextSeqId,
     nextCargoCode,
+    // Finance & Accounting
+    cashAccounts,
+    financialTransactions,
+    cashCollections,
+    tripExpenses,
+    expenseCategories,
+    financialSummary,
+    tripFinancials,
+    addExpense,
+    addIncome,
+    transferFunds,
+    requestCashCollection,
+    confirmCashCollection,
+    rejectCashCollection,
+    addTripExpense,
+    exportFinancialReportToCsv,
   };
 });
