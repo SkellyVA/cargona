@@ -45,8 +45,8 @@
         </div>
         <div>
           <div class="text-[11px] text-text-tertiary font-semibold uppercase">Выручка (MRR)</div>
-          <div class="text-xl sm:text-2xl font-black text-white mt-0.5">$548 / мес</div>
-          <div class="text-[11px] text-accent-emerald font-medium mt-0.5">+18% за месяц</div>
+          <div class="text-xl sm:text-2xl font-black text-white mt-0.5">${{ totalMRR }} / мес</div>
+          <div class="text-[11px] text-accent-emerald font-medium mt-0.5">{{ activeTenantsCount }} активных подписок</div>
         </div>
       </div>
 
@@ -62,7 +62,7 @@
           </div>
           <div v-if="isLimitReached" class="text-[11px] text-accent-coral font-medium mt-0.5">Лимит исчерпан</div>
           <div v-else-if="maxTenantsLimit" class="text-[11px] text-accent-cyan font-medium mt-0.5">Лицензия: макс. {{ maxTenantsLimit }}</div>
-          <div v-else class="text-[11px] text-text-secondary mt-0.5">Все активны (Безлимит)</div>
+          <div v-else class="text-[11px] text-text-secondary mt-0.5">{{ activeTenantsCount }} активны (Безлимит)</div>
         </div>
       </div>
 
@@ -72,8 +72,8 @@
         </div>
         <div>
           <div class="text-[11px] text-text-tertiary font-semibold uppercase">Общий тоннаж</div>
-          <div class="text-xl sm:text-2xl font-black text-white mt-0.5">142.5 т</div>
-          <div class="text-[11px] text-accent-cyan font-medium mt-0.5">За текущий месяц</div>
+          <div class="text-xl sm:text-2xl font-black text-white mt-0.5">{{ totalWeightTons }} т</div>
+          <div class="text-[11px] text-accent-cyan font-medium mt-0.5">{{ totalPackagesCount }} посылок в системе</div>
         </div>
       </div>
 
@@ -82,9 +82,9 @@
           <Boxes class="w-5 h-5" />
         </div>
         <div>
-          <div class="text-[11px] text-text-tertiary font-semibold uppercase">Посылок / сут</div>
-          <div class="text-xl sm:text-2xl font-black text-white mt-0.5">1 890 шт</div>
-          <div class="text-[11px] text-text-secondary mt-0.5">В 14 городах</div>
+          <div class="text-[11px] text-text-tertiary font-semibold uppercase">Филиалов / ПВЗ</div>
+          <div class="text-xl sm:text-2xl font-black text-white mt-0.5">{{ totalBranchesCount }} шт</div>
+          <div class="text-[11px] text-text-secondary mt-0.5">В {{ totalCitiesCount }} городах</div>
         </div>
       </div>
     </div>
@@ -529,6 +529,29 @@ const plans = computed(() => store.saasPlans);
 const tenants = computed(() => store.tenants);
 const maxTenantsLimit = computed(() => store.maxTenantsLimit);
 const isLimitReached = computed(() => store.isLimitReached);
+
+const activeTenantsCount = computed(() => tenants.value.filter((t) => t.isActive !== false).length);
+
+const totalMRR = computed(() => {
+  return tenants.value.reduce((acc, t) => {
+    const plan = store.saasPlans.find((p) => p.slug === t.planId || p.name === t.planName);
+    return acc + (plan?.priceMonthly || 149);
+  }, 0);
+});
+
+const totalPackagesCount = computed(() => store.packages.length);
+
+const totalWeightTons = computed(() => {
+  const totalKg = store.packages.reduce((acc, p) => acc + (p.weightKg || 0), 0);
+  return Number((totalKg / 1000).toFixed(2));
+});
+
+const totalBranchesCount = computed(() => store.branches.length || 1);
+
+const totalCitiesCount = computed(() => {
+  const cities = new Set(store.branches.map((b) => b.city).filter(Boolean));
+  return cities.size || 1;
+});
 
 onMounted(() => {
   store.fetchTenantsFromBackend();

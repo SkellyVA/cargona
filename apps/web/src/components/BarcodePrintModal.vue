@@ -10,7 +10,7 @@
           class="w-64 bg-white text-black p-4 rounded-xl shadow-2xl space-y-2 border border-black/10 select-all text-center"
         >
           <div class="flex items-center justify-between border-b border-black/20 pb-1 text-[10px]">
-            <span class="font-black uppercase tracking-wider text-black/70">{{ pkg.branchName || 'ПВЗ Cargona' }}</span>
+            <span class="font-black uppercase tracking-wider text-black/70">{{ pkg.branchName || (organizationTitle + ' ПВЗ') }}</span>
             <span class="font-mono text-black/50">{{ pkg.rack || 'Стеллаж' }}</span>
           </div>
 
@@ -61,7 +61,7 @@
           </div>
 
           <div class="border-t border-black/20 pt-1 text-[9px] font-mono text-black/60 flex justify-between">
-            <span>Cargona WMS Smart Warehouse</span>
+            <span>{{ organizationTitle }} WMS</span>
             <span>{{ currentDate }}</span>
           </div>
         </div>
@@ -74,14 +74,14 @@
         >
           <!-- Хедер этикетки -->
           <div class="flex items-center justify-between border-b border-black/20 pb-1.5">
-            <span class="font-black text-xs tracking-wider uppercase">Cargona • {{ store.settings.companyName }}</span>
+            <span class="font-black text-xs tracking-wider uppercase">{{ organizationTitle }}</span>
             <span class="font-mono text-[10px] text-black/60">{{ currentDate }}</span>
           </div>
 
           <!-- Крупный код клиента -->
           <div class="text-center py-1 bg-black/5 rounded-lg border border-black/10">
             <div class="text-[9px] uppercase font-bold text-black/60">Код получателя</div>
-            <div class="text-2xl font-black font-mono tracking-widest">{{ pkg?.customerCargoCode || `${store.settings.codePrefix}-000` }}</div>
+            <div class="text-2xl font-black font-mono tracking-widest">{{ pkg?.customerCargoCode || (store.settings.codePrefix ? store.settings.codePrefix + '-000' : 'CRG-000') }}</div>
           </div>
 
           <!-- Векторный штрихкод Code 128 (SVG) -->
@@ -187,6 +187,15 @@ const isOpen = computed({
 });
 
 const currentDate = new Date().toLocaleDateString('ru-RU');
+
+const organizationTitle = computed(() => {
+  return (
+    store.tenant?.name ||
+    store.settings?.companyName ||
+    store.currentUser?.organizationName ||
+    'CARGO'
+  );
+});
 
 function printSticker() {
   const stickerEl = document.getElementById('printable-sticker');

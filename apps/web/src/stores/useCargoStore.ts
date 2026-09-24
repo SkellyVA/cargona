@@ -137,11 +137,20 @@ export interface PackageItem {
   costUSD: number;
   shelfLocation: string; // "Стеллаж 1 - Полка Б-14"
   branchId: string;
+  targetBranchId?: string;
   tripId?: string;
   status: 'RECEIVED_AT_ORIGIN' | 'IN_TRANSIT' | 'CUSTOMS' | 'READY_FOR_PICKUP' | 'RELEASED' | 'RETURNED';
   returnReason?: string;
   refundAmountUSD?: number;
   returnTrackingNumber?: string;
+  photos?: string[];
+  handoverPhoto?: string;
+  releasedAt?: string;
+  notifiedReady?: boolean;
+  reviewRating?: number;
+  reviewComment?: string;
+  storagePaidUntil?: string;
+  isPaidOnline?: boolean;
   createdAt: string;
   tenantSlug?: string;
 }
@@ -1376,8 +1385,8 @@ export const useCargoStore = defineStore('cargo', () => {
     } catch {}
   }
 
-  // Подтверждение выдачи и оплаты клиенту (с поддержкой выбора конкретных посылок)
-  function handoverClientPackages(cargoCode: string, branchId: string = 'b-1', packageIds?: string[]): number {
+  // Подтверждение выдачи и оплаты клиенту (с поддержкой выбора конкретных посылок и фото-фиксации)
+  function handoverClientPackages(cargoCode: string, branchId: string = 'b-1', packageIds?: string[], handoverPhoto?: string): number {
     const clientPkgs = rawPackages.value.filter((p) => {
       const isClient = p.customerCargoCode.toUpperCase() === cargoCode.toUpperCase();
       const isReady = p.status === 'READY_FOR_PICKUP';
@@ -1393,6 +1402,11 @@ export const useCargoStore = defineStore('cargo', () => {
       p.status = 'RELEASED';
       p.shelfLocation = '';
       p.releasedAt = nowIso;
+      if (handoverPhoto) {
+        p.handoverPhoto = handoverPhoto;
+        if (!p.photos) p.photos = [];
+        p.photos.push(handoverPhoto);
+      }
       totalSumUSD += p.costUSD;
       pkgIdList.push(p.id);
     });
@@ -1411,7 +1425,7 @@ export const useCargoStore = defineStore('cargo', () => {
       'HANDOVER',
       'Выдача по QR',
       cargoCode,
-      `Выдано ${clientPkgs.length} посылок на сумму ${formatMoney(totalSumUSD)}. Внесено в кассу «${branch?.name || ''}»`,
+      `Выдано ${clientPkgs.length} посылок на сумму ${formatMoney(totalSumUSD)}. Внесено в кассу «${branch?.name || ''}»${handoverPhoto ? ' (с фото-фиксацией)' : ''}`,
       currentUser.value?.name || 'operator',
       branch?.id || branchId,
       branch?.name
@@ -1419,6 +1433,7 @@ export const useCargoStore = defineStore('cargo', () => {
 
     try {
       const cust = rawCustomers.value.find((c) => c.cargoCode.toUpperCase() === cargoCode.toUpperCase());
+      const slug = activeTenantSlug.value;
       fetch('/api/wms/handover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1428,11 +1443,149 @@ export const useCargoStore = defineStore('cargo', () => {
           amountPaid: totalSumUSD,
           paymentMethod: 'CASH',
           branchId: branch?.id || branchId,
+          handoverPhoto: handoverPhoto || undefined,
+          tenantSlug: slug || undefined,
         }),
       });
     } catch {}
 
     return totalSumUSD;
+  }
+
+  // Массовая приемка списком трек-номеров
+  function bulkIntakePackages(data: {
+    trackingNumbers: string[];
+    targetBranchId?: string;
+    customerCargoCode?: string;
+    status?: 'RECEIVED_AT_ORIGIN' | 'READY_FOR_PICKUP';
+    weightKg?: number;
+    description?: string;
+  }): { count: number; packages: PackageItem[] } {
+    const results: PackageItem[] = [];
+    const requestedBranchId = data.targetBranchId || 'b-1';
+    const isOrigin = requestedBranchId.startsWith('wh-') || requestedBranchId === 'b-origin';
+    const originWh = isOrigin
+      ? originWarehouses.value.find((w) => w.id === requestedBranchId || (w.id === 'wh-cn' && requestedBranchId === 'b-origin'))
+      : null;
+    const branch = !isOrigin ? rawBranches.value.find((b) => b.id === requestedBranchId) : null;
+    const targetBranchId = originWh ? (requestedBranchId === 'b-origin' ? 'b-origin' : originWh.id) : branch?.id || 'b-1';
+    const targetStatus = data.status || (isOrigin ? 'RECEIVED_AT_ORIGIN' : 'READY_FOR_PICKUP');
+
+    const defaultWeight = data.weightKg || 1.0;
+    const activeRate = ratesToUSD.value[activeCurrency.value] || 1;
+    const defaultCostUSD = Math.max(
+      Math.round(settings.value.autoDeliveryRatePerKgUSD * defaultWeight * 100) / 100,
+      settings.value.minPackageCostUSD
+    );
+
+    for (const trackRaw of data.trackingNumbers) {
+      const track = trackRaw.trim().toUpperCase();
+      if (!track) continue;
+
+      let existing = rawPackages.value.find((p) => p.trackingNumber.toUpperCase() === track);
+      if (existing) {
+        if (data.customerCargoCode) existing.customerCargoCode = data.customerCargoCode.toUpperCase();
+        existing.branchId = targetBranchId;
+        existing.status = targetStatus;
+        results.push(existing);
+      } else {
+        const now = new Date();
+        const createdAt = `${now.getDate().toString().padStart(2, '0')}.${(now.getMonth() + 1).toString().padStart(2, '0')}.${now.getFullYear()}`;
+        const newPkg: PackageItem = {
+          id: nextSeqId('pkg', rawPackages.value),
+          tenantSlug: activeTenantSlug.value,
+          trackingNumber: track,
+          customerCargoCode: (data.customerCargoCode || 'БЕЗ КОДА').toUpperCase(),
+          description: data.description || 'Товары народного потребления',
+          weightKg: defaultWeight,
+          costUSD: defaultCostUSD,
+          shelfLocation: isOrigin ? (originWh?.cells?.[0]?.shelf || 'Паллет CN-01') : '',
+          branchId: targetBranchId,
+          status: targetStatus,
+          createdAt,
+        };
+        rawPackages.value.unshift(newPkg);
+        results.push(newPkg);
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('cargona_packages', JSON.stringify(rawPackages.value));
+    }
+
+    const branchName = originWh ? `Склад ${originWh.city} (${originWh.country})` : branch?.name || 'ПВЗ';
+    addAudit(
+      'BULK_INTAKE',
+      'Массовая приемка',
+      `${results.length} трек-номеров`,
+      `Массово оприходовано ${results.length} посылок в «${branchName}», статус: ${targetStatus}`,
+      currentUser.value?.name || 'operator',
+      targetBranchId,
+      branchName
+    );
+
+    try {
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        fetch(`/api/o/${slug}/packages/bulk`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            trackingNumbers: data.trackingNumbers,
+            targetBranchId,
+            customerCargoCode: data.customerCargoCode,
+            status: targetStatus,
+            weightKg: defaultWeight,
+          }),
+        });
+      }
+    } catch {}
+
+    return { count: results.length, packages: results };
+  }
+
+  // Оставить отзыв о посылке / сервисе
+  function submitPackageReview(pkgId: string, rating: number, comment: string = '') {
+    const pkg = rawPackages.value.find((p) => p.id === pkgId);
+    if (!pkg) return;
+    pkg.reviewRating = rating;
+    pkg.reviewComment = comment;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('cargona_packages', JSON.stringify(rawPackages.value));
+    }
+    addAudit('REVIEW', 'Отзыв клиента', pkg.trackingNumber, `Оценка: ${rating}★${comment ? `. Комментарий: ${comment}` : ''}`, pkg.customerCargoCode, pkg.branchId);
+
+    try {
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        fetch(`/api/o/${slug}/packages/${pkgId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reviewRating: rating, reviewComment: comment }),
+        });
+      }
+    } catch {}
+  }
+
+  // Включение/отключение уведомления о готовности
+  function toggleNotifyWhenReady(pkgId: string, enabled: boolean = true) {
+    const pkg = rawPackages.value.find((p) => p.id === pkgId);
+    if (!pkg) return;
+    pkg.notifiedReady = enabled;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('cargona_packages', JSON.stringify(rawPackages.value));
+    }
+  }
+
+  // Онлайн оплата посылки
+  function payPackageOnline(pkgId: string) {
+    const pkg = rawPackages.value.find((p) => p.id === pkgId);
+    if (!pkg) return;
+    pkg.isPaidOnline = true;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('cargona_packages', JSON.stringify(rawPackages.value));
+    }
+    addAudit('PAYMENT', 'Онлайн оплата', pkg.trackingNumber, `Оплачено картой: ${formatMoney(pkg.costUSD)}`, pkg.customerCargoCode, pkg.branchId);
   }
 
   // Приемка товара на склад или ПВЗ (Intake со сканером ШК)
@@ -1758,6 +1911,10 @@ export const useCargoStore = defineStore('cargo', () => {
     setCustomerPreferredBranch,
     adjustCustomerBalance,
     handoverClientPackages,
+    bulkIntakePackages,
+    submitPackageReview,
+    toggleNotifyWhenReady,
+    payPackageOnline,
     intakePackage,
     addPackageToTrip,
     removePackageFromTrip,

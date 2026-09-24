@@ -279,6 +279,16 @@
         </div>
 
         <div>
+          <label class="text-text-secondary mb-1 block">Филиал / ПВЗ назначения</label>
+          <select
+            v-model="newPkg.branchId"
+            class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none text-xs"
+          >
+            <option v-for="b in store.branches" :key="b.id" :value="b.id">{{ b.name }} ({{ b.city }})</option>
+          </select>
+        </div>
+
+        <div>
           <label class="text-text-secondary mb-1 block">Описание вложения</label>
           <input
             v-model="newPkg.description"
@@ -728,6 +738,7 @@ const newPkg = ref({
   lengthCm: 30,
   widthCm: 20,
   heightCm: 15,
+  branchId: store.branches[0]?.id || 'b-1',
 });
 
 // Живой расчет WMS показателей объема и плотности
@@ -833,7 +844,7 @@ function createPackage() {
     densityKgM3,
     volumetricWeightKg,
     shelfLocation: '',
-    branchId: store.branches[0]?.id || 'b-1',
+    branchId: newPkg.value.branchId || store.branches[0]?.id || 'b-1',
     status: 'RECEIVED_AT_ORIGIN',
   });
   showCreatePackageModal.value = false;
@@ -847,6 +858,7 @@ function createPackage() {
     lengthCm: 30,
     widthCm: 20,
     heightCm: 15,
+    branchId: store.branches[0]?.id || 'b-1',
   };
 }
 

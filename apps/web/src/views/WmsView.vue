@@ -168,6 +168,17 @@
             <span>{{ terminalMode === 'HANDOVER' ? 'Найти' : 'Принять ШК' }}</span>
           </button>
 
+          <!-- Кнопка массовой приемки списком треков -->
+          <button
+            v-if="terminalMode === 'INTAKE'"
+            @click="showBulkIntakeModal = true"
+            class="h-12 sm:h-14 px-3.5 sm:px-4 rounded-2xl bg-accent-cyan/10 hover:bg-accent-cyan/20 text-accent-cyan border border-accent-cyan/30 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+            title="Массовая приемка списком"
+          >
+            <ListPlus class="w-4 h-4" />
+            <span class="hidden sm:inline">Массовая приемка</span>
+          </button>
+
           <!-- Быстрые демо кнопки — только на десктопе -->
           <button
             v-if="terminalMode === 'HANDOVER'"
@@ -449,6 +460,38 @@
             </button>
           </div>
 
+          <!-- Фото-фиксация при выдаче (Защита от споров) -->
+          <div class="p-3.5 rounded-2xl bg-[#181B23] border border-white/[0.08] space-y-2.5">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2 text-xs font-bold text-white">
+                <Camera class="w-4 h-4 text-accent-cyan" />
+                <span>Фото-фиксация выдачи (защита от споров)</span>
+              </div>
+              <span class="text-[10px] text-accent-cyan font-mono">TG Уведомление</span>
+            </div>
+            <p class="text-[11px] text-text-tertiary leading-relaxed">
+              Сфотографируйте посылку с трек-кодом перед передачей. Фото сохранится в карточку и автоматически отправится клиенту в бот с запросом отзыва.
+            </p>
+            <div class="flex items-center gap-3">
+              <label class="px-3.5 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-accent-cyan border border-white/[0.1] text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer">
+                <Camera class="w-3.5 h-3.5" />
+                <span>{{ handoverPhotoPreview ? 'Переснять фото' : 'Сфотографировать посылку' }}</span>
+                <input type="file" accept="image/*" capture="environment" @change="onHandoverPhotoSelected" class="hidden" />
+              </label>
+
+              <div v-if="handoverPhotoPreview" class="relative inline-block">
+                <img :src="handoverPhotoPreview" alt="Handover proof" class="w-12 h-12 rounded-xl object-cover border-2 border-accent-emerald/60 shadow-md" />
+                <button
+                  type="button"
+                  @click="handoverPhotoPreview = ''"
+                  class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center text-[10px] font-bold cursor-pointer"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- Итоговая кнопка подтверждения выдачи -->
           <div class="pt-4 border-t border-white/[0.06] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
             <div class="text-xs text-text-secondary">
@@ -515,7 +558,7 @@
         </div>
 
         <!-- Форма параметров оприходования -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 text-xs">
           <div>
             <label class="text-[11px] text-text-tertiary mb-1 block">Карго-код клиента</label>
             <input
@@ -544,6 +587,16 @@
               placeholder="35"
               class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white font-mono focus:border-accent-cyan focus:outline-none"
             />
+          </div>
+
+          <div>
+            <label class="text-[11px] text-text-tertiary mb-1 block">ПВЗ назначения</label>
+            <select
+              v-model="intakeForm.targetBranchId"
+              class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white text-xs focus:border-accent-cyan focus:outline-none"
+            >
+              <option v-for="b in store.branches" :key="b.id" :value="b.id">{{ b.name }} ({{ b.city }})</option>
+            </select>
           </div>
 
           <div>
@@ -867,6 +920,93 @@
       v-model="showPrintModal"
       :pkg="activePrintPkg"
     />
+
+    <!-- Модальное окно: Массовая приемка списком трек-кодов -->
+    <AppModal v-model="showBulkIntakeModal" title="Массовая приемка списком трек-кодов">
+      <div class="space-y-4 text-xs">
+        <div class="p-3.5 rounded-2xl bg-accent-blue/10 border border-accent-blue/20 text-accent-cyan space-y-1">
+          <div class="font-bold flex items-center gap-1.5 text-xs">
+            <ListPlus class="w-4 h-4" />
+            <span>Вставьте список трек-номеров</span>
+          </div>
+          <p class="text-[11px] text-text-secondary leading-relaxed">
+            По одному на строку или через пробел/запятую (например: SF1029384, ZTO998822, YT771122). Все посылки будут моментально зарегистрированы в системе.
+          </p>
+        </div>
+
+        <div>
+          <label class="text-text-secondary mb-1 block">Список трек-номеров (распознано: <b class="text-white">{{ parsedBulkTracks.length }}</b> шт)</label>
+          <textarea
+            v-model="bulkIntakeForm.text"
+            rows="5"
+            placeholder="SF192837465&#10;ZTO99281726&#10;YT882910283&#10;CARGO-CN-0912"
+            class="w-full p-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white font-mono text-xs focus:border-accent-cyan focus:outline-none placeholder:text-text-tertiary"
+          ></textarea>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="text-text-secondary mb-1 block">Филиал / ПВЗ назначения</label>
+            <select
+              v-model="bulkIntakeForm.targetBranchId"
+              class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white text-xs focus:border-accent-cyan focus:outline-none"
+            >
+              <option v-for="b in store.branches" :key="b.id" :value="b.id">{{ b.name }} ({{ b.city }})</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="text-text-secondary mb-1 block">Статус после приемки</label>
+            <select
+              v-model="bulkIntakeForm.targetStatus"
+              class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white text-xs focus:border-accent-cyan focus:outline-none"
+            >
+              <option value="RECEIVED_AT_ORIGIN">На складе отправки (Китай)</option>
+              <option value="READY_FOR_PICKUP">В ПВЗ (Готово к выдаче)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="text-text-secondary mb-1 block">Общий карго-код клиента (опционально)</label>
+            <input
+              v-model="bulkIntakeForm.customerCargoCode"
+              :placeholder="`${store.settings.codePrefix || 'CRG'}-101`"
+              class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white text-xs font-mono uppercase focus:border-accent-cyan focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label class="text-text-secondary mb-1 block">Вес за 1 посылку по умолчанию (кг)</label>
+            <input
+              type="number"
+              step="0.1"
+              v-model.number="bulkIntakeForm.weightKg"
+              placeholder="1.5"
+              class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white text-xs font-mono focus:border-accent-cyan focus:outline-none"
+            />
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <button
+          @click="showBulkIntakeModal = false"
+          class="px-4 py-2 rounded-xl bg-white/[0.04] text-text-secondary hover:text-white font-medium text-xs transition cursor-pointer"
+        >
+          Отмена
+        </button>
+        <button
+          @click="handleBulkIntakeSubmit"
+          :disabled="parsedBulkTracks.length === 0"
+          class="px-5 py-2.5 rounded-xl bg-accent-blue hover:bg-accent-blue/90 disabled:opacity-40 text-white font-bold text-xs shadow-glow-blue transition cursor-pointer flex items-center gap-1.5"
+        >
+          <CheckCircle2 class="w-4 h-4" />
+          <span>Оприходовать {{ parsedBulkTracks.length }} шт</span>
+        </button>
+      </template>
+    </AppModal>
   </div>
 </template>
 
@@ -899,6 +1039,7 @@ import {
   Globe,
   Store,
   AlertTriangle,
+  ListPlus,
 } from 'lucide-vue-next';
 import AppModal from '../components/ui/AppModal.vue';
 import AppCheckbox from '../components/ui/AppCheckbox.vue';
@@ -1035,6 +1176,56 @@ const handoverReturnForm = ref({
   refundAmount: 0,
   returnTracking: '',
 });
+const handoverPhotoPreview = ref('');
+
+function onHandoverPhotoSelected(event: Event) {
+  const input = event.target as HTMLInputElement;
+  if (input && input.files && input.files[0]) {
+    const file = input.files[0];
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      handoverPhotoPreview.value = (e.target?.result as string) || '';
+    };
+    reader.readAsDataURL(file);
+  }
+}
+
+// Модальное окно массовой приемки списком
+const showBulkIntakeModal = ref(false);
+const bulkIntakeForm = ref({
+  text: '',
+  targetBranchId: store.branches[0]?.id || 'b-1',
+  customerCargoCode: '',
+  weightKg: 1.5,
+  targetStatus: 'RECEIVED_AT_ORIGIN' as 'RECEIVED_AT_ORIGIN' | 'READY_FOR_PICKUP',
+});
+
+const parsedBulkTracks = computed(() => {
+  const raw = bulkIntakeForm.value.text || '';
+  return raw
+    .split(/[\n,\s]+/)
+    .map((t) => t.trim().toUpperCase())
+    .filter((t) => t.length > 2);
+});
+
+function handleBulkIntakeSubmit() {
+  const tracks = parsedBulkTracks.value;
+  if (tracks.length === 0) return;
+
+  const result = store.bulkIntakePackages({
+    trackingNumbers: tracks,
+    targetBranchId: bulkIntakeForm.value.targetBranchId || selectedBranchId.value,
+    customerCargoCode: bulkIntakeForm.value.customerCargoCode || undefined,
+    status: bulkIntakeForm.value.targetStatus,
+    weightKg: bulkIntakeForm.value.weightKg,
+  });
+
+  const branch = store.branches.find((b) => b.id === bulkIntakeForm.value.targetBranchId);
+  successToast.value = `Успешно оприходовано ${result.count} посылок в «${branch?.name || 'ПВЗ'}»`;
+  playChime(1046);
+  bulkIntakeForm.value.text = '';
+  showBulkIntakeModal.value = false;
+}
 
 // Состояние приемки (Intake)
 const scannedIntakeItem = ref<any>(null);
@@ -1048,6 +1239,7 @@ const intakeForm = ref({
   heightCm: 15,
   shelfLocation: '',
   costLocal: 35,
+  targetBranchId: store.branches[0]?.id || 'b-1',
   targetStatus: 'READY_FOR_PICKUP' as 'RECEIVED_AT_ORIGIN' | 'READY_FOR_PICKUP',
 });
 
@@ -1208,12 +1400,14 @@ function completeHandover() {
   const cargoCode = activeHandover.value?.customer?.cargoCode || store.customers[0]?.cargoCode || 'CARGO-1';
   const branchId = selectedBranchId.value || 'b-1';
   const idsToRelease = [...selectedPackageIds.value];
+  const photo = handoverPhotoPreview.value || undefined;
 
-  const sumUSD = store.handoverClientPackages(cargoCode, branchId, idsToRelease);
+  const sumUSD = store.handoverClientPackages(cargoCode, branchId, idsToRelease, photo);
   const curName = currentBranch.value?.name || 'ПВЗ';
-  successToast.value = `Выдано ${idsToRelease.length} посылок клиенту ${cargoCode} в «${curName}». Сумма ${store.formatMoney(sumUSD)} внесена в кассу ПВЗ.`;
+  successToast.value = `Выдано ${idsToRelease.length} посылок клиенту ${cargoCode} в «${curName}»${photo ? ' (фото сохранено)' : ''}. Сумма ${store.formatMoney(sumUSD)} внесена в кассу ПВЗ.`;
   activeHandover.value = null;
   selectedPackageIds.value = [];
+  handoverPhotoPreview.value = '';
 }
 
 // ПРИЕМКА ТОВАРА (INTAKE)
@@ -1400,6 +1594,7 @@ function saveIntakePackage() {
   const activeRate = store.ratesToUSD[store.activeCurrency] || 1;
   const costUSD = intakeForm.value.costLocal / activeRate;
 
+  const targetBranch = intakeForm.value.targetBranchId || selectedBranchId.value;
   const savedPkg = store.intakePackage({
     trackingNumber: intakeForm.value.trackingNumber,
     customerCargoCode: intakeForm.value.customerCargoCode,
@@ -1410,7 +1605,7 @@ function saveIntakePackage() {
     costUSD,
     shelfLocation: intakeForm.value.shelfLocation,
     status: intakeForm.value.targetStatus,
-    branchId: selectedBranchId.value,
+    branchId: targetBranch,
   });
 
   const now = new Date();

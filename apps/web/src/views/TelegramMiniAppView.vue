@@ -222,6 +222,18 @@
 
     <!-- ЭКРАН 2: ЛИЧНЫЙ КАБИНЕТ ЗАРЕГИСТРИРОВАННОГО КЛИЕНТА -->
     <div v-else class="space-y-4 flex-1 pt-2">
+      <!-- Уведомление / Toast -->
+      <div
+        v-if="miniAppToast"
+        class="p-3.5 rounded-2xl bg-accent-emerald/15 border border-accent-emerald/30 text-accent-emerald text-xs flex items-center justify-between shadow-lg"
+      >
+        <div class="flex items-center gap-2">
+          <CheckCircle2 class="w-4 h-4 shrink-0" />
+          <span>{{ miniAppToast }}</span>
+        </div>
+        <button @click="miniAppToast = ''" class="text-accent-emerald/70 hover:text-accent-emerald font-bold text-sm">×</button>
+      </div>
+
       <!-- Шапка Mini App -->
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2.5">
@@ -446,7 +458,7 @@
       </div>
 
       <!-- Список посылок со статусами -->
-      <div class="space-y-2.5">
+      <div class="space-y-3">
         <div class="text-xs font-semibold text-text-tertiary px-1 uppercase tracking-wider">{{ t('miniapp.myDeliveries') }}</div>
 
         <div
@@ -459,22 +471,131 @@
         <div
           v-for="pkg in clientPackages"
           :key="pkg.id"
-          class="p-4 rounded-2xl bg-surface border border-surface-border shadow-card flex items-center justify-between"
+          class="p-4 rounded-2xl bg-surface border border-surface-border shadow-card space-y-3"
         >
-          <div class="flex items-center gap-3">
-            <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border" :class="pkg.status === 'READY_FOR_PICKUP' ? 'bg-accent-emerald/10 border-accent-emerald/30 text-accent-emerald' : 'bg-accent-blue/10 border-accent-blue/30 text-accent-cyan'">
-              <Package class="w-4 h-4" />
+          <!-- Основная строка посылки -->
+          <div class="flex items-start justify-between gap-2">
+            <div class="flex items-start gap-3 min-w-0">
+              <div
+                class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border mt-0.5"
+                :class="pkg.status === 'READY_FOR_PICKUP'
+                  ? 'bg-accent-emerald/15 border-accent-emerald/30 text-accent-emerald shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+                  : pkg.status === 'RELEASED'
+                  ? 'bg-white/[0.05] border-white/[0.08] text-text-tertiary'
+                  : 'bg-accent-blue/15 border-accent-blue/30 text-accent-cyan'"
+              >
+                <Package class="w-4 h-4" />
+              </div>
+              <div class="min-w-0">
+                <div class="text-xs font-bold text-white font-mono truncate">{{ pkg.trackingNumber }}</div>
+                <div class="text-[11px] text-text-secondary mt-0.5 truncate">{{ pkg.description || 'Посылка' }} • {{ pkg.weightKg }} {{ t('common.kg') }}</div>
+              </div>
             </div>
-            <div>
-              <div class="text-xs font-bold text-white font-mono">{{ pkg.trackingNumber }}</div>
-              <div class="text-[11px] text-text-secondary mt-0.5">{{ pkg.description || 'Посылка' }} • {{ pkg.weightKg }} {{ t('common.kg') }}</div>
+
+            <div class="text-right shrink-0">
+              <div class="text-xs font-bold text-white font-mono">{{ store.formatMoney(pkg.costUSD) }}</div>
+              <div
+                class="text-[10px] font-semibold mt-0.5 px-2 py-0.5 rounded-md inline-block"
+                :class="pkg.status === 'READY_FOR_PICKUP'
+                  ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                  : pkg.status === 'RELEASED'
+                  ? 'bg-white/[0.05] text-text-tertiary'
+                  : 'bg-sky-500/15 text-sky-300 border border-sky-500/30'"
+              >
+                {{ pkg.status === 'READY_FOR_PICKUP' ? t('miniapp.inPvzPickup') : pkg.status === 'RELEASED' ? 'Выдан' : t('miniapp.inTransitStatus') }}
+              </div>
             </div>
           </div>
 
-          <div class="text-right">
-            <div class="text-xs font-bold text-white">{{ store.formatMoney(pkg.costUSD) }}</div>
-            <div class="text-[10px] font-semibold mt-0.5" :class="pkg.status === 'READY_FOR_PICKUP' ? 'text-accent-emerald' : 'text-accent-cyan'">
-              {{ pkg.status === 'READY_FOR_PICKUP' ? t('miniapp.inPvzPickup') : t('miniapp.inTransitStatus') }}
+          <!-- Блок 1: Если посылка ГОТОВА К ВЫДАЧЕ В ПВЗ -->
+          <div v-if="pkg.status === 'READY_FOR_PICKUP'" class="space-y-2 pt-2 border-t border-white/[0.06]">
+            <!-- Плашка ячейки и таймер бесплатного хранения -->
+            <div class="flex items-center justify-between text-[11px] flex-wrap gap-1">
+              <div class="flex items-center gap-1.5 text-accent-cyan font-mono">
+                <span class="px-2 py-0.5 rounded bg-accent-cyan/10 border border-accent-cyan/20">Ячейка: {{ pkg.shelfLocation || 'ПВЗ' }}</span>
+              </div>
+              <div class="flex items-center gap-1 text-amber-300 font-medium">
+                <Clock class="w-3 h-3 text-amber-400" />
+                <span>Бесплатное хранение: 3 дня</span>
+              </div>
+            </div>
+
+            <!-- Кнопка быстрой оплаты -->
+            <div class="flex items-center gap-2 pt-1">
+              <button
+                v-if="!pkg.isPaidOnline"
+                @click="openPaymentModal(pkg)"
+                class="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-accent-emerald to-teal-500 hover:opacity-95 text-white font-bold text-xs shadow-[0_0_15px_rgba(16,185,129,0.3)] flex items-center justify-center gap-2 transition cursor-pointer active:scale-[0.99]"
+              >
+                <CreditCard class="w-3.5 h-3.5" />
+                <span>Оплатить ({{ store.formatMoney(pkg.costUSD) }})</span>
+              </button>
+              <div
+                v-else
+                class="flex-1 py-2 px-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-bold text-xs flex items-center justify-center gap-1.5"
+              >
+                <CheckCircle2 class="w-3.5 h-3.5" />
+                <span>Оплачено онлайн</span>
+              </div>
+
+              <button
+                @click="openQrModal"
+                class="py-2.5 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-accent-cyan border border-white/[0.08] text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+              >
+                <QrCode class="w-3.5 h-3.5" />
+                <span>QR</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Блок 2: Если посылка В ПУТИ / НА СКЛАДЕ -->
+          <div v-else-if="pkg.status === 'IN_TRANSIT' || pkg.status === 'RECEIVED_AT_ORIGIN' || pkg.status === 'CUSTOMS'" class="pt-2 border-t border-white/[0.06] flex items-center justify-between">
+            <div class="text-[11px] text-text-tertiary flex items-center gap-1">
+              <span>ПВЗ назначения:</span>
+              <b class="text-white">{{ currentCustomerBranch?.name || 'ПВЗ' }}</b>
+            </div>
+
+            <button
+              @click="toggleNotification(pkg)"
+              class="px-2.5 py-1.5 rounded-xl border text-[11px] font-semibold transition flex items-center gap-1.5 cursor-pointer"
+              :class="pkg.notifiedReady
+                ? 'bg-accent-cyan/15 border-accent-cyan text-accent-cyan'
+                : 'bg-white/[0.04] border-white/[0.08] text-text-secondary hover:text-white'"
+            >
+              <Bell class="w-3 h-3" :class="{ 'fill-accent-cyan': pkg.notifiedReady }" />
+              <span>{{ pkg.notifiedReady ? 'Уведомление включено' : 'Уведомить по прибытии' }}</span>
+            </button>
+          </div>
+
+          <!-- Блок 3: Если посылка ВЫДАНА (Отзыв + Фото выдачи) -->
+          <div v-else-if="pkg.status === 'RELEASED'" class="pt-2 border-t border-white/[0.06] flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <!-- Фото посылки при выдаче (если есть) -->
+              <button
+                v-if="pkg.handoverPhoto || pkg.photos?.[0]"
+                @click="openPhotoPreview(pkg.handoverPhoto || pkg.photos?.[0] || '')"
+                class="px-2.5 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-accent-cyan border border-white/[0.08] text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+              >
+                <Camera class="w-3 h-3" />
+                <span>Фото выдачи</span>
+              </button>
+              <span v-else class="text-[11px] text-text-tertiary">Успешно получено</span>
+            </div>
+
+            <!-- Отзыв -->
+            <div>
+              <div v-if="pkg.reviewRating" class="flex items-center gap-1 text-amber-300 font-bold text-xs">
+                <Star class="w-3.5 h-3.5 fill-amber-300" />
+                <span>{{ pkg.reviewRating }}/5</span>
+              </div>
+              <button
+                v-else
+                @click="openReviewModal(pkg)"
+                class="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-bold flex items-center gap-1 transition cursor-pointer"
+              >
+                <Star class="w-3 h-3" />
+                <span>Оставить отзыв</span>
+              </button>
             </div>
           </div>
         </div>
@@ -621,6 +742,153 @@
       </div>
     </AppModal>
 
+    <!-- МОДАЛЬНОЕ ОКНО: ОТЗЫВ О ЗАКАЗЕ -->
+    <AppModal v-model="showReviewModal" title="Оставить отзыв о сервисе">
+      <div class="space-y-4 py-1 text-xs">
+        <div class="p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-between">
+          <div>
+            <div class="text-[10px] text-text-tertiary uppercase font-semibold">Посылка</div>
+            <div class="font-mono font-bold text-white text-sm mt-0.5">{{ selectedReviewPkg?.trackingNumber }}</div>
+            <div class="text-[11px] text-text-secondary">{{ selectedReviewPkg?.description }}</div>
+          </div>
+          <div class="text-right">
+            <div class="text-[10px] text-text-tertiary uppercase font-semibold">Сумма</div>
+            <div class="font-mono font-bold text-accent-cyan text-sm mt-0.5">{{ store.formatMoney(selectedReviewPkg?.costUSD || 0) }}</div>
+          </div>
+        </div>
+
+        <div>
+          <label class="text-text-secondary block mb-2 font-medium">Ваша оценка скорости и качества доставки:</label>
+          <div class="flex items-center justify-center gap-3 py-2">
+            <button
+              v-for="star in 5"
+              :key="star"
+              type="button"
+              @click="reviewRating = star"
+              class="p-2.5 rounded-2xl transition hover:scale-110 cursor-pointer"
+              :class="star <= reviewRating ? 'text-amber-400 bg-amber-400/15 border border-amber-400/30' : 'text-text-tertiary bg-white/[0.04] border border-white/[0.06]'"
+            >
+              <Star class="w-6 h-6" :class="{ 'fill-amber-400': star <= reviewRating }" />
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <label class="text-text-secondary block mb-1 font-medium">Комментарий (опционально):</label>
+          <textarea
+            v-model="reviewComment"
+            rows="3"
+            placeholder="Всё пришло целым и очень быстро! Спасибо персоналу ПВЗ."
+            class="w-full p-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white text-xs focus:border-accent-cyan focus:outline-none placeholder:text-text-tertiary"
+          ></textarea>
+        </div>
+      </div>
+
+      <template #footer>
+        <button
+          @click="showReviewModal = false"
+          class="px-4 py-2 rounded-xl bg-white/[0.04] text-text-secondary hover:text-white font-medium text-xs transition cursor-pointer"
+        >
+          Отмена
+        </button>
+        <button
+          @click="submitReview"
+          class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs shadow-[0_0_15px_rgba(245,158,11,0.3)] transition cursor-pointer flex items-center gap-1.5"
+        >
+          <CheckCircle2 class="w-4 h-4 stroke-[2.5]" />
+          <span>Отправить отзыв</span>
+        </button>
+      </template>
+    </AppModal>
+
+    <!-- МОДАЛЬНОЕ ОКНО: ОПЛАТА ПОСЫЛКИ ОНЛАЙН -->
+    <AppModal v-model="showPaymentModal" title="Оплата доставки посылки">
+      <div class="space-y-4 py-1 text-xs">
+        <div class="p-4 rounded-2xl bg-gradient-to-br from-accent-emerald/20 to-teal-500/10 border border-accent-emerald/30 text-left space-y-1">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] text-text-secondary uppercase font-semibold">Сумма к оплате</span>
+            <span class="font-mono text-xs text-accent-cyan font-bold">{{ selectedPaymentPkg?.trackingNumber }}</span>
+          </div>
+          <div class="text-2xl font-black text-white font-mono">
+            {{ store.formatMoney(selectedPaymentPkg?.costUSD || 0) }}
+          </div>
+          <div class="text-[11px] text-text-tertiary">
+            Вес: {{ selectedPaymentPkg?.weightKg }} кг • ПВЗ: {{ currentCustomerBranch?.name || 'ПВЗ' }}
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <label class="text-text-secondary block font-medium">Способ оплаты:</label>
+          <div class="grid grid-cols-2 gap-2">
+            <div
+              @click="payMethod = 'CARD'"
+              class="p-3 rounded-2xl border transition cursor-pointer text-left space-y-1"
+              :class="payMethod === 'CARD' ? 'bg-accent-emerald/15 border-accent-emerald text-white' : 'bg-[#181B23] border-white/[0.08] text-text-secondary'"
+            >
+              <div class="flex items-center justify-between">
+                <CreditCard class="w-4 h-4 text-accent-emerald" />
+                <Check v-if="payMethod === 'CARD'" class="w-3.5 h-3.5 text-accent-emerald" />
+              </div>
+              <div class="font-bold text-xs text-white">Банковская карта</div>
+              <div class="text-[10px] text-text-tertiary">Корти Милли / Visa</div>
+            </div>
+
+            <div
+              @click="payMethod = 'CASH'"
+              class="p-3 rounded-2xl border transition cursor-pointer text-left space-y-1"
+              :class="payMethod === 'CASH' ? 'bg-accent-emerald/15 border-accent-emerald text-white' : 'bg-[#181B23] border-white/[0.08] text-text-secondary'"
+            >
+              <div class="flex items-center justify-between">
+                <QrCode class="w-4 h-4 text-accent-cyan" />
+                <Check v-if="payMethod === 'CASH'" class="w-3.5 h-3.5 text-accent-cyan" />
+              </div>
+              <div class="font-bold text-xs text-white">Наличными в ПВЗ</div>
+              <div class="text-[10px] text-text-tertiary">При получении по QR</div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="payMethod === 'CARD'" class="p-3 rounded-xl bg-black/30 border border-white/[0.06] text-[11px] text-text-secondary leading-relaxed space-y-1">
+          <div>💳 Номер карты для перевода: <b class="text-white font-mono">9992 0012 3456 7890</b></div>
+          <div>Получатель: <b class="text-white">{{ tenantName }}</b></div>
+        </div>
+      </div>
+
+      <template #footer>
+        <button
+          @click="showPaymentModal = false"
+          class="px-4 py-2 rounded-xl bg-white/[0.04] text-text-secondary hover:text-white font-medium text-xs transition cursor-pointer"
+        >
+          Отмена
+        </button>
+        <button
+          @click="confirmPaymentSubmit"
+          class="px-5 py-2.5 rounded-xl bg-accent-emerald hover:bg-accent-emerald/90 text-white font-bold text-xs shadow-glow-emerald transition cursor-pointer flex items-center gap-1.5"
+        >
+          <CheckCircle2 class="w-4 h-4" />
+          <span>Подтвердить оплату</span>
+        </button>
+      </template>
+    </AppModal>
+
+    <!-- МОДАЛЬНОЕ ОКНО: ПРОСМОТР ФОТО ВЫДАЧИ -->
+    <AppModal v-model="showPhotoModal" title="Фото фиксации при выдаче">
+      <div class="py-2 text-center space-y-3">
+        <img :src="photoModalUrl" alt="Handover Proof" class="w-full max-h-[360px] object-contain rounded-2xl border border-white/[0.1] mx-auto bg-black" />
+        <div class="text-xs text-text-tertiary">
+          Фото сделано сотрудником филиала в момент передачи посылки клиенту
+        </div>
+      </div>
+      <template #footer>
+        <button
+          @click="showPhotoModal = false"
+          class="w-full py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.12] text-white font-semibold text-xs transition cursor-pointer"
+        >
+          Закрыть
+        </button>
+      </template>
+    </AppModal>
+
     <!-- Футер: Powered by Cargona -->
     <footer class="mt-8 mb-3 flex flex-col items-center justify-center opacity-70 hover:opacity-100 transition">
       <div class="flex items-center gap-1.5 text-[11px] text-text-tertiary">
@@ -664,6 +932,11 @@ import {
   ShieldCheck,
   LogOut,
   AlertCircle,
+  Star,
+  Bell,
+  CreditCard,
+  Clock,
+  Camera,
 } from 'lucide-vue-next';
 import AppleFlag from '../components/ui/AppleFlag.vue';
 import LanguageSwitcher from '../components/ui/LanguageSwitcher.vue';
@@ -674,6 +947,64 @@ import { useI18n } from '../locales';
 const route = useRoute();
 const store = useCargoStore();
 const { t } = useI18n();
+
+const miniAppToast = ref('');
+const showReviewModal = ref(false);
+const selectedReviewPkg = ref<any>(null);
+const reviewRating = ref(5);
+const reviewComment = ref('');
+
+const showPaymentModal = ref(false);
+const selectedPaymentPkg = ref<any>(null);
+const payMethod = ref<'CARD' | 'CASH'>('CARD');
+
+const showPhotoModal = ref(false);
+const photoModalUrl = ref('');
+
+function toggleNotification(pkg: any) {
+  const nextState = !pkg.notifiedReady;
+  store.toggleNotifyWhenReady(pkg.id, nextState);
+  miniAppToast.value = nextState
+    ? `🔔 Уведомление включено для трека ${pkg.trackingNumber}. Бот пришлет сообщение, как только посылка прибудет в ПВЗ.`
+    : `Уведомление для трека ${pkg.trackingNumber} отключено.`;
+}
+
+function openReviewModal(pkg: any) {
+  selectedReviewPkg.value = pkg;
+  reviewRating.value = pkg.reviewRating || 5;
+  reviewComment.value = pkg.reviewComment || '';
+  showReviewModal.value = true;
+}
+
+function submitReview() {
+  if (!selectedReviewPkg.value) return;
+  store.submitPackageReview(selectedReviewPkg.value.id, reviewRating.value, reviewComment.value);
+  showReviewModal.value = false;
+  miniAppToast.value = '⭐ Спасибо за ваш отзыв! Он поможет улучшить качество нашей логистики.';
+}
+
+function openPaymentModal(pkg: any) {
+  selectedPaymentPkg.value = pkg;
+  payMethod.value = 'CARD';
+  showPaymentModal.value = true;
+}
+
+function confirmPaymentSubmit() {
+  if (!selectedPaymentPkg.value) return;
+  if (payMethod.value === 'CARD') {
+    store.payPackageOnline(selectedPaymentPkg.value.id);
+    miniAppToast.value = `✅ Оплата ${selectedPaymentPkg.value.trackingNumber} успешно подтверждена! Ждем вас в ПВЗ.`;
+  } else {
+    miniAppToast.value = `Заказ ${selectedPaymentPkg.value.trackingNumber} готов к оплате наличными в ПВЗ.`;
+  }
+  showPaymentModal.value = false;
+}
+
+function openPhotoPreview(url: string) {
+  if (!url) return;
+  photoModalUrl.value = url;
+  showPhotoModal.value = true;
+}
 
 const serverTenant = ref<{ name: string; slug: string; codePrefix: string; managerUsername?: string } | null>(null);
 

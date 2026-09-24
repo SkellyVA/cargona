@@ -780,6 +780,89 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/packages', a
   return { success: true, package: newPackage };
 });
 
+// Bulk Package Intake (Multiple tracking numbers via pasted list)
+fastify.post<{
+  Params: { slug: string };
+  Body: {
+    trackingNumbers: string[];
+    targetBranchId?: string;
+    customerCargoCode?: string;
+    status?: string;
+    weightKg?: number;
+    description?: string;
+  };
+}>('/api/o/:slug/packages/bulk', async (request, reply) => {
+  const { slug } = request.params;
+  const tenant = store.tenants.find((t) => t.slug === slug);
+  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
+
+  const { trackingNumbers, targetBranchId, customerCargoCode, status = 'RECEIVED_AT_ORIGIN', weightKg = 0, description } = request.body;
+  if (!Array.isArray(trackingNumbers) || trackingNumbers.length === 0) {
+    return reply.status(400).send({ error: 'Список трек-номеров пуст' });
+  }
+
+  const createdPackages: any[] = [];
+  const updatedPackages: any[] = [];
+
+  for (const rawTrack of trackingNumbers) {
+    const track = (rawTrack || '').trim();
+    if (!track) continue;
+
+    let existing = store.packages.find((p) => p.tenantId === tenant.id && p.trackingNumber.toLowerCase() === track.toLowerCase());
+    if (existing) {
+      if (status) existing.status = status as any;
+      if (targetBranchId) existing.currentBranchId = targetBranchId;
+      if (customerCargoCode) existing.customerCargoCode = customerCargoCode.toUpperCase().trim();
+      if (weightKg > 0) existing.weightKg = weightKg;
+      existing.updatedAt = new Date().toISOString();
+      updatedPackages.push(existing);
+    } else {
+      const newPkg = {
+        id: store.nextId('pkg', store.packages),
+        tenantId: tenant.id,
+        trackingNumber: track,
+        internalBarcode: `PKG-${tenant.codePrefix}-${Math.floor(1000 + Math.random() * 9000)}`,
+        customerId: null,
+        customerCargoCode: (customerCargoCode || '').toUpperCase().trim(),
+        currentBranchId: targetBranchId || 'branch-origin',
+        weightKg: weightKg || 0,
+        cost: 0,
+        currency: tenant.baseCurrency || 'USD',
+        photos: [],
+        description: description || null,
+        status: (status as any) || 'RECEIVED_AT_ORIGIN',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      store.packages.unshift(newPkg);
+      createdPackages.push(newPkg);
+    }
+  }
+
+  // Add audit log
+  store.auditLogs.unshift({
+    id: store.nextId('audit', store.auditLogs),
+    tenantId: tenant.id,
+    userId: 'user-admin',
+    userName: 'Оператор склада',
+    userRole: 'SORTER',
+    entityType: 'PACKAGE',
+    entityId: createdPackages[0]?.id || 'bulk',
+    action: 'CREATE',
+    details: `Массовая приемка: добавлено ${createdPackages.length}, обновлено ${updatedPackages.length} трек-номеров`,
+    createdAt: new Date().toISOString(),
+  });
+
+  store.saveToFile();
+  return {
+    success: true,
+    totalReceived: createdPackages.length + updatedPackages.length,
+    createdCount: createdPackages.length,
+    updatedCount: updatedPackages.length,
+    packages: [...createdPackages, ...updatedPackages],
+  };
+});
+
 fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/packages/:id', async (request, reply) => {
   const { slug, id } = request.params;
   const tenant = store.tenants.find((t) => t.slug === slug);
@@ -788,10 +871,39 @@ fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/p
   const pkg = store.packages.find((p) => (p.id === id || p.trackingNumber === id) && p.tenantId === tenant.id);
   if (!pkg) return reply.status(404).send({ error: 'Package not found' });
 
+  const oldStatus = pkg.status;
   Object.assign(pkg, request.body);
   if (request.body.costUSD) pkg.cost = request.body.costUSD;
+  if (request.body.status === 'READY_FOR_PICKUP' && oldStatus !== 'READY_FOR_PICKUP') {
+    (pkg as any).readyAt = new Date().toISOString();
+  }
   pkg.updatedAt = new Date().toISOString();
   store.saveToFile();
+
+  // Send ready for pickup notification if applicable
+  if (pkg.status === 'READY_FOR_PICKUP' && oldStatus !== 'READY_FOR_PICKUP') {
+    const cust = store.customers.find((c) => (c.id === pkg.customerId || (pkg.customerCargoCode && c.cargoCode === pkg.customerCargoCode)) && c.tenantId === tenant.id);
+    if (cust) {
+      const domain = APP_DOMAIN.replace(/^https?:\/\//, '');
+      const cellText = pkg.storageCellId ? ` (Ячейка: ${pkg.storageCellId})` : '';
+      sendTelegramNotificationToCustomer(
+        tenant.id,
+        cust,
+        `✅ <b>Посылка готова к выдаче!</b>\n\n` +
+        `• <b>Трек-номер:</b> <code>${pkg.trackingNumber}</code>\n` +
+        `• <b>Вес:</b> ${pkg.weightKg} кг\n` +
+        `• <b>К оплате:</b> ${pkg.cost} ${pkg.currency}\n` +
+        `• <b>Размещение:</b> ${pkg.shelfLocation || 'ПВЗ'}${cellText}\n\n` +
+        `⏳ <i>Бесплатный срок хранения: 4 дня.</i>\n\n` +
+        `👇 Нажмите кнопку, чтобы получить QR-код для выдачи:`,
+        pkg.photos?.[0],
+        {
+          inline_keyboard: [[{ text: '🏷 Получить QR-код', web_app: { url: `https://${domain}/o/${slug}/app` } }]],
+        }
+      );
+    }
+  }
+
   return { success: true, package: pkg };
 });
 
@@ -856,9 +968,36 @@ fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/t
   const trip = store.trips.find((t) => (t.id === id || t.tripCode === id) && t.tenantId === tenant.id);
   if (!trip) return reply.status(404).send({ error: 'Trip not found' });
 
+  const oldStatus = trip.status;
   Object.assign(trip, request.body);
   trip.updatedAt = new Date().toISOString();
   store.saveToFile();
+
+  // Notify clients if trip status changed to ARRIVED
+  if (request.body.status === 'ARRIVED' && oldStatus !== 'ARRIVED') {
+    const tripPackages = store.packages.filter((p) => p.tenantId === tenant.id && (p.tripId === trip.id || (trip.manifestItems || []).some((m: any) => m.packageId === p.id || m.trackingNumber === p.trackingNumber)));
+    const customerCargoCodes = [...new Set(tripPackages.map((p) => p.customerCargoCode).filter(Boolean))];
+    const domain = APP_DOMAIN.replace(/^https?:\/\//, '');
+
+    for (const code of customerCargoCodes) {
+      const cust = store.customers.find((c) => c.tenantId === tenant.id && c.cargoCode === code);
+      if (cust) {
+        const custPkgs = tripPackages.filter((p) => p.customerCargoCode === code);
+        sendTelegramNotificationToCustomer(
+          tenant.id,
+          cust,
+          `🚚 <b>Рейс ${trip.tripCode} прибыл!</b>\n\n` +
+          `Ваши посылки (<b>${custPkgs.length} шт.</b>) поступили в пункт назначения и направлены на сортировку.\n\n` +
+          `👇 Мы пришлем вам уведомление сразу после размещения на полке ПВЗ:`,
+          undefined,
+          {
+            inline_keyboard: [[{ text: '📦 Открыть кабинет', web_app: { url: `https://${domain}/o/${slug}/app` } }]],
+          }
+        );
+      }
+    }
+  }
+
   return { success: true, trip };
 });
 
