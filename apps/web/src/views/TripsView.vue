@@ -414,10 +414,11 @@
               <button
                 type="button"
                 @click="unloadPackage(pkg)"
-                class="px-2 py-1 rounded bg-red-500/15 hover:bg-red-500/25 text-rose-400 text-[10px] font-bold transition cursor-pointer"
+                class="px-2 py-1 rounded bg-red-500/15 hover:bg-red-500/25 text-rose-400 text-[10px] font-bold transition cursor-pointer flex items-center gap-1"
                 title="Снять посылку с рейса"
               >
-                ✕ Снять
+                <X class="w-3 h-3" />
+                <span>Снять</span>
               </button>
             </div>
           </div>

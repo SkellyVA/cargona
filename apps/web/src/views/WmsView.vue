@@ -178,22 +178,6 @@
             <ListPlus class="w-4 h-4" />
             <span class="hidden sm:inline">Массовая приемка</span>
           </button>
-
-          <!-- Быстрые демо кнопки — только на десктопе -->
-          <button
-            v-if="terminalMode === 'HANDOVER'"
-            @click="simulateClientQrScan"
-            class="hidden sm:flex h-12 sm:h-14 px-3 rounded-2xl bg-white/[0.05] hover:bg-white/[0.09] text-xs font-medium text-text-secondary hover:text-white border border-white/[0.06] transition shrink-0 cursor-pointer items-center"
-          >
-            Тест QR
-          </button>
-          <button
-            v-else
-            @click="simulateIntakeScan"
-            class="hidden sm:flex h-12 sm:h-14 px-3 rounded-2xl bg-white/[0.05] hover:bg-white/[0.09] text-xs font-medium text-text-secondary hover:text-white border border-white/[0.06] transition shrink-0 cursor-pointer items-center"
-          >
-            Тест ШК
-          </button>
         </div>
       </div>
 
@@ -591,12 +575,12 @@
 
           <div>
             <label class="text-[11px] text-text-tertiary mb-1 block">ПВЗ назначения</label>
-            <select
+            <AppDropdown
               v-model="intakeForm.targetBranchId"
-              class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white text-xs focus:border-accent-cyan focus:outline-none"
-            >
-              <option v-for="b in store.branches" :key="b.id" :value="b.id">{{ b.name }} ({{ b.city }})</option>
-            </select>
+              :options="branchOptions"
+              placeholder="Выберите ПВЗ"
+              class="w-full"
+            />
           </div>
 
           <div>
@@ -866,16 +850,11 @@
 
         <div>
           <label class="text-text-secondary mb-1 block">Причина возврата товара</label>
-          <select
+          <AppDropdown
             v-model="handoverReturnForm.reason"
-            class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white text-xs focus:border-rose-400 focus:outline-none cursor-pointer"
-          >
-            <option value="Отказ клиента при осмотре">Отказ клиента при осмотре в ПВЗ</option>
-            <option value="Брак / Производственный дефект">Брак / Производственный дефект</option>
-            <option value="Не подошел размер / фасон">Не подошел размер / фасон</option>
-            <option value="Ошибка продавца / Прислан не тот товар">Ошибка продавца / Прислан не тот товар</option>
-            <option value="Повреждена упаковка / бой">Повреждена упаковка / бой</option>
-          </select>
+            :options="handoverReturnReasons"
+            class="w-full"
+          />
         </div>
 
         <div class="grid grid-cols-2 gap-3">
@@ -947,23 +926,22 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label class="text-text-secondary mb-1 block">Филиал / ПВЗ назначения</label>
-            <select
+            <AppDropdown
               v-model="bulkIntakeForm.targetBranchId"
-              class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white text-xs focus:border-accent-cyan focus:outline-none"
-            >
-              <option v-for="b in store.branches" :key="b.id" :value="b.id">{{ b.name }} ({{ b.city }})</option>
-            </select>
+              :options="branchOptions"
+              placeholder="Выберите ПВЗ"
+              class="w-full"
+            />
           </div>
 
           <div>
             <label class="text-text-secondary mb-1 block">Статус после приемки</label>
-            <select
+            <AppDropdown
               v-model="bulkIntakeForm.targetStatus"
-              class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white text-xs focus:border-accent-cyan focus:outline-none"
-            >
-              <option value="RECEIVED_AT_ORIGIN">На складе отправки (Китай)</option>
-              <option value="READY_FOR_PICKUP">В ПВЗ (Готово к выдаче)</option>
-            </select>
+              :options="bulkStatusOptions"
+              placeholder="Выберите статус"
+              class="w-full"
+            />
           </div>
         </div>
 
@@ -1042,6 +1020,7 @@ import {
   ListPlus,
 } from 'lucide-vue-next';
 import AppModal from '../components/ui/AppModal.vue';
+import AppDropdown from '../components/ui/AppDropdown.vue';
 import AppCheckbox from '../components/ui/AppCheckbox.vue';
 import AppleFlag from '../components/ui/AppleFlag.vue';
 import BarcodePrintModal from '../components/BarcodePrintModal.vue';
@@ -1079,6 +1058,23 @@ function selectLocation(id: string) {
   isLocationDropdownOpen.value = false;
   onLocationChange();
 }
+
+const branchOptions = computed(() =>
+  store.branches.map((b) => ({ value: b.id, label: `${b.name} (${b.city})` }))
+);
+
+const handoverReturnReasons = [
+  { value: 'Отказ клиента при осмотре', label: 'Отказ клиента при осмотре в ПВЗ' },
+  { value: 'Брак / Производственный дефект', label: 'Брак / Производственный дефект' },
+  { value: 'Не подошел размер / фасон', label: 'Не подошел размер / фасон' },
+  { value: 'Ошибка продавца / Прислан не тот товар', label: 'Ошибка продавца / Прислан не тот товар' },
+  { value: 'Повреждена упаковка / бой', label: 'Повреждена упаковка / бой' },
+];
+
+const bulkStatusOptions = [
+  { value: 'RECEIVED_AT_ORIGIN', label: 'На складе отправки (Китай)' },
+  { value: 'READY_FOR_PICKUP', label: 'В ПВЗ (Готово к выдаче)' },
+];
 
 const currentLocationFlag = computed(() => {
   const wh = store.originWarehouses.find(

@@ -488,6 +488,70 @@
       </div>
     </div>
 
+    <!-- Секция 5: Сроки и стоимость хранения в ПВЗ -->
+    <div class="bg-surface border border-surface-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-card space-y-4">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/[0.06] pb-3">
+        <div class="flex items-center gap-2.5">
+          <Clock class="w-5 h-5 text-accent-cyan shrink-0" />
+          <div>
+            <h3 class="text-sm sm:text-base font-bold text-white">Сроки и стоимость хранения в ПВЗ</h3>
+            <p class="text-xs text-text-secondary mt-0.5">Период бесплатного хранения и начисление за просрочку после прибытия посылки</p>
+          </div>
+        </div>
+        <span class="text-xs font-mono px-3 py-1 rounded-lg bg-accent-cyan/15 text-accent-cyan border border-accent-cyan/30 self-start sm:self-auto">
+          {{ store.settings.freeStorageDays || 3 }} дн. бесплатно
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+        <div>
+          <label class="text-text-secondary mb-1.5 block">Срок бесплатного хранения (дней)</label>
+          <div class="relative">
+            <input
+              v-model.number="storageForm.freeStorageDays"
+              type="number"
+              min="0"
+              step="1"
+              placeholder="3"
+              class="w-full h-10 px-3 pr-14 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono"
+            />
+            <span class="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary font-mono pointer-events-none">
+              дней
+            </span>
+          </div>
+          <p class="text-[10px] text-text-tertiary mt-1">Отображается клиентам в Telegram Mini App</p>
+        </div>
+
+        <div>
+          <label class="text-text-secondary mb-1.5 block">Стоимость платного хранения за день ({{ store.activeCurrency }}/день)</label>
+          <div class="relative">
+            <input
+              v-model.number="storageForm.overdueRatePerDay"
+              type="number"
+              min="0"
+              step="0.1"
+              placeholder="5"
+              class="w-full h-10 px-3 pr-20 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono"
+            />
+            <span class="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary font-mono pointer-events-none">
+              {{ store.activeCurrency }}/день
+            </span>
+          </div>
+          <p class="text-[10px] text-text-tertiary mt-1">Начисляется после окончания бесплатного периода</p>
+        </div>
+      </div>
+
+      <div class="flex justify-end pt-1">
+        <button
+          @click="saveStorageSettings"
+          class="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-accent-blue hover:bg-accent-blue/90 text-white font-bold text-xs shadow-glow-blue transition cursor-pointer"
+        >
+          <Check class="w-3.5 h-3.5" />
+          <span>Сохранить условия хранения</span>
+        </button>
+      </div>
+    </div>
+
     <!-- Модальное окно добавления сотрудника -->
     <AppModal v-model="showAddStaffModal" title="Добавить сотрудника">
       <div class="space-y-3.5 text-xs">
@@ -709,11 +773,29 @@ watch(
       airRatePerKg: store.deliveryRates.airRatePerKg,
       minPackageCost: store.deliveryRates.minPackageCost,
     };
+    storageForm.value = {
+      freeStorageDays: store.settings.freeStorageDays || 3,
+      overdueRatePerDay: store.deliveryRates.storageOverdueRatePerDay || 5,
+    };
   }
 );
 
 function onRateFormChange() {
   store.updateDeliveryRates(rateForm.value);
+}
+
+// Форма настроек хранения в ПВЗ
+const storageForm = ref({
+  freeStorageDays: store.settings.freeStorageDays || 3,
+  overdueRatePerDay: store.deliveryRates.storageOverdueRatePerDay || 5,
+});
+
+function saveStorageSettings() {
+  store.updateStorageSettings({
+    freeStorageDays: storageForm.value.freeStorageDays,
+    storageOverdueRatePerDay: storageForm.value.overdueRatePerDay,
+  });
+  toastMessage.value = `Условия хранения сохранены: ${storageForm.value.freeStorageDays} дн. бесплатно, далее ${storageForm.value.overdueRatePerDay} ${store.activeCurrency}/день`;
 }
 
 const activeWarehouseId = ref('wh-cn');
@@ -778,7 +860,7 @@ function saveCompanyProfile() {
   }
   store.updateTenant(slug, { name, codePrefix: prefix });
   localStorage.setItem(`cargona_settings_${slug}`, JSON.stringify(store.settings));
-  toastMessage.value = `✅ Профиль компании обновлен: «${name}» (${prefix})`;
+  toastMessage.value = `Профиль компании обновлен: «${name}» (${prefix})`;
 
   // If bot token is set, sync with server immediately
   if (store.settings.botToken) {
@@ -838,13 +920,13 @@ async function saveBotSettings() {
     const data = await res.json();
 
     if (!res.ok || data.error) {
-      toastMessage.value = `❌ ${data.error || 'Ошибка подключения бота к Telegram'}`;
+      toastMessage.value = data.error || 'Ошибка подключения бота к Telegram';
       return;
     }
 
     if (data.bot?.username) {
       store.settings.botUsername = data.bot.username;
-      toastMessage.value = `✅ Бот @${data.bot.username} успешно подключен к компании «${companyName}»! При отправке /start бот приветствует от имени вашей компании.`;
+      toastMessage.value = `Бот @${data.bot.username} успешно подключен к компании «${companyName}»! При отправке /start бот приветствует клиентов от имени вашей компании.`;
     } else {
       toastMessage.value = 'Настройки бота успешно сохранены';
     }
@@ -853,22 +935,9 @@ async function saveBotSettings() {
     localStorage.setItem('cargona_settings', JSON.stringify(store.settings));
     store.addAudit('UPDATE', 'Telegram Бот', 'Настройки бота', `Обновлен токен бота @${store.settings.botUsername || ''} для компании ${companyName}`);
   } catch (err: any) {
-    toastMessage.value = `❌ Ошибка сети: ${err.message || 'Не удалось связаться с сервером'}`;
+    toastMessage.value = `Ошибка сети: ${err.message || 'Не удалось связаться с сервером'}`;
   } finally {
     isSavingBot.value = false;
-  }
-}
-
-function getCountryFlag(code?: string) {
-  switch ((code || '').toUpperCase()) {
-    case 'CN': return '🇨🇳';
-    case 'TR': return '🇹🇷';
-    case 'AE': return '🇦🇪';
-    case 'US': return '🇺🇸';
-    case 'DE': return '🇩🇪';
-    case 'KR': return '🇰🇷';
-    case 'RU': return '🇷🇺';
-    default: return '🌐';
   }
 }
 

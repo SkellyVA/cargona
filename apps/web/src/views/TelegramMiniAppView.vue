@@ -516,7 +516,7 @@
               </div>
               <div class="flex items-center gap-1 text-amber-300 font-medium">
                 <Clock class="w-3 h-3 text-amber-400" />
-                <span>Бесплатное хранение: 3 дня</span>
+                <span>Бесплатное хранение: {{ store.settings.freeStorageDays || 3 }} дн.</span>
               </div>
             </div>
 
@@ -849,7 +849,7 @@
         </div>
 
         <div v-if="payMethod === 'CARD'" class="p-3 rounded-xl bg-black/30 border border-white/[0.06] text-[11px] text-text-secondary leading-relaxed space-y-1">
-          <div>💳 Номер карты для перевода: <b class="text-white font-mono">9992 0012 3456 7890</b></div>
+          <div class="flex items-center gap-1.5"><CreditCard class="w-3.5 h-3.5 text-accent-emerald shrink-0" /><span>Номер карты для перевода:</span> <b class="text-white font-mono">9992 0012 3456 7890</b></div>
           <div>Получатель: <b class="text-white">{{ tenantName }}</b></div>
         </div>
       </div>
@@ -965,7 +965,7 @@ function toggleNotification(pkg: any) {
   const nextState = !pkg.notifiedReady;
   store.toggleNotifyWhenReady(pkg.id, nextState);
   miniAppToast.value = nextState
-    ? `🔔 Уведомление включено для трека ${pkg.trackingNumber}. Бот пришлет сообщение, как только посылка прибудет в ПВЗ.`
+    ? `Уведомление включено для трека ${pkg.trackingNumber}. Бот пришлет сообщение, как только посылка прибудет в ПВЗ.`
     : `Уведомление для трека ${pkg.trackingNumber} отключено.`;
 }
 
@@ -980,7 +980,7 @@ function submitReview() {
   if (!selectedReviewPkg.value) return;
   store.submitPackageReview(selectedReviewPkg.value.id, reviewRating.value, reviewComment.value);
   showReviewModal.value = false;
-  miniAppToast.value = '⭐ Спасибо за ваш отзыв! Он поможет улучшить качество нашей логистики.';
+  miniAppToast.value = 'Спасибо за ваш отзыв! Он поможет улучшить качество нашего сервиса.';
 }
 
 function openPaymentModal(pkg: any) {
@@ -993,7 +993,7 @@ function confirmPaymentSubmit() {
   if (!selectedPaymentPkg.value) return;
   if (payMethod.value === 'CARD') {
     store.payPackageOnline(selectedPaymentPkg.value.id);
-    miniAppToast.value = `✅ Оплата ${selectedPaymentPkg.value.trackingNumber} успешно подтверждена! Ждем вас в ПВЗ.`;
+    miniAppToast.value = `Оплата ${selectedPaymentPkg.value.trackingNumber} успешно подтверждена! Ждем вас в ПВЗ.`;
   } else {
     miniAppToast.value = `Заказ ${selectedPaymentPkg.value.trackingNumber} готов к оплате наличными в ПВЗ.`;
   }
@@ -1478,7 +1478,7 @@ function copyAddress() {
   if (!currentWarehouse.value) return;
   const addressString = formatWarehouseAddress(currentWarehouse.value);
   navigator.clipboard.writeText(addressString);
-  copyStatusOverride.value = `✓ Адрес (${currentWarehouse.value.country}) скопирован!`;
+  copyStatusOverride.value = `Адрес (${currentWarehouse.value.country}) скопирован!`;
 
   if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.HapticFeedback) {
     (window as any).Telegram.WebApp.HapticFeedback.impactOccurred('light');

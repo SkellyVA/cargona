@@ -69,10 +69,10 @@
                     <button
                       type="button"
                       @click="deleteManifestItem(item.id)"
-                      class="px-1.5 py-0.5 rounded bg-red-100 hover:bg-red-200 text-red-700 font-bold text-[9px] cursor-pointer"
+                      class="p-1 rounded bg-red-100 hover:bg-red-200 text-red-700 font-bold text-[9px] cursor-pointer inline-flex items-center justify-center"
                       title="Удалить из манифеста"
                     >
-                      ✕
+                      <X class="w-3 h-3" />
                     </button>
                   </td>
                 </tr>
@@ -207,7 +207,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { Printer, Plus } from 'lucide-vue-next';
+import { Printer, Plus, X } from 'lucide-vue-next';
 import AppModal from './ui/AppModal.vue';
 import { useCargoStore } from '../stores/useCargoStore';
 

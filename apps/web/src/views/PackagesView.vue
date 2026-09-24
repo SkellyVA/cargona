@@ -280,12 +280,12 @@
 
         <div>
           <label class="text-text-secondary mb-1 block">Филиал / ПВЗ назначения</label>
-          <select
+          <AppDropdown
             v-model="newPkg.branchId"
-            class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none text-xs"
-          >
-            <option v-for="b in store.branches" :key="b.id" :value="b.id">{{ b.name }} ({{ b.city }})</option>
-          </select>
+            :options="branchOptions"
+            placeholder="Выберите ПВЗ"
+            class="w-full"
+          />
         </div>
 
         <div>
@@ -570,17 +570,11 @@
 
           <div>
             <label class="text-text-secondary text-[11px] mb-1 block">Причина возврата товара</label>
-            <select
+            <AppDropdown
               v-model="returnForm.reason"
-              class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white text-xs focus:border-rose-400 focus:outline-none cursor-pointer"
-            >
-              <option value="Брак / Производственный дефект">Брак / Производственный дефект</option>
-              <option value="Не подошел размер / фасон">Не подошел размер / фасон</option>
-              <option value="Отказ клиента до получения">Отказ клиента до получения</option>
-              <option value="Ошибка продавца / Прислан не тот товар">Ошибка продавца / Прислан не тот товар</option>
-              <option value="Повреждение при транспортировке">Повреждение при транспортировке</option>
-              <option value="Другая причина">Другая причина</option>
-            </select>
+              :options="returnReasonOptions"
+              class="w-full"
+            />
           </div>
 
           <div class="grid grid-cols-2 gap-3">
@@ -647,6 +641,7 @@ import {
   ShoppingBag,
 } from 'lucide-vue-next';
 import AppModal from '../components/ui/AppModal.vue';
+import AppDropdown from '../components/ui/AppDropdown.vue';
 import BarcodePrintModal from '../components/BarcodePrintModal.vue';
 import { useCargoStore } from '../stores/useCargoStore';
 import { useI18n } from '../locales';
@@ -679,6 +674,19 @@ const statusCardOptions = [
   { value: 'READY_FOR_PICKUP', label: 'В ПВЗ (Готов к выдаче)', desc: 'Размещено на полке ПВЗ', icon: PackageCheck },
   { value: 'RELEASED', label: 'Выдан клиенту', desc: 'Оплачено и передано клиенту', icon: ShoppingBag },
   { value: 'RETURNED', label: 'Возврат товара', desc: 'Отказ, брак или возврат на фабрику', icon: RotateCcw },
+];
+
+const branchOptions = computed(() =>
+  store.branches.map((b) => ({ value: b.id, label: `${b.name} (${b.city})` }))
+);
+
+const returnReasonOptions = [
+  { value: 'Брак / Производственный дефект', label: 'Брак / Производственный дефект' },
+  { value: 'Не подошел размер / фасон', label: 'Не подошел размер / фасон' },
+  { value: 'Отказ клиента до получения', label: 'Отказ клиента до получения' },
+  { value: 'Ошибка продавца / Прислан не тот товар', label: 'Ошибка продавца / Прислан не тот товар' },
+  { value: 'Повреждение при транспортировке', label: 'Повреждение при транспортировке' },
+  { value: 'Другая причина', label: 'Другая причина' },
 ];
 
 // Состояние двухэтапного выбора полки в ПВЗ (Шаг 1: ПВЗ -> Шаг 2: Полка)

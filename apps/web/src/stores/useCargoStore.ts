@@ -266,18 +266,23 @@ export const useCargoStore = defineStore('cargo', () => {
     autoDeliveryRatePerKgUSD: 2.80,
     airDeliveryRatePerKgUSD: 5.50,
     minPackageCostUSD: 1.50,
+    freeStorageDays: 3,
+    storageOverdueRatePerDayUSD: 0.50,
   });
 
-  // 2.0 Тарифы доставки в выбранной валюте (<выбранная валюта>/кг)
+  // 2.0 Тарифы доставки и хранения в выбранной валюте (<выбранная валюта>/кг, /день)
   const deliveryRates = computed(() => {
     const rate = ratesToUSD.value[activeCurrency.value] || 1;
     return {
       autoRatePerKg: Math.round(settings.value.autoDeliveryRatePerKgUSD * rate * 100) / 100,
       airRatePerKg: Math.round(settings.value.airDeliveryRatePerKgUSD * rate * 100) / 100,
       minPackageCost: Math.round(settings.value.minPackageCostUSD * rate * 100) / 100,
+      freeStorageDays: settings.value.freeStorageDays || 3,
+      storageOverdueRatePerDay: Math.round((settings.value.storageOverdueRatePerDayUSD || 0.50) * rate * 100) / 100,
       formattedAuto: `${(settings.value.autoDeliveryRatePerKgUSD * rate).toFixed(2)} ${activeCurrency.value}/кг`,
       formattedAir: `${(settings.value.airDeliveryRatePerKgUSD * rate).toFixed(2)} ${activeCurrency.value}/кг`,
       formattedMinCost: `${(settings.value.minPackageCostUSD * rate).toFixed(2)} ${activeCurrency.value}`,
+      formattedStorageOverdue: `${((settings.value.storageOverdueRatePerDayUSD || 0.50) * rate).toFixed(2)} ${activeCurrency.value}/день`,
     };
   });
 
@@ -287,6 +292,24 @@ export const useCargoStore = defineStore('cargo', () => {
     settings.value.airDeliveryRatePerKgUSD = Math.round((rates.airRatePerKg / rate) * 1000) / 1000;
     settings.value.minPackageCostUSD = Math.round((rates.minPackageCost / rate) * 1000) / 1000;
     addAudit('UPDATE', 'Тарифы доставки', 'Логистика', `Обновлены тарифные ставки: Авто ${rates.autoRatePerKg} ${activeCurrency.value}/кг, Авиа ${rates.airRatePerKg} ${activeCurrency.value}/кг`);
+
+    try {
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        fetch(`/api/o/${slug}/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(settings.value),
+        });
+      }
+    } catch {}
+  }
+
+  function updateStorageSettings(data: { freeStorageDays: number; storageOverdueRatePerDay: number }) {
+    const rate = ratesToUSD.value[activeCurrency.value] || 1;
+    settings.value.freeStorageDays = Math.max(0, Math.floor(data.freeStorageDays));
+    settings.value.storageOverdueRatePerDayUSD = Math.round((data.storageOverdueRatePerDay / rate) * 1000) / 1000;
+    addAudit('UPDATE', 'Условия хранения', 'Склад & ПВЗ', `Бесплатное хранение: ${settings.value.freeStorageDays} дн., просрочка: ${data.storageOverdueRatePerDay} ${activeCurrency.value}/день`);
 
     try {
       const slug = activeTenantSlug.value;
@@ -1553,7 +1576,7 @@ export const useCargoStore = defineStore('cargo', () => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('cargona_packages', JSON.stringify(rawPackages.value));
     }
-    addAudit('REVIEW', 'Отзыв клиента', pkg.trackingNumber, `Оценка: ${rating}★${comment ? `. Комментарий: ${comment}` : ''}`, pkg.customerCargoCode, pkg.branchId);
+    addAudit('REVIEW', 'Отзыв клиента', pkg.trackingNumber, `Оценка: ${rating}/5${comment ? `. Комментарий: ${comment}` : ''}`, pkg.customerCargoCode, pkg.branchId);
 
     try {
       const slug = activeTenantSlug.value;
@@ -1870,6 +1893,7 @@ export const useCargoStore = defineStore('cargo', () => {
     setTenantSlug,
     deliveryRates,
     updateDeliveryRates,
+    updateStorageSettings,
     tenant,
     tenants,
     maxTenantsLimit,
