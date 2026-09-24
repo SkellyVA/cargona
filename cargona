@@ -301,10 +301,11 @@ EOF
     echo -e " ${BOLD}6)${NC} 🚀 Обновить систему до последней версии"
     echo -e " ${BOLD}7)${NC} 🔄 Перезапустить сервисы"
     echo -e " ${BOLD}8)${NC} 🌐 Сменить домен / перевыпустить SSL"
-    echo -e " ${BOLD}9)${NC} 📋 Просмотр системных логов (live logs)"
+    echo -e " ${BOLD}9)${NC} 📥 Умный импорт / миграция из MongoDB & JSON"
+    echo -e " ${BOLD}10)${NC} 📋 Просмотр системных логов (live logs)"
     echo -e " ${BOLD}0)${NC} 🚪 Выход"
     echo -e "${BLUE}================================================================${NC}"
-    read -p "Выберите действие [0-9]: " choice
+    read -p "Выберите действие [0-10]: " choice
 
     case "$choice" in
       1) cmd_status; read -p "Нажмите Enter для продолжения...";;
@@ -315,7 +316,22 @@ EOF
       6) cmd_update; read -p "Нажмите Enter для продолжения...";;
       7) cmd_restart; read -p "Нажмите Enter для продолжения...";;
       8) cmd_domain; read -p "Нажмите Enter для продолжения...";;
-      9) cmd_logs;;
+      9)
+        echo -e "\n${CYAN}=== Умный импорт данных в CargonaOS ===${NC}"
+        read -p "Тип источника (1 - MongoDB URI, 2 - Папка с JSON файлами): " imp_type
+        read -p "Slug организации (например: cargona): " imp_tenant
+        imp_tenant=${imp_tenant:-cargona}
+        if [ "$imp_type" = "1" ]; then
+          read -p "MongoDB URI (например: mongodb://user:pass@host:27017/db): " imp_uri
+          node apps/api/src/importer/cli.ts --mongo "$imp_uri" --tenant "$imp_tenant" 2>/dev/null || npx tsx apps/api/src/importer/cli.ts --mongo "$imp_uri" --tenant "$imp_tenant"
+        else
+          read -p "Путь к папке с JSON (по умолчанию ./dumps): " imp_dir
+          imp_dir=${imp_dir:-./dumps}
+          node apps/api/src/importer/cli.ts --dir "$imp_dir" --tenant "$imp_tenant" 2>/dev/null || npx tsx apps/api/src/importer/cli.ts --dir "$imp_dir" --tenant "$imp_tenant"
+        fi
+        read -p "Нажмите Enter для продолжения..."
+        ;;
+      10) cmd_logs;;
       0) echo -e "\nДо свидания!\n"; exit 0;;
       *) echo -e "${RED}Неверный пункт меню${NC}"; sleep 1;;
     esac
@@ -350,6 +366,10 @@ case "$1" in
       cmd_domain
     fi
     ;;
+  import)
+    shift
+    npx tsx apps/api/src/importer/cli.ts "$@"
+    ;;
   logs) cmd_logs "$2" ;;
   help|--help|-h)
     echo -e "Использование: cargona [команда]"
@@ -362,6 +382,7 @@ case "$1" in
     echo -e "  update           - Безопасно обновить систему"
     echo -e "  restart          - Перезапустить контейнеры"
     echo -e "  domain [domain]  - Изменить домен и перевыпустить SSL"
+    echo -e "  import [flags]   - Умный импорт из MongoDB или JSON (--mongo / --dir)"
     echo -e "  logs [service]   - Смотреть логи в реальном времени"
     ;;
   "") interactive_menu ;;

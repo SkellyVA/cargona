@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { store } from './store.js';
+import { runSmartMigration } from './importer/migrationEngine.js';
 
 const fastify = Fastify({
   logger: true,
@@ -2088,6 +2089,85 @@ fastify.post<{
   store.packages.unshift(newPackage);
   store.saveToFile();
   return { success: true, package: newPackage };
+});
+
+// ==========================================
+// 12. Universal Smart Migration & Import API
+// ==========================================
+fastify.post<{
+  Params: { slug: string };
+  Body: {
+    type: 'mongo' | 'json';
+    mongoUri?: string;
+    dbName?: string;
+    jsonCollections?: Record<string, Record<string, any>[]>;
+    defaultBranchId?: string;
+    costPerKgUSD?: number;
+  };
+}>('/api/o/:slug/import/preview', async (request, reply) => {
+  const { slug } = request.params;
+  const body = request.body || ({} as any);
+
+  try {
+    const result = await runSmartMigration(
+      {
+        type: body.type || 'json',
+        mongoUri: body.mongoUri,
+        dbName: body.dbName,
+        jsonCollections: body.jsonCollections,
+      },
+      {
+        tenantSlug: slug,
+        dryRun: true,
+        defaultBranchId: body.defaultBranchId,
+        costPerKgUSD: body.costPerKgUSD,
+      }
+    );
+    return result;
+  } catch (err: any) {
+    return reply.status(400).send({
+      success: false,
+      error: err.message || 'Ошибка анализа данных миграции',
+    });
+  }
+});
+
+fastify.post<{
+  Params: { slug: string };
+  Body: {
+    type: 'mongo' | 'json';
+    mongoUri?: string;
+    dbName?: string;
+    jsonCollections?: Record<string, Record<string, any>[]>;
+    defaultBranchId?: string;
+    costPerKgUSD?: number;
+  };
+}>('/api/o/:slug/import/execute', async (request, reply) => {
+  const { slug } = request.params;
+  const body = request.body || ({} as any);
+
+  try {
+    const result = await runSmartMigration(
+      {
+        type: body.type || 'json',
+        mongoUri: body.mongoUri,
+        dbName: body.dbName,
+        jsonCollections: body.jsonCollections,
+      },
+      {
+        tenantSlug: slug,
+        dryRun: false,
+        defaultBranchId: body.defaultBranchId,
+        costPerKgUSD: body.costPerKgUSD,
+      }
+    );
+    return result;
+  } catch (err: any) {
+    return reply.status(400).send({
+      success: false,
+      error: err.message || 'Ошибка выполнения миграции',
+    });
+  }
 });
 
 // Auto-check bot webhooks on startup
