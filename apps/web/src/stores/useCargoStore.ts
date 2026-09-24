@@ -246,20 +246,27 @@ export interface CurrentUser {
   organizationName: string;
 }
 
+function safeParse<T>(raw: string | null | undefined, fallback: T): T {
+  if (!raw || raw === 'undefined' || raw === 'null') return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 export const useCargoStore = defineStore('cargo', () => {
   // 0. Авторизованный пользователь панели
   const savedUserJson = typeof window !== 'undefined' ? localStorage.getItem('cargona_auth_user') : null;
   const currentUser = ref<CurrentUser>(
-    savedUserJson
-      ? JSON.parse(savedUserJson)
-      : {
-          id: '',
-          name: '',
-          email: '',
-          role: 'OWNER',
-          organizationSlug: '',
-          organizationName: '',
-        }
+    safeParse<CurrentUser>(savedUserJson, {
+      id: '',
+      name: '',
+      email: '',
+      role: 'OWNER',
+      organizationSlug: '',
+      organizationName: '',
+    })
   );
 
   function login(user: CurrentUser) {
@@ -290,14 +297,12 @@ export const useCargoStore = defineStore('cargo', () => {
 
   const savedRates = typeof window !== 'undefined' ? localStorage.getItem('cargona_rates') : null;
   const ratesToUSD = ref<CurrencyRate>(
-    savedRates
-      ? JSON.parse(savedRates)
-      : {
-          USD: 1.0,
-          TJS: 10.95,
-          RUB: 92.5,
-          CNY: 7.25,
-        }
+    safeParse<CurrencyRate>(savedRates, {
+      USD: 1.0,
+      TJS: 10.95,
+      RUB: 92.5,
+      CNY: 7.25,
+    })
   );
 
   function setActiveCurrency(currency: string) {
@@ -420,11 +425,7 @@ export const useCargoStore = defineStore('cargo', () => {
 
   // 2.1 Подключенные тенанты (Multi-tenant SaaS)
   const savedTenants = typeof window !== 'undefined' ? localStorage.getItem('cargona_tenants') : null;
-  const tenants = ref<Tenant[]>(
-    savedTenants
-      ? JSON.parse(savedTenants)
-      : []
-  );
+  const tenants = ref<Tenant[]>(safeParse<Tenant[]>(savedTenants, []));
   const maxTenantsLimit = ref<number | null>(null);
   const isLimitReached = computed(() => maxTenantsLimit.value !== null && maxTenantsLimit.value > 0 && tenants.value.length >= maxTenantsLimit.value);
 
@@ -789,15 +790,7 @@ export const useCargoStore = defineStore('cargo', () => {
 
   const savedWarehouses = typeof window !== 'undefined' ? localStorage.getItem('cargona_warehouses') : null;
   const rawOriginWarehouses = ref<OriginWarehouse[]>(
-    savedWarehouses
-      ? (JSON.parse(savedWarehouses) as OriginWarehouse[]).map((w) => {
-          if (!w.cells || w.cells.length === 0) {
-            const def = defaultOriginWarehouses.find((d) => d.id === w.id);
-            if (def && def.cells) w.cells = JSON.parse(JSON.stringify(def.cells));
-          }
-          return w;
-        })
-      : defaultOriginWarehouses
+    safeParse<OriginWarehouse[]>(savedWarehouses, defaultOriginWarehouses)
   );
 
   const originWarehouses = computed<OriginWarehouse[]>(() => {
@@ -891,55 +884,53 @@ export const useCargoStore = defineStore('cargo', () => {
   }
 
   // 2.3 Тарифные планы платформы Cargona (редактируемые)
+  const defaultSaasPlans: TariffPlan[] = [
+    {
+      id: 'plan-1',
+      slug: 'starter',
+      name: 'Старт',
+      priceMonthly: 49,
+      currency: 'USD',
+      maxPackagesPerMonth: 1500,
+      maxBranches: 2,
+      features: {
+        customBotBYOB: false,
+        whiteLabel: false,
+        wmsShelfBarcodes: true,
+      },
+    },
+    {
+      id: 'plan-2',
+      slug: 'pro',
+      name: 'PRO',
+      priceMonthly: 149,
+      currency: 'USD',
+      maxPackagesPerMonth: 10000,
+      maxBranches: 10,
+      features: {
+        customBotBYOB: true,
+        whiteLabel: false,
+        wmsShelfBarcodes: true,
+      },
+    },
+    {
+      id: 'plan-3',
+      slug: 'enterprise',
+      name: 'Бизнес / Enterprise',
+      priceMonthly: 399,
+      currency: 'USD',
+      maxPackagesPerMonth: -1,
+      maxBranches: -1,
+      features: {
+        customBotBYOB: true,
+        whiteLabel: true,
+        wmsShelfBarcodes: true,
+      },
+    },
+  ];
+
   const savedPlans = typeof window !== 'undefined' ? localStorage.getItem('cargona_saas_plans') : null;
-  const saasPlans = ref<TariffPlan[]>(
-    savedPlans
-      ? JSON.parse(savedPlans)
-      : [
-          {
-            id: 'plan-1',
-            slug: 'starter',
-            name: 'Старт',
-            priceMonthly: 49,
-            currency: 'USD',
-            maxPackagesPerMonth: 1500,
-            maxBranches: 2,
-            features: {
-              customBotBYOB: false,
-              whiteLabel: false,
-              wmsShelfBarcodes: true,
-            },
-          },
-          {
-            id: 'plan-2',
-            slug: 'pro',
-            name: 'PRO',
-            priceMonthly: 149,
-            currency: 'USD',
-            maxPackagesPerMonth: 10000,
-            maxBranches: 10,
-            features: {
-              customBotBYOB: true,
-              whiteLabel: false,
-              wmsShelfBarcodes: true,
-            },
-          },
-          {
-            id: 'plan-3',
-            slug: 'enterprise',
-            name: 'Бизнес / Enterprise',
-            priceMonthly: 399,
-            currency: 'USD',
-            maxPackagesPerMonth: -1,
-            maxBranches: -1,
-            features: {
-              customBotBYOB: true,
-              whiteLabel: true,
-              wmsShelfBarcodes: true,
-            },
-          },
-        ]
-  );
+  const saasPlans = ref<TariffPlan[]>(safeParse<TariffPlan[]>(savedPlans, defaultSaasPlans));
 
   function updateSaasPlan(planId: string, data: Partial<TariffPlan>) {
     const plan = saasPlans.value.find((p) => p.id === planId);
@@ -953,51 +944,33 @@ export const useCargoStore = defineStore('cargo', () => {
 
   // 3. ПВЗ и Ячейки (Стеллажи/Полки)
   const defaultBranches: Branch[] = [];
-
   const savedBranches = typeof window !== 'undefined' ? localStorage.getItem('cargona_branches') : null;
-  const rawBranches = ref<Branch[]>(
-    savedBranches ? JSON.parse(savedBranches) : defaultBranches
-  );
+  const rawBranches = ref<Branch[]>(safeParse<Branch[]>(savedBranches, defaultBranches));
 
   // 4. Сотрудники (По умолчанию только Владелец)
   const defaultStaff: Employee[] = [];
-
   const savedStaff = typeof window !== 'undefined' ? localStorage.getItem('cargona_staff') : null;
-  const rawStaff = ref<Employee[]>(
-    savedStaff ? JSON.parse(savedStaff) : defaultStaff
-  );
+  const rawStaff = ref<Employee[]>(safeParse<Employee[]>(savedStaff, defaultStaff));
 
   // 5. Клиенты
   const defaultCustomers: Customer[] = [];
-
   const savedCustomers = typeof window !== 'undefined' ? localStorage.getItem('cargona_customers') : null;
-  const rawCustomers = ref<Customer[]>(
-    savedCustomers ? JSON.parse(savedCustomers) : defaultCustomers
-  );
+  const rawCustomers = ref<Customer[]>(safeParse<Customer[]>(savedCustomers, defaultCustomers));
 
   // 6. Рейсы
   const defaultTrips: Trip[] = [];
-
   const savedTrips = typeof window !== 'undefined' ? localStorage.getItem('cargona_trips') : null;
-  const rawTrips = ref<Trip[]>(
-    savedTrips ? JSON.parse(savedTrips) : defaultTrips
-  );
+  const rawTrips = ref<Trip[]>(safeParse<Trip[]>(savedTrips, defaultTrips));
 
   // 7. Посылки
   const defaultPackages: PackageItem[] = [];
-
   const savedPackages = typeof window !== 'undefined' ? localStorage.getItem('cargona_packages') : null;
-  const rawPackages = ref<PackageItem[]>(
-    savedPackages ? JSON.parse(savedPackages) : defaultPackages
-  );
+  const rawPackages = ref<PackageItem[]>(safeParse<PackageItem[]>(savedPackages, defaultPackages));
 
   // 8. Аудит (Неизменяемый журнал с привязкой к ПВЗ)
   const defaultAuditLogs: AuditEntry[] = [];
-
   const savedAuditLogs = typeof window !== 'undefined' ? localStorage.getItem('cargona_audit_logs') : null;
-  const rawAuditLogs = ref<AuditEntry[]>(
-    savedAuditLogs ? JSON.parse(savedAuditLogs) : defaultAuditLogs
-  );
+  const rawAuditLogs = ref<AuditEntry[]>(safeParse<AuditEntry[]>(savedAuditLogs, defaultAuditLogs));
 
   // 9. Бухгалтерия и Финансы (Кассы, Счета, Транзакции, Инкассация)
   const defaultExpenseCategories: ExpenseCategory[] = [
@@ -1014,16 +987,16 @@ export const useCargoStore = defineStore('cargo', () => {
   ];
 
   const savedCashAccounts = typeof window !== 'undefined' ? localStorage.getItem('cargona_cash_accounts') : null;
-  const rawCashAccounts = ref<CashAccount[]>(savedCashAccounts ? JSON.parse(savedCashAccounts) : []);
+  const rawCashAccounts = ref<CashAccount[]>(safeParse<CashAccount[]>(savedCashAccounts, []));
 
   const savedTransactions = typeof window !== 'undefined' ? localStorage.getItem('cargona_fin_transactions') : null;
-  const rawFinancialTransactions = ref<FinancialTransaction[]>(savedTransactions ? JSON.parse(savedTransactions) : []);
+  const rawFinancialTransactions = ref<FinancialTransaction[]>(safeParse<FinancialTransaction[]>(savedTransactions, []));
 
   const savedCollections = typeof window !== 'undefined' ? localStorage.getItem('cargona_cash_collections') : null;
-  const rawCashCollections = ref<CashCollection[]>(savedCollections ? JSON.parse(savedCollections) : []);
+  const rawCashCollections = ref<CashCollection[]>(safeParse<CashCollection[]>(savedCollections, []));
 
   const savedTripExpenses = typeof window !== 'undefined' ? localStorage.getItem('cargona_trip_expenses') : null;
-  const rawTripExpenses = ref<TripExpense[]>(savedTripExpenses ? JSON.parse(savedTripExpenses) : []);
+  const rawTripExpenses = ref<TripExpense[]>(safeParse<TripExpense[]>(savedTripExpenses, []));
 
   const rawExpenseCategories = ref<ExpenseCategory[]>(defaultExpenseCategories);
 

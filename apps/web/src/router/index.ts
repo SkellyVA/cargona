@@ -13,6 +13,17 @@ import AdminView from '../views/AdminView.vue';
 import TelegramMiniAppView from '../views/TelegramMiniAppView.vue';
 import LoginView from '../views/LoginView.vue';
 
+function getStoredUser(): any {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem('cargona_auth_user');
+    if (!raw || raw === 'undefined' || raw === 'null') return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -24,8 +35,7 @@ const router = createRouter({
     {
       path: '/',
       redirect: () => {
-        const rawUser = typeof window !== 'undefined' ? localStorage.getItem('cargona_auth_user') : null;
-        const user = rawUser ? JSON.parse(rawUser) : null;
+        const user = getStoredUser();
         if (!user || !user.email) return '/login';
         if (user.role === 'SUPER_ADMIN' || user.role === 'SUPERADMIN') return '/admin';
         if (user.organizationSlug) return `/o/${user.organizationSlug}/dashboard`;
@@ -141,8 +151,7 @@ router.beforeEach((to, from, next) => {
     return next();
   }
 
-  const rawUser = typeof window !== 'undefined' ? localStorage.getItem('cargona_auth_user') : null;
-  const user = rawUser ? JSON.parse(rawUser) : null;
+  const user = getStoredUser();
   const isAuthenticated = !!(user && user.email);
 
   // Если пользователь не залогинен — перенаправляем на /login
