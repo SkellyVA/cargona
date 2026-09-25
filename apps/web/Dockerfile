@@ -8,7 +8,7 @@ COPY packages/ ./packages/
 COPY apps/web/ ./apps/web/
 
 # Install dependencies and build frontend
-RUN pnpm install --no-frozen-lockfile
+RUN pnpm install --no-frozen-lockfile --ignore-scripts
 RUN pnpm --filter @cargona/types build && \
     pnpm --filter @cargona/web build
 
