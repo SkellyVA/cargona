@@ -8,7 +8,7 @@ COPY packages/ ./packages/
 COPY apps/bot/ ./apps/bot/
 
 # Install dependencies and build bot
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
 RUN pnpm --filter @cargona/types build && \
     pnpm --filter @cargona/bot build
 
