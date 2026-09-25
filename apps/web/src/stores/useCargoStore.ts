@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { ref, computed, watch } from 'vue';
+import { ref, shallowRef, triggerRef, computed, watch } from 'vue';
 
 export interface CurrencyRate {
   [code: string]: number; // курс к USD (1 USD = rate units)
@@ -620,13 +620,24 @@ export const useCargoStore = defineStore('cargo', () => {
     }
   }
 
-  async function syncTenantData(slug: string) {
+  let isSyncing = false;
+  let lastSyncTime = 0;
+  let lastSyncedSlug = '';
+
+  async function syncTenantData(slug: string, force = false) {
     if (!slug) return;
+    const now = Date.now();
+    if (!force && isSyncing) return;
+    if (!force && lastSyncedSlug === slug && now - lastSyncTime < 8000) return;
+    isSyncing = true;
     try {
       const res = await fetch(`/api/o/${slug}/all`);
       if (!res.ok) return;
       const data = (await res.json()) as any;
       if (!data) return;
+
+      lastSyncTime = Date.now();
+      lastSyncedSlug = slug;
 
       if (data.tenant) {
         upsertTenant(data.tenant);
@@ -695,7 +706,9 @@ export const useCargoStore = defineStore('cargo', () => {
           }
         }
         if (toAdd.length > 0) {
-          rawCustomers.value.push(...toAdd);
+          rawCustomers.value = [...rawCustomers.value, ...toAdd];
+        } else {
+          triggerRef(rawCustomers);
         }
       }
 
@@ -738,7 +751,9 @@ export const useCargoStore = defineStore('cargo', () => {
           }
         }
         if (toAdd.length > 0) {
-          rawPackages.value.push(...toAdd);
+          rawPackages.value = [...rawPackages.value, ...toAdd];
+        } else {
+          triggerRef(rawPackages);
         }
       }
 
@@ -794,9 +809,12 @@ export const useCargoStore = defineStore('cargo', () => {
             existing.manifestItems = t.manifestItems || [];
           }
         }
+        triggerRef(rawTrips);
       }
     } catch {
       // Backend offline fallback
+    } finally {
+      isSyncing = false;
     }
   }
 
@@ -990,25 +1008,25 @@ export const useCargoStore = defineStore('cargo', () => {
   const savedStaff = typeof window !== 'undefined' ? localStorage.getItem('cargona_staff') : null;
   const rawStaff = ref<Employee[]>(safeParse<Employee[]>(savedStaff, defaultStaff));
 
-  // 5. Клиенты
+  // 5. Клиенты (shallowRef для мгновенной работы с 10,000+ записями)
   const defaultCustomers: Customer[] = [];
   const savedCustomers = typeof window !== 'undefined' ? localStorage.getItem('cargona_customers') : null;
-  const rawCustomers = ref<Customer[]>(safeParse<Customer[]>(savedCustomers, defaultCustomers));
+  const rawCustomers = shallowRef<Customer[]>(safeParse<Customer[]>(savedCustomers, defaultCustomers));
 
   // 6. Рейсы
   const defaultTrips: Trip[] = [];
   const savedTrips = typeof window !== 'undefined' ? localStorage.getItem('cargona_trips') : null;
-  const rawTrips = ref<Trip[]>(safeParse<Trip[]>(savedTrips, defaultTrips));
+  const rawTrips = shallowRef<Trip[]>(safeParse<Trip[]>(savedTrips, defaultTrips));
 
-  // 7. Посылки
+  // 7. Посылки (shallowRef для мгновенной работы с 10,000+ записями)
   const defaultPackages: PackageItem[] = [];
   const savedPackages = typeof window !== 'undefined' ? localStorage.getItem('cargona_packages') : null;
-  const rawPackages = ref<PackageItem[]>(safeParse<PackageItem[]>(savedPackages, defaultPackages));
+  const rawPackages = shallowRef<PackageItem[]>(safeParse<PackageItem[]>(savedPackages, defaultPackages));
 
   // 8. Аудит (Неизменяемый журнал с привязкой к ПВЗ)
   const defaultAuditLogs: AuditEntry[] = [];
   const savedAuditLogs = typeof window !== 'undefined' ? localStorage.getItem('cargona_audit_logs') : null;
-  const rawAuditLogs = ref<AuditEntry[]>(safeParse<AuditEntry[]>(savedAuditLogs, defaultAuditLogs));
+  const rawAuditLogs = shallowRef<AuditEntry[]>(safeParse<AuditEntry[]>(savedAuditLogs, defaultAuditLogs));
 
   // 9. Бухгалтерия и Финансы (Кассы, Счета, Транзакции, Инкассация)
   const defaultExpenseCategories: ExpenseCategory[] = [

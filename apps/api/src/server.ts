@@ -1,10 +1,16 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import compress from '@fastify/compress';
 import { store } from './store.js';
 import { runSmartMigration } from './importer/migrationEngine.js';
 
 const fastify = Fastify({
   logger: true,
+});
+
+await fastify.register(compress, {
+  global: true,
+  encodings: ['gzip', 'deflate'],
 });
 
 await fastify.register(cors, {
