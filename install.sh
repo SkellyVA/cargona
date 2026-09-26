@@ -46,6 +46,43 @@ prompt_read() {
   eval "$var_name=\"\$val\""
 }
 
+# Clean progress spinner helper (hides noisy terminal spam, shows clean status and error if failed)
+run_with_spinner() {
+  local title="$1"
+  shift
+  local log_file="/tmp/cargona_install_step.log"
+  rm -f "$log_file"
+
+  # Execute command in background redirecting all stdout/stderr
+  "$@" > "$log_file" 2>&1 &
+  local pid=$!
+
+  local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+  local i=0
+  local start_time=$(date +%s)
+
+  while kill -0 "$pid" 2>/dev/null; do
+    local current_time=$(date +%s)
+    local elapsed=$((current_time - start_time))
+    local char="${spin:i++%${#spin}:1}"
+    printf "\r  \033[0;36m[%s]\033[0m %s \033[0;37m(%ds)\033[0m   " "$char" "$title" "$elapsed"
+    sleep 0.1
+  done
+
+  wait "$pid" || true
+  local exit_code=$?
+
+  if [ $exit_code -eq 0 ]; then
+    printf "\r  \033[0;32m[✓]\033[0m %s \033[0;32m(Готово)\033[0m          \n" "$title"
+  else
+    printf "\r  \033[0;31m[✗]\033[0m %s \033[0;31m(Ошибка!)\033[0m          \n\n" "$title"
+    echo -e "\033[0;31m=================== ПОСЛЕДНИЕ СТРОКИ ОШИБКИ ===================\033[0m"
+    tail -n 30 "$log_file" 2>/dev/null || cat "$log_file"
+    echo -e "\033[0;31m===============================================================\033[0m\n"
+    exit $exit_code
+  fi
+}
+
 clear 2>/dev/null || true
 
 echo -e "${CYAN}${BOLD}"
@@ -72,30 +109,32 @@ fi
 INSTALL_DIR="/opt/cargona"
 echo -e "${CYAN}[1/5] Подготовка каталога установки (${INSTALL_DIR})...${NC}"
 
-if [ ! -d "$INSTALL_DIR" ]; then
-  mkdir -p "$INSTALL_DIR"
-fi
+mkdir -p "$INSTALL_DIR"
 
 # Ensure git is installed
 if ! command -v git &> /dev/null; then
-  echo -e "${YELLOW}--> Установка git...${NC}"
-  if command -v apt-get &> /dev/null; then
-    apt-get update -qq && apt-get install -y -qq git curl openssl
-  elif command -v yum &> /dev/null; then
-    yum install -y -q git curl openssl
-  elif command -v apk &> /dev/null; then
-    apk add --no-cache git curl openssl bash
-  fi
+  install_git_cmd() {
+    if command -v apt-get &> /dev/null; then
+      apt-get update -qq && apt-get install -y -qq git curl openssl
+    elif command -v yum &> /dev/null; then
+      yum install -y -q git curl openssl
+    elif command -v apk &> /dev/null; then
+      apk add --no-cache git curl openssl bash
+    fi
+  }
+  run_with_spinner "Установка системных утилит (git, curl, openssl)..." install_git_cmd
 fi
 
 # Clone or pull repo into /opt/cargona
 if [ ! -f "${INSTALL_DIR}/docker-compose.yml" ]; then
-  echo -e "${CYAN}--> Загрузка дистрибутива CargonaOS...${NC}"
-  if [ -d "${INSTALL_DIR}/.git" ]; then
-    cd "$INSTALL_DIR" && git pull origin main || git pull
-  else
-    git clone https://github.com/SkellyVA/cargona.git "$INSTALL_DIR"
-  fi
+  download_repo_cmd() {
+    if [ -d "${INSTALL_DIR}/.git" ]; then
+      cd "$INSTALL_DIR" && git pull origin main || git pull
+    else
+      git clone -q https://github.com/SkellyVA/cargona.git "$INSTALL_DIR"
+    fi
+  }
+  run_with_spinner "Загрузка файлов платформы CargonaOS..." download_repo_cmd
 fi
 
 cd "$INSTALL_DIR"
@@ -103,31 +142,27 @@ cd "$INSTALL_DIR"
 # 3. Check Docker & Docker Compose
 echo -e "\n${CYAN}[2/5] Проверка Docker и Docker Compose...${NC}"
 HAS_DOCKER=false
-HAS_COMPOSE=false
 
 if command -v docker &> /dev/null; then
   HAS_DOCKER=true
-fi
-
-if docker compose version &> /dev/null || command -v docker-compose &> /dev/null; then
-  HAS_COMPOSE=true
 fi
 
 if [ "$HAS_DOCKER" = false ]; then
   echo -e "${YELLOW}[!] Docker не обнаружен на сервере.${NC}"
   prompt_read "Хотите установить Docker автоматически? (y/n) [y]: " INSTALL_DOCKER_CHOICE "y"
   if [[ "$INSTALL_DOCKER_CHOICE" =~ ^[Yy]$ ]]; then
-    echo -e "${GREEN}--> Автоматическая установка Docker...${NC}"
-    curl -fsSL https://get.docker.com | sh
-    systemctl enable docker 2>/dev/null || true
-    systemctl start docker 2>/dev/null || true
-    echo -e "${GREEN}✓ Docker успешно установлен!${NC}"
+    install_docker_pkg() {
+      curl -fsSL https://get.docker.com | sh
+      systemctl enable docker 2>/dev/null || true
+      systemctl start docker 2>/dev/null || true
+    }
+    run_with_spinner "Автоматическая установка и запуск Docker..." install_docker_pkg
   else
     echo -e "${RED}[X] Docker необходим для работы системы. Установка прервана.${NC}"
     exit 1
   fi
 else
-  echo -e "${GREEN}✓ Docker установлен.${NC}"
+  echo -e "  ${GREEN}[✓]${NC} Docker и Docker Compose готовы к работе."
 fi
 
 # 4. Interactive Configuration Prompts
@@ -183,7 +218,7 @@ JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || date +%s%N | sha256sum | head -
 DB_PASSWORD=$(openssl rand -hex 16 2>/dev/null || date +%s%N | sha256sum | head -c 24)
 
 # 5. Write .env File
-echo -e "\n${CYAN}[4/5] Сохранение конфигурации в .env и регистрация CLI...${NC}"
+echo -e "\n${CYAN}[4/5] Сохранение конфигурации и регистрация CLI...${NC}"
 cat > "${INSTALL_DIR}/.env" << EOF
 # ==============================================================================
 # CargonaOS Platform Environment Configuration
@@ -224,29 +259,32 @@ mkdir -p "${INSTALL_DIR}/data/backend" "${INSTALL_DIR}/data/postgres" "${INSTALL
 chmod +x "${INSTALL_DIR}/cargona" "${INSTALL_DIR}/update.sh" "${INSTALL_DIR}/install.sh"
 ln -sf "${INSTALL_DIR}/cargona" /usr/local/bin/cargona 2>/dev/null || true
 chmod +x /usr/local/bin/cargona 2>/dev/null || true
-echo -e "${GREEN}✓ Глобальная консоль 'cargona' установлена в /usr/local/bin/cargona${NC}"
+echo -e "  ${GREEN}[✓]${NC} Глобальная консоль 'cargona' установлена в /usr/local/bin/cargona"
 
 # Free up ports 80/443 on host if standalone web server is running
 if command -v systemctl &> /dev/null; then
   if systemctl is-active --quiet nginx 2>/dev/null; then
-    echo -e "${YELLOW}[!] Остановка локального Nginx для освобождения портов 80/443...${NC}"
     systemctl stop nginx 2>/dev/null || true
     systemctl disable nginx 2>/dev/null || true
   fi
   if systemctl is-active --quiet apache2 2>/dev/null; then
-    echo -e "${YELLOW}[!] Остановка локального Apache2...${NC}"
     systemctl stop apache2 2>/dev/null || true
     systemctl disable apache2 2>/dev/null || true
   fi
 fi
 
 # 6. Launch Docker Stack
-echo -e "\n${CYAN}[5/5] Сборка и запуск контейнеров с автоматическим SSL...${NC}"
-if docker compose version &> /dev/null; then
-  docker compose up -d --build
-else
-  docker-compose up -d --build
-fi
+echo -e "\n${CYAN}[5/5] Сборка и компиляция сервисов платформы...${NC}"
+
+build_and_up_cmd() {
+  if docker compose version &> /dev/null; then
+    docker compose up -d --build
+  else
+    docker-compose up -d --build
+  fi
+}
+
+run_with_spinner "Сборка контейнеров (Frontend, Backend, Postgres, Caddy SSL)..." build_and_up_cmd
 
 # 7. Final Summary
 echo -e "\n${BLUE}================================================================${NC}"
@@ -267,4 +305,3 @@ echo -e "🛠️ ${BOLD}CLI Управление:${NC}          Команда '
 echo -e "${BLUE}================================================================${NC}"
 echo -e "${GREEN}✓ Система автоматически настроила HTTPS для вашего домена!${NC}"
 echo -e "${YELLOW}Для управления системой просто наберите в консоли:${NC} ${BOLD}cargona${NC}\n"
-
