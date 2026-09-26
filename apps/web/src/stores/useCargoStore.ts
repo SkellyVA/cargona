@@ -597,17 +597,6 @@ export const useCargoStore = defineStore('cargo', () => {
     }
 
     let found = tenants.value.find((t) => t.slug === slug);
-    if (!found) {
-      // If organization not found in store, but we have existing tenants, choose the first one
-      if (tenants.value.length > 0) {
-        found = tenants.value[0];
-        activeTenantSlug.value = found.slug;
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('cargona_active_tenant_slug', found.slug);
-        }
-      }
-    }
-
     if (found) {
       settings.value.companyName = found.name;
       settings.value.codePrefix = found.codePrefix;
@@ -616,8 +605,8 @@ export const useCargoStore = defineStore('cargo', () => {
       settings.value.chinaWarehouseAddress = `浙江省金华市义乌市国际商贸区4区12号门 (${found.name})`;
       settings.value.chinaContactName = `${found.codePrefix} Warehouse Yiwu`;
       settings.value.channelId = `@${found.slug}_news`;
-      syncTenantData(found.slug);
     }
+    syncTenantData(slug);
   }
 
   let isSyncing = false;
@@ -628,7 +617,7 @@ export const useCargoStore = defineStore('cargo', () => {
     if (!slug) return;
     const now = Date.now();
     if (!force && isSyncing) return;
-    if (!force && lastSyncedSlug === slug && now - lastSyncTime < 8000) return;
+    if (!force && lastSyncedSlug === slug && now - lastSyncTime < 8000 && rawCustomers.value.length > 0) return;
     isSyncing = true;
     try {
       const res = await fetch(`/api/o/${slug}/all`);
@@ -2662,5 +2651,6 @@ export const useCargoStore = defineStore('cargo', () => {
     rejectCashCollection,
     addTripExpense,
     exportFinancialReportToCsv,
+    syncTenantData,
   };
 });
