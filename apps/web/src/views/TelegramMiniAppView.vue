@@ -357,7 +357,7 @@
               {{ formatWarehouseAddress(currentWarehouse) }}
             </div>
             <div v-if="currentWarehouse.instructions" class="text-[9px] text-text-tertiary">
-              {{ currentWarehouse.instructions }}
+              {{ fillWarehouseTemplate(currentWarehouse.instructions, activeCustomer, store.tenant) }}
             </div>
           </div>
 
@@ -1058,20 +1058,47 @@ const currentWarehouse = computed(() => {
   return activeWarehouses.value.find((w) => w.id === selectedWarehouseId.value) || activeWarehouses.value[0];
 });
 
+function fillWarehouseTemplate(templateStr: string, customer: any, tenant: any): string {
+  if (!templateStr) return '';
+  const code = customer?.cargoCode || `${tenant?.codePrefix || store.settings.codePrefix || 'CRG'}-001`;
+  const name = customer?.fullName || 'Клиент';
+  const phone = customer?.phone || '';
+  const rawId = customer?.id ? String(customer.id).replace(/\D+/g, '') || String(customer.id) : '';
+  const id = rawId || code.replace(/\D+/g, '') || code;
+
+  return templateStr
+    .replace(/\{code\}/gi, code)
+    .replace(/\{user_?id\}/gi, id)
+    .replace(/\{id\}/gi, id)
+    .replace(/\{name\}/gi, name)
+    .replace(/\{phone\}/gi, phone);
+}
+
 function formatWarehouseAddress(wh: any) {
   if (!wh) return '';
   const code = activeCustomer.value?.cargoCode || `${store.tenant?.codePrefix || store.settings.codePrefix || 'CRG'}-001`;
   const name = activeCustomer.value?.fullName || 'Клиент';
+  const phone = activeCustomer.value?.phone || '';
+  const rawId = activeCustomer.value?.id ? String(activeCustomer.value.id).replace(/\D+/g, '') || String(activeCustomer.value.id) : '';
+  const id = rawId || code.replace(/\D+/g, '') || code;
+
+  const formattedAddress = fillWarehouseTemplate(wh.address || '', activeCustomer.value, store.tenant);
+  const formattedReceiver = wh.receiverName
+    ? fillWarehouseTemplate(wh.receiverName, activeCustomer.value, store.tenant)
+    : `${name} (${code})`;
+
   if (wh.countryCode === 'CN') {
-    return `收件人: ${name} (${code})\n电话: ${wh.phone}\n地址: ${wh.address} (${code})`;
+    const hasCodeOrId = formattedAddress.includes(code) || (id && formattedAddress.includes(id));
+    const addressWithCode = hasCodeOrId ? formattedAddress : `${formattedAddress} (${code})`;
+    return `收件人: ${formattedReceiver}\n电话: ${wh.phone || ''}\n地址: ${addressWithCode}`;
   }
   if (wh.countryCode === 'TR') {
-    return `Alıcı: ${name} (${code})\nTel: ${wh.phone}\nAdres: ${wh.address}\nPosta Kodu: ${wh.zipCode || '34000'}`;
+    return `Alıcı: ${formattedReceiver}\nTel: ${wh.phone || ''}\nAdres: ${formattedAddress}\nPosta Kodu: ${wh.zipCode || '34000'}`;
   }
   if (wh.countryCode === 'US') {
-    return `Full Name: ${name} (${code})\nAddress: ${wh.address}\nCity: ${wh.city}, State: DE, ZIP: ${wh.zipCode || '19801'}\nPhone: ${wh.phone}`;
+    return `Full Name: ${formattedReceiver}\nAddress: ${formattedAddress}\nCity: ${wh.city || ''}, State: DE, ZIP: ${wh.zipCode || '19801'}\nPhone: ${wh.phone || ''}`;
   }
-  return `Recipient: ${name} (${code})\nAddress: ${wh.address}, ${wh.city}\nPhone: ${wh.phone}`;
+  return `Recipient: ${formattedReceiver}\nAddress: ${formattedAddress}${wh.city ? `, ${wh.city}` : ''}\nPhone: ${wh.phone || ''}`;
 }
 
 const copyButtonText = computed(() => {

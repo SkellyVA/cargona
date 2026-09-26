@@ -430,6 +430,9 @@
             placeholder="Адрес склада для маркетплейсов (1688, Taobao, Trendyol, Amazon...)"
             class="w-full h-10 px-3.5 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono text-xs"
           />
+          <div class="text-[10px] text-text-tertiary font-mono mt-1">
+            Теги подстановки: <span class="text-accent-cyan">{code}</span> — код карго, <span class="text-accent-cyan">{id}</span> — ID клиента, <span class="text-accent-cyan">{name}</span> — имя, <span class="text-accent-cyan">{phone}</span> — телефон
+          </div>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -563,6 +566,9 @@
             placeholder="Адрес склада"
             class="w-full h-10 px-3.5 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono text-xs"
           />
+          <div class="text-[10px] text-text-tertiary font-mono mt-1">
+            Теги подстановки: <span class="text-accent-cyan">{code}</span> — код карго, <span class="text-accent-cyan">{id}</span> — ID клиента, <span class="text-accent-cyan">{name}</span> — имя, <span class="text-accent-cyan">{phone}</span> — телефон
+          </div>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">

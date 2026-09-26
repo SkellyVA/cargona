@@ -594,6 +594,18 @@ export const useCargoStore = defineStore('cargo', () => {
     activeTenantSlug.value = slug;
     if (typeof window !== 'undefined') {
       localStorage.setItem('cargona_active_tenant_slug', slug);
+      // Load cached customers immediately for this tenant
+      const cached = localStorage.getItem('cargona_customers_' + slug);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const other = rawCustomers.value.filter((c) => c.tenantSlug && c.tenantSlug !== slug);
+            rawCustomers.value = [...other, ...parsed];
+            triggerRef(rawCustomers);
+          }
+        } catch (_) {}
+      }
     }
 
     let found = tenants.value.find((t) => t.slug === slug);
@@ -665,30 +677,45 @@ export const useCargoStore = defineStore('cargo', () => {
         const otherCustomers = rawCustomers.value.filter((c) => c.tenantSlug && c.tenantSlug !== slug);
         rawCustomers.value = [...otherCustomers, ...tenantCustomers];
         triggerRef(rawCustomers);
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem('cargona_customers_' + slug, JSON.stringify(tenantCustomers));
+          } catch (_) {}
+        }
       }
 
       if (Array.isArray(data.packages)) {
-        const tenantPackages: PackageItem[] = data.packages.map((p: any) => ({
-          id: p.id,
-          trackingNumber: p.trackingNumber,
-          customerCargoCode: p.customerCargoCode || '',
-          description: p.description || '',
-          weightKg: p.weightKg || 0,
-          lengthCm: p.lengthCm,
-          widthCm: p.widthCm,
-          heightCm: p.heightCm,
-          volumeM3: p.volumeM3,
-          costUSD: typeof p.cost === 'number' ? p.cost : (p.costUSD || 0),
-          shelfLocation: p.shelfLocation || '',
-          branchId: p.currentBranchId || p.branchId || '',
-          tripId: p.tripId || undefined,
-          status: p.status || 'RECEIVED_AT_ORIGIN',
-          createdAt: p.createdAt ? new Date(p.createdAt).toLocaleDateString('ru-RU') : '01.01.2026',
-          tenantSlug: slug,
-        }));
+        let totalWeight = 0;
+        const tenantPackages: PackageItem[] = data.packages.map((p: any) => {
+          const w = p.weightKg || 0;
+          totalWeight += w;
+          return {
+            id: p.id,
+            trackingNumber: p.trackingNumber,
+            customerCargoCode: p.customerCargoCode || '',
+            description: p.description || '',
+            weightKg: w,
+            lengthCm: p.lengthCm,
+            widthCm: p.widthCm,
+            heightCm: p.heightCm,
+            volumeM3: p.volumeM3,
+            costUSD: typeof p.cost === 'number' ? p.cost : (p.costUSD || 0),
+            shelfLocation: p.shelfLocation || '',
+            branchId: p.currentBranchId || p.branchId || '',
+            tripId: p.tripId || undefined,
+            status: p.status || 'RECEIVED_AT_ORIGIN',
+            createdAt: p.createdAt ? new Date(p.createdAt).toLocaleDateString('ru-RU') : '01.01.2026',
+            tenantSlug: slug,
+          };
+        });
         const otherPackages = rawPackages.value.filter((p) => p.tenantSlug && p.tenantSlug !== slug);
         rawPackages.value = [...otherPackages, ...tenantPackages];
         triggerRef(rawPackages);
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem('cargona_tonnage_' + slug, totalWeight.toFixed(2));
+          } catch (_) {}
+        }
       }
 
       if (Array.isArray(data.staff)) {
@@ -928,11 +955,10 @@ export const useCargoStore = defineStore('cargo', () => {
 
   // 5. Клиенты (shallowRef для мгновенной работы с 10,000+ записями)
   const defaultCustomers: Customer[] = [];
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem('cargona_customers');
-    localStorage.removeItem('cargona_packages');
-  }
-  const rawCustomers = shallowRef<Customer[]>(defaultCustomers);
+  const savedCustomers = typeof window !== 'undefined'
+    ? (localStorage.getItem('cargona_customers_' + activeTenantSlug.value) || localStorage.getItem('cargona_customers'))
+    : null;
+  const rawCustomers = shallowRef<Customer[]>(safeParse<Customer[]>(savedCustomers, defaultCustomers));
 
   // 6. Рейсы
   const defaultTrips: Trip[] = [];

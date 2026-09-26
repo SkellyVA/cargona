@@ -376,7 +376,7 @@ const slug = computed(() => (route.params.slug as string) || store.activeTenantS
 onMounted(() => {
   if (slug.value) {
     store.setTenantSlug(slug.value);
-    store.syncTenantData(slug.value, true);
+    store.syncTenantData(slug.value, false);
   }
 });
 
@@ -425,38 +425,39 @@ const filteredCustomers = computed(() => {
   if (q) {
     list = list.filter(
       (c) =>
-        c.cargoCode.toLowerCase().includes(q) ||
-        c.fullName.toLowerCase().includes(q) ||
-        c.phone.toLowerCase().includes(q) ||
+        (c.cargoCode && c.cargoCode.toLowerCase().includes(q)) ||
+        (c.fullName && c.fullName.toLowerCase().includes(q)) ||
+        (c.phone && c.phone.toLowerCase().includes(q)) ||
         (c.telegramUsername && c.telegramUsername.toLowerCase().includes(q))
     );
   }
 
-  return [...list].sort((a, b) => {
-    if (sortBy.value === 'code_asc' || sortBy.value === 'code_desc') {
-      const numA = parseInt((a.cargoCode || '').replace(/\D+/g, ''), 10);
-      const numB = parseInt((b.cargoCode || '').replace(/\D+/g, ''), 10);
-      const diff = (!isNaN(numA) && !isNaN(numB) && numA !== numB)
-        ? numA - numB
-        : (a.cargoCode || '').localeCompare(b.cargoCode || '', undefined, { numeric: true, sensitivity: 'base' });
-      return sortBy.value === 'code_asc' ? diff : -diff;
-    }
-    if (sortBy.value === 'name_asc') {
-      return (a.fullName || '').localeCompare(b.fullName || '', 'ru', { sensitivity: 'base' });
-    }
-    if (sortBy.value === 'balance_asc') {
-      return (a.balanceUSD || 0) - (b.balanceUSD || 0); // Debts first (negative)
-    }
-    if (sortBy.value === 'balance_desc') {
-      return (b.balanceUSD || 0) - (a.balanceUSD || 0); // Deposits first (positive)
-    }
-    if (sortBy.value === 'pvz_desc') {
-      const pA = getClientReadyCount(a.cargoCode);
-      const pB = getClientReadyCount(b.cargoCode);
-      return pB - pA;
-    }
-    return 0;
-  });
+  const s = sortBy.value;
+  if (s === 'code_asc' || s === 'code_desc') {
+    const isAsc = s === 'code_asc';
+    return [...list].sort((a, b) => {
+      const numA = (a as any)._numCode ?? ((a as any)._numCode = parseInt((a.cargoCode || '').replace(/\D+/g, ''), 10) || 999999);
+      const numB = (b as any)._numCode ?? ((b as any)._numCode = parseInt((b.cargoCode || '').replace(/\D+/g, ''), 10) || 999999);
+      if (numA !== numB) {
+        return isAsc ? numA - numB : numB - numA;
+      }
+      const cmp = (a.cargoCode || '').localeCompare(b.cargoCode || '', undefined, { numeric: true, sensitivity: 'base' });
+      return isAsc ? cmp : -cmp;
+    });
+  }
+  if (s === 'name_asc') {
+    return [...list].sort((a, b) => (a.fullName || '').localeCompare(b.fullName || '', 'ru', { sensitivity: 'base' }));
+  }
+  if (s === 'balance_asc') {
+    return [...list].sort((a, b) => (a.balanceUSD || 0) - (b.balanceUSD || 0)); // Debts first (negative)
+  }
+  if (s === 'balance_desc') {
+    return [...list].sort((a, b) => (b.balanceUSD || 0) - (a.balanceUSD || 0)); // Deposits first (positive)
+  }
+  if (s === 'pvz_desc') {
+    return [...list].sort((a, b) => getClientReadyCount(b.cargoCode) - getClientReadyCount(a.cargoCode));
+  }
+  return list;
 });
 
 const totalPages = computed(() => Math.ceil(filteredCustomers.value.length / pageSize.value) || 1);
@@ -466,45 +467,46 @@ const paginatedCustomers = computed(() => {
   return filteredCustomers.value.slice(start, start + pageSize.value);
 });
 
-// Single-pass client ready counts Map for 100x render speedup
-const clientReadyCountsMap = computed(() => {
+// Single-pass client ready counts Map and total for instant rendering
+const packageReadyStats = computed(() => {
   const map = new Map<string, number>();
-  for (const p of store.packages) {
-    if (p.status === 'READY_FOR_PICKUP' && p.customerCargoCode) {
-      const k = p.customerCargoCode.toUpperCase();
-      map.set(k, (map.get(k) || 0) + 1);
+  let totalReady = 0;
+  const pkgs = store.packages;
+  const len = pkgs.length;
+  for (let i = 0; i < len; i++) {
+    const p = pkgs[i];
+    if (p.status === 'READY_FOR_PICKUP') {
+      totalReady++;
+      if (p.customerCargoCode) {
+        const k = p.customerCargoCode.toUpperCase();
+        map.set(k, (map.get(k) || 0) + 1);
+      }
     }
   }
-  return map;
+  return { map, totalReady };
 });
 
-const totalReadyPackages = computed(() => {
-  let count = 0;
-  for (const p of store.packages) {
-    if (p.status === 'READY_FOR_PICKUP') count++;
+const totalReadyPackages = computed(() => packageReadyStats.value.totalReady);
+
+const customerFinanceStats = computed(() => {
+  let debts = 0;
+  let deposits = 0;
+  const custs = store.customers;
+  const len = custs.length;
+  for (let i = 0; i < len; i++) {
+    const bal = custs[i].balanceUSD || 0;
+    if (bal < 0) debts += Math.abs(bal);
+    else if (bal > 0) deposits += bal;
   }
-  return count;
+  return { debts, deposits };
 });
 
-const totalDebtsUSD = computed(() => {
-  let sum = 0;
-  for (const c of store.customers) {
-    if (c.balanceUSD < 0) sum += Math.abs(c.balanceUSD);
-  }
-  return sum;
-});
-
-const totalDepositsUSD = computed(() => {
-  let sum = 0;
-  for (const c of store.customers) {
-    if (c.balanceUSD > 0) sum += c.balanceUSD;
-  }
-  return sum;
-});
+const totalDebtsUSD = computed(() => customerFinanceStats.value.debts);
+const totalDepositsUSD = computed(() => customerFinanceStats.value.deposits);
 
 function getClientReadyCount(code: string) {
   if (!code) return 0;
-  return clientReadyCountsMap.value.get(code.toUpperCase()) || 0;
+  return packageReadyStats.value.map.get(code.toUpperCase()) || 0;
 }
 
 function createCustomer() {

@@ -133,9 +133,20 @@ const slug = computed(() => (route.params.slug as string) || store.activeTenantS
 
 const totalWeightFormatted = computed(() => {
   let pkgWeight = 0;
-  for (const p of store.packages) pkgWeight += (p.weightKg || 0);
-  if (pkgWeight === 0) {
-    for (const t of store.trips) pkgWeight += (t.totalWeightKg || 0);
+  if (store.packages.length > 0) {
+    for (let i = 0; i < store.packages.length; i++) {
+      pkgWeight += (store.packages[i].weightKg || 0);
+    }
+    if (typeof window !== 'undefined' && slug.value && pkgWeight > 0) {
+      try {
+        localStorage.setItem('cargona_tonnage_' + slug.value, pkgWeight.toFixed(2));
+      } catch (_) {}
+    }
+  } else if (typeof window !== 'undefined' && slug.value) {
+    const cached = localStorage.getItem('cargona_tonnage_' + slug.value);
+    if (cached) {
+      pkgWeight = parseFloat(cached) || 0;
+    }
   }
   return pkgWeight.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 });
