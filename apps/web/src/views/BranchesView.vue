@@ -107,7 +107,7 @@
           </div>
 
           <!-- Касса и действия -->
-          <div class="flex items-center gap-2.5 sm:gap-3 self-end sm:self-auto w-full sm:w-auto justify-between sm:justify-end pt-1 sm:pt-0">
+          <div class="flex items-center gap-2 sm:gap-2.5 self-end sm:self-auto w-full sm:w-auto justify-between sm:justify-end pt-1 sm:pt-0 flex-wrap">
             <div class="bg-[#181B23] border border-white/[0.06] rounded-2xl px-3.5 py-1.5 sm:py-2 text-right">
               <div class="text-[10px] text-text-tertiary uppercase font-semibold">Касса</div>
               <div class="text-sm sm:text-base font-bold font-mono text-white mt-0.5">{{ store.formatMoney(branch.cashBalanceUSD) }}</div>
@@ -120,6 +120,24 @@
             >
               <Banknote class="w-4 h-4" />
               <span>Инкассировать</span>
+            </button>
+
+            <button
+              v-if="store.isOwner"
+              @click="openEditBranchModal(branch)"
+              class="p-2 sm:p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-text-secondary hover:text-white transition cursor-pointer"
+              title="Редактировать филиал ПВЗ"
+            >
+              <Pencil class="w-4 h-4 text-accent-cyan" />
+            </button>
+
+            <button
+              v-if="store.isOwner"
+              @click="promptDeleteBranch(branch)"
+              class="p-2 sm:p-2.5 rounded-xl bg-white/[0.04] hover:bg-rose-500/15 border border-white/[0.06] text-text-secondary hover:text-rose-400 transition cursor-pointer"
+              title="Удалить филиал ПВЗ"
+            >
+              <Trash2 class="w-4 h-4 text-rose-400" />
             </button>
           </div>
         </div>
@@ -162,15 +180,26 @@
               title="Нажмите, чтобы посмотреть товары на этой полке"
             >
               <div class="text-[10px] text-text-tertiary font-mono flex items-center justify-between">
-                <span>{{ cell.rack }}</span>
-                <button
-                  type="button"
-                  @click.stop="printSpecificCell(branch, cell)"
-                  class="p-1 rounded hover:bg-white/[0.1] text-accent-cyan opacity-0 group-hover:opacity-100 transition"
-                  title="Быстрая печать ШК ячейки"
-                >
-                  <Printer class="w-3 h-3" />
-                </button>
+                <span class="truncate max-w-[70px]">{{ cell.rack }}</span>
+                <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
+                  <button
+                    type="button"
+                    @click.stop="printSpecificCell(branch, cell)"
+                    class="p-1 rounded hover:bg-white/[0.1] text-accent-cyan transition"
+                    title="Быстрая печать ШК ячейки"
+                  >
+                    <Printer class="w-3 h-3" />
+                  </button>
+                  <button
+                    v-if="store.isOwner"
+                    type="button"
+                    @click.stop="promptDeleteCell(branch.id, cell)"
+                    class="p-1 rounded hover:bg-rose-500/20 text-rose-400 transition"
+                    title="Удалить полку/ячейку"
+                  >
+                    <Trash2 class="w-3 h-3" />
+                  </button>
+                </div>
               </div>
               <div class="text-xs font-mono font-black text-accent-cyan">{{ cell.shelf }}</div>
               <div class="text-[10px]" :class="cellPackagesCount(branch, cell) > 0 ? 'text-white font-bold' : 'text-text-secondary'">
@@ -269,7 +298,8 @@
             </button>
 
             <button
-              @click="confirmDeleteWarehouse(wh)"
+              v-if="store.isOwner"
+              @click="promptDeleteWarehouse(wh)"
               class="p-2 sm:p-2.5 rounded-xl bg-white/[0.04] hover:bg-rose-500/15 border border-white/[0.06] text-text-secondary hover:text-rose-400 transition cursor-pointer"
               title="Удалить склад"
             >
@@ -324,15 +354,26 @@
               title="Нажмите, чтобы посмотреть посылки на этом паллете"
             >
               <div class="text-[10px] text-text-tertiary font-mono flex items-center justify-between">
-                <span>{{ cell.rack }}</span>
-                <button
-                  type="button"
-                  @click.stop="printSpecificCell(wh, cell)"
-                  class="p-1 rounded hover:bg-white/[0.1] text-accent-cyan opacity-0 group-hover:opacity-100 transition"
-                  title="Печать ШК паллета"
-                >
-                  <Printer class="w-3 h-3" />
-                </button>
+                <span class="truncate max-w-[70px]">{{ cell.rack }}</span>
+                <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
+                  <button
+                    type="button"
+                    @click.stop="printSpecificCell(wh, cell)"
+                    class="p-1 rounded hover:bg-white/[0.1] text-accent-cyan transition"
+                    title="Печать ШК паллета"
+                  >
+                    <Printer class="w-3 h-3" />
+                  </button>
+                  <button
+                    v-if="store.isOwner"
+                    type="button"
+                    @click.stop="promptDeleteCell(wh.id, cell)"
+                    class="p-1 rounded hover:bg-rose-500/20 text-rose-400 transition"
+                    title="Удалить паллет/зону"
+                  >
+                    <Trash2 class="w-3 h-3" />
+                  </button>
+                </div>
               </div>
               <div class="text-xs font-mono font-black text-accent-cyan">{{ cell.shelf }}</div>
               <div class="text-[10px]" :class="cellPackagesCount(wh, cell) > 0 ? 'text-white font-bold' : 'text-text-secondary'">
@@ -603,14 +644,15 @@
       <template #footer>
         <div class="flex items-center justify-between w-full">
           <button
-            @click="confirmDeleteWarehouse(editingWarehouse)"
+            v-if="store.isOwner"
+            @click="promptDeleteWarehouse(editingWarehouse)"
             class="px-4 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-medium text-xs transition cursor-pointer flex items-center gap-1.5"
           >
             <Trash2 class="w-3.5 h-3.5" />
             <span>Удалить склад</span>
           </button>
 
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 ml-auto">
             <button
               @click="showEditWarehouseModal = false"
               class="px-4 py-2 rounded-xl bg-white/[0.04] text-text-secondary hover:text-white font-medium text-xs transition cursor-pointer"
@@ -627,6 +669,8 @@
         </div>
       </template>
     </AppModal>
+
+    <!-- Модальное окно: Добавить новый филиал ПВЗ -->
     <AppModal v-model="showCreateBranchModal" title="Новый пункт выдачи">
       <div class="space-y-3.5 text-xs">
         <div>
@@ -679,6 +723,75 @@
         >
           Создать филиал
         </button>
+      </template>
+    </AppModal>
+
+    <!-- Модальное окно: Редактировать филиал ПВЗ -->
+    <AppModal v-model="showEditBranchModal" title="Редактировать филиал ПВЗ">
+      <div v-if="editingBranch" class="space-y-3.5 text-xs">
+        <div>
+          <label class="text-text-secondary mb-1 block">Название филиала</label>
+          <input
+            v-model="editingBranch.name"
+            placeholder="ПВЗ Душанбе Центр"
+            class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none"
+          />
+        </div>
+
+        <div>
+          <label class="text-text-secondary mb-1 block">Город</label>
+          <input
+            v-model="editingBranch.city"
+            placeholder="Душанбе"
+            class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none"
+          />
+        </div>
+
+        <div>
+          <label class="text-text-secondary mb-1 block">Адрес</label>
+          <input
+            v-model="editingBranch.address"
+            placeholder="ул. Айни 45"
+            class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none"
+          />
+        </div>
+
+        <div>
+          <label class="text-text-secondary mb-1 block">Телефон точки</label>
+          <input
+            v-model="editingBranch.phone"
+            placeholder="+992 90 000 0001"
+            class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono"
+          />
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex items-center justify-between w-full">
+          <button
+            v-if="store.isOwner"
+            @click="promptDeleteBranch(editingBranch)"
+            class="px-4 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-medium text-xs transition cursor-pointer flex items-center gap-1.5"
+          >
+            <Trash2 class="w-3.5 h-3.5" />
+            <span>Удалить ПВЗ</span>
+          </button>
+
+          <div class="flex items-center gap-2 ml-auto">
+            <button
+              @click="showEditBranchModal = false"
+              class="px-4 py-2 rounded-xl bg-white/[0.04] text-text-secondary hover:text-white font-medium text-xs transition cursor-pointer"
+            >
+              Отмена
+            </button>
+            <button
+              @click="saveEditedBranch"
+              class="px-5 py-2 rounded-xl bg-accent-blue hover:bg-accent-blue/90 text-white font-bold text-xs shadow-glow-blue transition cursor-pointer"
+            >
+              Сохранить
+            </button>
+          </div>
+        </div>
       </template>
     </AppModal>
 
@@ -853,12 +966,22 @@
       </div>
 
       <template #footer>
-        <button
-          @click="showCellContentsModal = false"
-          class="px-5 py-2.5 rounded-xl bg-white/[0.04] text-text-secondary hover:text-white font-medium text-xs transition cursor-pointer"
-        >
-          Закрыть
-        </button>
+        <div class="flex items-center justify-between w-full">
+          <button
+            v-if="store.isOwner"
+            @click="promptDeleteCell(activeBranchForDetails.id, activeCellForDetails)"
+            class="px-4 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-medium text-xs transition cursor-pointer flex items-center gap-1.5"
+          >
+            <Trash2 class="w-3.5 h-3.5" />
+            <span>Удалить ячейку</span>
+          </button>
+          <button
+            @click="showCellContentsModal = false"
+            class="px-5 py-2.5 rounded-xl bg-white/[0.04] text-text-secondary hover:text-white font-medium text-xs transition cursor-pointer ml-auto"
+          >
+            Закрыть
+          </button>
+        </div>
       </template>
     </AppModal>
 
@@ -866,6 +989,16 @@
     <BarcodePrintModal
       v-model="showPrintModal"
       :pkg="activeShelfPrintData"
+    />
+
+    <!-- Модальное окно подтверждения удаления (без эмодзи, стилизованное) -->
+    <AppConfirmModal
+      v-model="showDeleteConfirmModal"
+      :title="deleteConfirmTitle"
+      :message="deleteConfirmMessage"
+      :itemName="deleteConfirmItemName"
+      confirmText="Удалить безвозвратно"
+      @confirm="executeDelete"
     />
   </div>
 </template>
@@ -875,6 +1008,7 @@ import { ref, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { Store, Plus, Printer, Banknote, Box, X, Globe, PackagePlus, Power, Pencil, Trash2 } from 'lucide-vue-next';
 import AppModal from '../components/ui/AppModal.vue';
+import AppConfirmModal from '../components/ui/AppConfirmModal.vue';
 import AppleFlag from '../components/ui/AppleFlag.vue';
 import BarcodePrintModal from '../components/BarcodePrintModal.vue';
 import { useCargoStore } from '../stores/useCargoStore';
@@ -888,6 +1022,8 @@ const slug = computed(() => (route.params.slug as string) || store.activeTenantS
 const activeViewTab = ref<'BRANCHES' | 'WAREHOUSES'>('BRANCHES');
 
 const showCreateBranchModal = ref(false);
+const showEditBranchModal = ref(false);
+const editingBranch = ref<any>(null);
 const showCreateWarehouseModal = ref(false);
 const showEditWarehouseModal = ref(false);
 const editingWarehouse = ref<any>(null);
@@ -901,6 +1037,14 @@ const activeBranchForPrint = ref<any>(null);
 const activeBranchForDetails = ref<any>(null);
 const activeCellForDetails = ref<any>(null);
 const activeShelfPrintData = ref<any>(null);
+
+// Состояние подтверждения удаления
+const showDeleteConfirmModal = ref(false);
+const deleteConfirmTitle = ref('');
+const deleteConfirmMessage = ref('');
+const deleteConfirmItemName = ref('');
+const deleteTargetType = ref<'WAREHOUSE' | 'BRANCH' | 'CELL'>('WAREHOUSE');
+const deleteTargetData = ref<any>(null);
 
 const countryPresets = [
   { name: 'Китай', code: 'CN' },
@@ -1048,17 +1192,93 @@ function saveEditedWarehouse() {
   editingWarehouse.value = null;
 }
 
-function confirmDeleteWarehouse(wh: any) {
-  if (!wh) return;
-  const name = wh.name || wh.city || 'Склад';
-  if (confirm(`Вы уверены, что хотите удалить международный склад «${name}»?`)) {
-    store.deleteOriginWarehouse(wh.id);
-    if (showEditWarehouseModal.value) {
-      showEditWarehouseModal.value = false;
-      editingWarehouse.value = null;
+function openEditBranchModal(b: any) {
+  editingBranch.value = {
+    id: b.id,
+    name: b.name,
+    city: b.city,
+    address: b.address,
+    phone: b.phone,
+  };
+  showEditBranchModal.value = true;
+}
+
+function saveEditedBranch() {
+  if (!editingBranch.value) return;
+  store.updateBranch(editingBranch.value.id, {
+    name: editingBranch.value.name,
+    city: editingBranch.value.city,
+    address: editingBranch.value.address,
+    phone: editingBranch.value.phone,
+  });
+  showEditBranchModal.value = false;
+  toastMessage.value = `Филиал «${editingBranch.value.name}» успешно обновлен`;
+  editingBranch.value = null;
+}
+
+function promptDeleteWarehouse(wh: any) {
+  if (!wh || !store.isOwner) return;
+  deleteTargetType.value = 'WAREHOUSE';
+  deleteTargetData.value = wh;
+  deleteConfirmTitle.value = 'Удаление международного склада';
+  deleteConfirmMessage.value = 'Вы уверены, что хотите удалить данный международный склад? Это действие необратимо.';
+  deleteConfirmItemName.value = `${wh.name || 'Склад'} (${wh.country}, ${wh.city})`;
+  showDeleteConfirmModal.value = true;
+}
+
+function promptDeleteBranch(branch: any) {
+  if (!branch || !store.isOwner) return;
+  deleteTargetType.value = 'BRANCH';
+  deleteTargetData.value = branch;
+  deleteConfirmTitle.value = 'Удаление пункта выдачи (ПВЗ)';
+  deleteConfirmMessage.value = 'Вы уверены, что хотите удалить данный филиал ПВЗ? Все неназначенные ячейки филиала будут также удалены.';
+  deleteConfirmItemName.value = `${branch.name} (${branch.city}, ${branch.address})`;
+  showDeleteConfirmModal.value = true;
+}
+
+function promptDeleteCell(branchOrWhId: string, cell: any) {
+  if (!cell || !store.isOwner) return;
+  deleteTargetType.value = 'CELL';
+  deleteTargetData.value = { parentId: branchOrWhId, cell };
+  deleteConfirmTitle.value = 'Удаление складской ячейки / полки';
+  deleteConfirmMessage.value = 'Вы уверены, что хотите удалить эту ячейку/полку хранения?';
+  deleteConfirmItemName.value = `${cell.rack} • ${cell.shelf} (ШК: ${cell.barcode})`;
+  showDeleteConfirmModal.value = true;
+}
+
+function executeDelete() {
+  if (deleteTargetType.value === 'WAREHOUSE') {
+    const wh = deleteTargetData.value;
+    if (wh) {
+      store.deleteOriginWarehouse(wh.id);
+      if (showEditWarehouseModal.value) {
+        showEditWarehouseModal.value = false;
+        editingWarehouse.value = null;
+      }
+      toastMessage.value = `Склад «${wh.name || wh.city}» удален из системы`;
     }
-    toastMessage.value = `Склад «${name}» удален из системы`;
+  } else if (deleteTargetType.value === 'BRANCH') {
+    const b = deleteTargetData.value;
+    if (b) {
+      store.deleteBranch(b.id);
+      if (showEditBranchModal.value) {
+        showEditBranchModal.value = false;
+        editingBranch.value = null;
+      }
+      toastMessage.value = `Филиал ПВЗ «${b.name}» удален из системы`;
+    }
+  } else if (deleteTargetType.value === 'CELL') {
+    const { parentId, cell } = deleteTargetData.value || {};
+    if (parentId && cell) {
+      store.deleteWarehouseCell(parentId, cell.id);
+      if (showCellContentsModal.value) {
+        showCellContentsModal.value = false;
+      }
+      toastMessage.value = `Ячейка «${cell.shelf}» удалена`;
+    }
   }
+  showDeleteConfirmModal.value = false;
+  deleteTargetData.value = null;
 }
 
 function openCellContents(branch: any, cell: any) {

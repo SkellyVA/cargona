@@ -578,10 +578,106 @@ fastify.delete<{ Params: { slug: string; id: string } }>('/api/o/:slug/branches/
   const idx = store.branches.findIndex((b) => b.id === id && b.tenantId === tenant.id);
   if (idx === -1) return reply.status(404).send({ error: 'Branch not found' });
 
-  store.branches.splice(idx, 1);
+  const removed = store.branches.splice(idx, 1)[0];
   store.storageCells = store.storageCells.filter((c) => c.branchId !== id);
   store.saveToFile();
-  return { success: true, message: 'Branch deleted' };
+  return { success: true, message: 'Branch deleted', branch: removed };
+});
+
+// --- Origin Warehouses Management ---
+fastify.get<{ Params: { slug: string } }>('/api/o/:slug/warehouses', async (request, reply) => {
+  const { slug } = request.params;
+  const tenant = store.tenants.find((t) => t.slug === slug);
+  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
+
+  const warehouses = store.originWarehouses.filter((w: any) => w.tenantId === tenant.id);
+  return { warehouses };
+});
+
+fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/warehouses', async (request, reply) => {
+  const { slug } = request.params;
+  const tenant = store.tenants.find((t) => t.slug === slug);
+  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
+
+  const body = request.body || {};
+  const newWh = {
+    id: body.id || store.nextId('wh', store.originWarehouses),
+    tenantId: tenant.id,
+    name: body.name || 'Склад',
+    country: body.country || 'Китай',
+    countryCode: body.countryCode || 'CN',
+    city: body.city || 'Иу',
+    address: body.address || '',
+    receiverName: body.receiverName || '',
+    phone: body.phone || '',
+    zipCode: body.zipCode || '',
+    instructions: body.instructions || '',
+    isActive: body.isActive !== false,
+    cells: body.cells || [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  store.originWarehouses.push(newWh as any);
+  store.saveToFile();
+  return { success: true, warehouse: newWh };
+});
+
+fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/warehouses/:id', async (request, reply) => {
+  const { slug, id } = request.params;
+  const tenant = store.tenants.find((t) => t.slug === slug);
+  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
+
+  const wh = store.originWarehouses.find((w: any) => w.id === id && w.tenantId === tenant.id);
+  if (!wh) return reply.status(404).send({ error: 'Warehouse not found' });
+
+  Object.assign(wh, request.body);
+  (wh as any).updatedAt = new Date().toISOString();
+  store.saveToFile();
+  return { success: true, warehouse: wh };
+});
+
+fastify.delete<{ Params: { slug: string; id: string } }>('/api/o/:slug/warehouses/:id', async (request, reply) => {
+  const { slug, id } = request.params;
+  const tenant = store.tenants.find((t) => t.slug === slug);
+  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
+
+  const idx = store.originWarehouses.findIndex((w: any) => w.id === id && w.tenantId === tenant.id);
+  if (idx === -1) return reply.status(404).send({ error: 'Warehouse not found' });
+
+  const removed = store.originWarehouses.splice(idx, 1)[0];
+  store.saveToFile();
+  return { success: true, message: 'Warehouse deleted', warehouse: removed };
+});
+
+// --- Storage Cells Management ---
+fastify.delete<{ Params: { slug: string; id: string; cellId: string } }>('/api/o/:slug/branches/:id/cells/:cellId', async (request, reply) => {
+  const { slug, id, cellId } = request.params;
+  const tenant = store.tenants.find((t) => t.slug === slug);
+  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
+
+  const branch = store.branches.find((b) => b.id === id && b.tenantId === tenant.id);
+  if (branch && (branch as any).cells) {
+    const cIdx = (branch as any).cells.findIndex((c: any) => c.id === cellId);
+    if (cIdx !== -1) (branch as any).cells.splice(cIdx, 1);
+  }
+  store.storageCells = store.storageCells.filter((c) => !(c.branchId === id && c.id === cellId));
+  store.saveToFile();
+  return { success: true, message: 'Cell deleted' };
+});
+
+fastify.delete<{ Params: { slug: string; id: string; cellId: string } }>('/api/o/:slug/warehouses/:id/cells/:cellId', async (request, reply) => {
+  const { slug, id, cellId } = request.params;
+  const tenant = store.tenants.find((t) => t.slug === slug);
+  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
+
+  const wh = store.originWarehouses.find((w: any) => w.id === id && w.tenantId === tenant.id);
+  if (wh && (wh as any).cells) {
+    const cIdx = (wh as any).cells.findIndex((c: any) => c.id === cellId);
+    if (cIdx !== -1) (wh as any).cells.splice(cIdx, 1);
+  }
+  store.saveToFile();
+  return { success: true, message: 'Warehouse cell deleted' };
 });
 
 // --- Staff Management ---

@@ -95,6 +95,7 @@
               <th class="pb-3 px-3">Филиал / Склад</th>
               <th class="pb-3 px-3">Телефон</th>
               <th class="pb-3 px-3 text-right">Доступ</th>
+              <th v-if="store.isOwner" class="pb-3 px-3 text-right">Действия</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-white/[0.04]">
@@ -120,6 +121,16 @@
                   @update:modelValue="store.toggleEmployeeStatus(emp.id)"
                 />
               </td>
+              <td v-if="store.isOwner" class="py-3.5 px-3 text-right whitespace-nowrap">
+                <button
+                  v-if="emp.role !== 'OWNER'"
+                  @click="promptDeleteStaff(emp)"
+                  title="Удалить сотрудника"
+                  class="p-1.5 rounded-lg text-text-tertiary hover:text-accent-coral hover:bg-accent-coral/10 transition cursor-pointer"
+                >
+                  <Trash2 class="w-4 h-4" />
+                </button>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -137,10 +148,20 @@
               <div class="font-bold text-white text-sm">{{ emp.fullName }}</div>
               <div class="text-[11px] text-text-tertiary font-mono">{{ emp.email }}</div>
             </div>
-            <AppToggle
-              :modelValue="emp.isActive"
-              @update:modelValue="store.toggleEmployeeStatus(emp.id)"
-            />
+            <div class="flex items-center gap-2">
+              <button
+                v-if="store.isOwner && emp.role !== 'OWNER'"
+                @click="promptDeleteStaff(emp)"
+                title="Удалить сотрудника"
+                class="p-1.5 rounded-lg text-text-tertiary hover:text-accent-coral hover:bg-accent-coral/10 transition cursor-pointer"
+              >
+                <Trash2 class="w-3.5 h-3.5" />
+              </button>
+              <AppToggle
+                :modelValue="emp.isActive"
+                @update:modelValue="store.toggleEmployeeStatus(emp.id)"
+              />
+            </div>
           </div>
 
           <div class="flex items-center justify-between gap-2 pt-2 border-t border-white/[0.04] text-xs">
@@ -246,7 +267,17 @@
             />
           </div>
 
-          <div class="pt-2 flex justify-end">
+          <div class="pt-2 flex items-center justify-between">
+            <button
+              v-if="store.isOwner && selectedWarehouse"
+              @click="promptDeleteWarehouse(selectedWarehouse)"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-accent-coral/30 bg-accent-coral/10 hover:bg-accent-coral/20 text-accent-coral text-xs font-semibold transition cursor-pointer"
+            >
+              <Trash2 class="w-3.5 h-3.5" />
+              <span>Удалить склад</span>
+            </button>
+            <div v-else></div>
+
             <button
               @click="saveWarehouseSettings"
               class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-accent-blue hover:bg-accent-blue/90 text-white font-bold text-xs shadow-glow-blue transition cursor-pointer"
@@ -718,6 +749,17 @@
         </button>
       </template>
     </AppModal>
+
+    <!-- Диалог подтверждения удаления -->
+    <AppConfirmModal
+      v-model="confirmModal.isOpen"
+      :title="confirmModal.title"
+      :description="confirmModal.description"
+      :targetName="confirmModal.targetName"
+      confirmText="Удалить"
+      confirmButtonClass="bg-accent-coral hover:bg-accent-coral/90 text-white"
+      @confirm="handleConfirmAction"
+    />
   </div>
 </template>
 
@@ -736,10 +778,12 @@ import {
   Check,
   ExternalLink,
   Building2,
+  Trash2,
 } from 'lucide-vue-next';
 import AppModal from '../components/ui/AppModal.vue';
 import AppDropdown from '../components/ui/AppDropdown.vue';
 import AppToggle from '../components/ui/AppToggle.vue';
+import AppConfirmModal from '../components/ui/AppConfirmModal.vue';
 import AppleFlag from '../components/ui/AppleFlag.vue';
 import LanguageSwitcher from '../components/ui/LanguageSwitcher.vue';
 import { useCargoStore } from '../stores/useCargoStore';
@@ -750,6 +794,51 @@ const { t } = useI18n();
 const showAddStaffModal = ref(false);
 const showAddWarehouseModal = ref(false);
 const toastMessage = ref('');
+
+const confirmModal = ref({
+  isOpen: false,
+  title: '',
+  description: '',
+  targetName: '',
+  actionType: '' as 'delete_staff' | 'delete_warehouse',
+  targetId: '',
+});
+
+function promptDeleteStaff(emp: { id: string; fullName: string }) {
+  confirmModal.value = {
+    isOpen: true,
+    title: 'Удаление сотрудника',
+    description: 'Вы действительно хотите удалить сотрудника из штата? Доступ к системе для него будет заблокирован.',
+    targetName: emp.fullName,
+    actionType: 'delete_staff',
+    targetId: emp.id,
+  };
+}
+
+function promptDeleteWarehouse(wh: { id: string; country: string; city: string }) {
+  confirmModal.value = {
+    isOpen: true,
+    title: 'Удаление международного склада',
+    description: 'Вы уверены, что хотите удалить этот международный склад? Клиенты больше не увидят его адрес для оформления покупок.',
+    targetName: `${wh.country} (${wh.city})`,
+    actionType: 'delete_warehouse',
+    targetId: wh.id,
+  };
+}
+
+function handleConfirmAction() {
+  if (confirmModal.value.actionType === 'delete_staff') {
+    store.deleteEmployee(confirmModal.value.targetId);
+    toastMessage.value = `Сотрудник «${confirmModal.value.targetName}» успешно удален`;
+  } else if (confirmModal.value.actionType === 'delete_warehouse') {
+    store.deleteOriginWarehouse(confirmModal.value.targetId);
+    toastMessage.value = `Склад «${confirmModal.value.targetName}» успешно удален`;
+    if (activeWarehouseId.value === confirmModal.value.targetId) {
+      activeWarehouseId.value = store.originWarehouses[0]?.id || '';
+    }
+  }
+  confirmModal.value.isOpen = false;
+}
 
 const currencyOptions = [
   { value: 'TJS', label: 'TJS — Сомони (Таджикистан)' },

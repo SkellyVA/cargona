@@ -786,6 +786,12 @@ export const useCargoStore = defineStore('cargo', () => {
     return false;
   }
 
+  const isOwner = computed(() => {
+    const role = currentUser.value?.role;
+    if (!role) return true;
+    return role === 'OWNER' || role === 'SUPER_ADMIN' || role === 'SUPERADMIN' || role === 'TENANT_OWNER';
+  });
+
   // 2.2 Международные склады отправления (Мульти-страны: Китай, Турция, ОАЭ, США)
   const defaultOriginWarehouses: OriginWarehouse[] = [];
 
@@ -831,6 +837,18 @@ export const useCargoStore = defineStore('cargo', () => {
       localStorage.setItem('cargona_warehouses', JSON.stringify(rawOriginWarehouses.value));
     }
     addAudit('CREATE', 'Новый склад отправки', newWh.name, `Добавлен склад ${newWh.name} (Код: ${newWh.countryCode})`);
+
+    try {
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        fetch(`/api/o/${slug}/warehouses`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newWh),
+        });
+      }
+    } catch {}
+
     return newWh;
   }
 
@@ -842,6 +860,17 @@ export const useCargoStore = defineStore('cargo', () => {
       localStorage.setItem('cargona_warehouses', JSON.stringify(rawOriginWarehouses.value));
     }
     addAudit('UPDATE', 'Обновление склада', wh.name || wh.country, `Обновлены данные склада ${wh.city}`);
+
+    try {
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        fetch(`/api/o/${slug}/warehouses/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+      }
+    } catch {}
   }
 
   function deleteOriginWarehouse(id: string) {
@@ -852,6 +881,13 @@ export const useCargoStore = defineStore('cargo', () => {
       localStorage.setItem('cargona_warehouses', JSON.stringify(rawOriginWarehouses.value));
     }
     addAudit('DELETE', 'Удаление склада', removed.name || removed.country, `Удален склад ${removed.city} (${removed.country})`);
+
+    try {
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        fetch(`/api/o/${slug}/warehouses/${id}`, { method: 'DELETE' });
+      }
+    } catch {}
   }
 
   function toggleOriginWarehouse(id: string) {
@@ -862,6 +898,17 @@ export const useCargoStore = defineStore('cargo', () => {
       localStorage.setItem('cargona_warehouses', JSON.stringify(rawOriginWarehouses.value));
     }
     addAudit('UPDATE', 'Статус склада', wh.name || wh.country, wh.isActive ? 'Склад активирован' : 'Склад временно приостановлен');
+
+    try {
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        fetch(`/api/o/${slug}/warehouses/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isActive: wh.isActive }),
+        });
+      }
+    } catch {}
   }
 
   function addWarehouseCell(warehouseId: string, rack: string, shelf: string) {
@@ -1283,6 +1330,44 @@ export const useCargoStore = defineStore('cargo', () => {
     return newB;
   }
 
+  function updateBranch(id: string, data: Partial<Branch>) {
+    const branch = rawBranches.value.find((b) => b.id === id);
+    if (!branch) return;
+    Object.assign(branch, data);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('cargona_branches', JSON.stringify(rawBranches.value));
+    }
+    addAudit('UPDATE', 'Обновление филиала', branch.name, `Обновлены данные филиала ${branch.name}`);
+
+    try {
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        fetch(`/api/o/${slug}/branches/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+      }
+    } catch {}
+  }
+
+  function deleteBranch(id: string) {
+    const idx = rawBranches.value.findIndex((b) => b.id === id);
+    if (idx === -1) return;
+    const removed = rawBranches.value.splice(idx, 1)[0];
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('cargona_branches', JSON.stringify(rawBranches.value));
+    }
+    addAudit('DELETE', 'Удаление филиала', removed.name, `Удален филиал ПВЗ ${removed.name} (${removed.city})`);
+
+    try {
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        fetch(`/api/o/${slug}/branches/${id}`, { method: 'DELETE' });
+      }
+    } catch {}
+  }
+
   // Создание нового рейса
   function addTrip(data: Omit<Trip, 'id'>) {
     const id = nextSeqId('trip', rawTrips.value);
@@ -1510,6 +1595,47 @@ export const useCargoStore = defineStore('cargo', () => {
     addAudit('CREATE', 'Новая ячейка', `${branch.name} / ${shelf}`, `Создана ячейка ${rack}, ${shelf}`);
   }
 
+  function deleteWarehouseCell(branchOrWhId: string, cellId: string) {
+    // 1. Склад отправления
+    const wh = rawOriginWarehouses.value.find((w) => w.id === branchOrWhId || (w.id === 'wh-cn' && branchOrWhId === 'b-origin'));
+    if (wh && wh.cells) {
+      const cIdx = wh.cells.findIndex((c) => c.id === cellId);
+      if (cIdx !== -1) {
+        const removed = wh.cells.splice(cIdx, 1)[0];
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('cargona_warehouses', JSON.stringify(rawOriginWarehouses.value));
+        }
+        addAudit('DELETE', 'Удаление ячейки', `${wh.city} / ${removed.shelf}`, `Удалена складская зона/паллет ${removed.rack}, ${removed.shelf}`);
+        try {
+          const slug = activeTenantSlug.value;
+          if (slug) {
+            fetch(`/api/o/${slug}/warehouses/${wh.id}/cells/${cellId}`, { method: 'DELETE' });
+          }
+        } catch {}
+        return;
+      }
+    }
+
+    // 2. Филиал ПВЗ
+    const branch = rawBranches.value.find((b) => b.id === branchOrWhId);
+    if (branch && branch.cells) {
+      const cIdx = branch.cells.findIndex((c) => c.id === cellId);
+      if (cIdx !== -1) {
+        const removed = branch.cells.splice(cIdx, 1)[0];
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('cargona_branches', JSON.stringify(rawBranches.value));
+        }
+        addAudit('DELETE', 'Удаление ячейки', `${branch.name} / ${removed.shelf}`, `Удалена ячейка/полка ${removed.rack}, ${removed.shelf}`);
+        try {
+          const slug = activeTenantSlug.value;
+          if (slug) {
+            fetch(`/api/o/${slug}/branches/${branch.id}/cells/${cellId}`, { method: 'DELETE' });
+          }
+        } catch {}
+      }
+    }
+  }
+
   // Добавление сотрудника
   function addEmployee(data: Omit<Employee, 'id'>) {
     const id = nextSeqId('emp', rawStaff.value);
@@ -1527,6 +1653,24 @@ export const useCargoStore = defineStore('cargo', () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data),
         });
+      }
+    } catch {}
+  }
+
+  // Удаление сотрудника
+  function deleteEmployee(id: string) {
+    const idx = rawStaff.value.findIndex((e) => e.id === id);
+    if (idx === -1) return;
+    const removed = rawStaff.value.splice(idx, 1)[0];
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('cargona_staff', JSON.stringify(rawStaff.value));
+    }
+    addAudit('DELETE', 'Удаление сотрудника', removed.fullName, `Удален сотрудник ${removed.fullName} (${removed.role})`);
+
+    try {
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        fetch(`/api/o/${slug}/staff/${id}`, { method: 'DELETE' });
       }
     } catch {}
   }
@@ -2621,6 +2765,7 @@ export const useCargoStore = defineStore('cargo', () => {
     toggleTenantStatus,
     saasPlans,
     updateSaasPlan,
+    isOwner,
     originWarehouses,
     addOriginWarehouse,
     updateOriginWarehouse,
@@ -2628,6 +2773,8 @@ export const useCargoStore = defineStore('cargo', () => {
     deleteOriginWarehouse,
     branches,
     addBranch,
+    updateBranch,
+    deleteBranch,
     staff,
     customers,
     trips,
@@ -2644,7 +2791,9 @@ export const useCargoStore = defineStore('cargo', () => {
     collectBranchCash,
     addBranchCell,
     addWarehouseCell,
+    deleteWarehouseCell,
     addEmployee,
+    deleteEmployee,
     toggleEmployeeStatus,
     addCustomer,
     setCustomerPreferredBranch,
