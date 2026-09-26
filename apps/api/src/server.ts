@@ -337,6 +337,7 @@ fastify.get<{ Params: { slug: string } }>('/api/o/:slug/all', async (request, re
   if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
 
   const tenantBranches = store.branches.filter((b) => b.tenantId === tenant.id);
+  const tenantStaff = store.users.filter((u) => u.tenantId === tenant.id);
   const tenantCustomers = store.customers
     .filter((c) => c.tenantId === tenant.id)
     .sort((a, b) => {
@@ -347,6 +348,7 @@ fastify.get<{ Params: { slug: string } }>('/api/o/:slug/all', async (request, re
       }
       return (a.cargoCode || '').localeCompare(b.cargoCode || '', undefined, { numeric: true, sensitivity: 'base' });
     });
+  const tenantTrips = store.trips.filter((t) => t.tenantId === tenant.id);
   const tenantPackages = store.packages.filter((p) => p.tenantId === tenant.id);
   const tenantAuditLogs = store.auditLogs.filter((a) => a.tenantId === tenant.id);
   const tenantWarehouses = store.originWarehouses.filter((w: any) => w.tenantId === tenant.id);
