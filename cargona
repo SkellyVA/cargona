@@ -374,7 +374,13 @@ case "$1" in
     ;;
   import)
     shift
-    npx tsx apps/api/src/importer/cli.ts "$@"
+    if [ -f "${APP_DIR}/apps/api/src/importer/cli.ts" ] && command -v npx &> /dev/null; then
+      npx tsx "${APP_DIR}/apps/api/src/importer/cli.ts" "$@"
+    else
+      dc_cmd exec -T backend npx tsx apps/api/src/importer/cli.ts "$@"
+    fi
+    # Auto-reload backend container RAM state
+    dc_cmd restart backend 2>/dev/null || true
     ;;
   logs) cmd_logs "$2" ;;
   help|--help|-h)
