@@ -132,11 +132,12 @@ const { t } = useI18n();
 const slug = computed(() => (route.params.slug as string) || store.activeTenantSlug || store.tenants[0]?.slug || '');
 
 const totalWeightFormatted = computed(() => {
-  let tripWeight = 0;
-  for (const t of store.trips) tripWeight += (t.totalWeightKg || 0);
   let pkgWeight = 0;
   for (const p of store.packages) pkgWeight += (p.weightKg || 0);
-  return `${(tripWeight + pkgWeight).toLocaleString()} ${t('common.kg')}`;
+  if (pkgWeight === 0) {
+    for (const t of store.trips) pkgWeight += (t.totalWeightKg || 0);
+  }
+  return pkgWeight.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 });
 
 const totalPvzCashUSD = computed(() => {
