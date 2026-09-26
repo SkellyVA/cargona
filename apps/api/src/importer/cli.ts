@@ -26,6 +26,8 @@ function parseArgs() {
       options.tenant = args[++i];
     } else if (arg === '--dry-run') {
       options.dryRun = true;
+    } else if (arg === '--wipe' || arg === '-w') {
+      options.wipe = true;
     } else if (arg === '--help' || arg === '-h') {
       options.help = true;
     }
@@ -46,28 +48,31 @@ async function main() {
   --mongo <URI>     Строка подключения MongoDB (например: mongodb://localhost:27017/cargodb)
   --db <name>       Имя базы данных MongoDB (необязательно, если указано в URI)
   --dir <path>      Путь к директории с файлами JSON/JSONL экспортов
-  --tenant <slug>   Slug карго-компании в CargonaOS (например: cargona, noor, mir)
+  --tenant <slug>   Slug карго-компании в CargonaOS (например: cargona, prime, noor)
+  --wipe, -w        🧹 ПОЛНАЯ ОЧИСТКА: удалить старую базу тенанта перед накатыванием новой
   --dry-run         Тестовый прогон без записи в БД (показывает статистику и структуру)
 
 Примеры:
   # 1. Проверить миграцию из MongoDB (Dry Run):
-  npx tsx apps/api/src/importer/cli.ts --mongo "mongodb+srv://..." --tenant cargona --dry-run
+  npx tsx apps/api/src/importer/cli.ts --mongo "mongodb+srv://..." --tenant prime --dry-run
 
-  # 2. Выполнить импорт из MongoDB:
-  npx tsx apps/api/src/importer/cli.ts --mongo "mongodb+srv://..." --tenant cargona
+  # 2. Накатить новую БД с полной очисткой старой:
+  npx tsx apps/api/src/importer/cli.ts --mongo "mongodb+srv://..." --tenant prime --wipe
 
-  # 3. Выполнить импорт из папки с JSON файлами:
-  npx tsx apps/api/src/importer/cli.ts --dir ./dumps --tenant cargona
+  # 3. Дополнить существующую базу новыми данными:
+  npx tsx apps/api/src/importer/cli.ts --mongo "mongodb+srv://..." --tenant prime
 `);
     process.exit(0);
   }
 
   const tenantSlug = opts.tenant || 'cargona';
   const dryRun = !!opts.dryRun;
+  const wipeExisting = !!opts.wipe;
 
   console.log('\n🚀 [CargonaOS Importer] Запуск умной миграции...');
   console.log(`   Тенант: ${tenantSlug}`);
-  console.log(`   Режим: ${dryRun ? '🔍 DRY RUN (Предпросмотр без записи)' : '💾 РЕАЛЬНАЯ ЗАПИСЬ В БАЗУ'}`);
+  console.log(`   Режим записи: ${dryRun ? '🔍 DRY RUN (Предпросмотр без записи)' : '💾 РЕАЛЬНАЯ ЗАПИСЬ В БАЗУ'}`);
+  console.log(`   Режим очистки: ${wipeExisting ? '🧹 СТЕРЕТЬ СТАРУЮ БАЗУ И НАКАТИТЬ ЗАНОВО' : '🔄 ОБЪЕДИНЕНИЕ (UPSERT)'}`);
 
   let source: any;
 
@@ -114,18 +119,21 @@ async function main() {
     const result = await runSmartMigration(source, {
       tenantSlug,
       dryRun,
+      wipeExisting,
     });
 
     console.log('\n================ РЕЗУЛЬТАТ АНАЛИЗА И МИГРАЦИИ ================');
     console.log('\n📁 Распознанные коллекции:');
     for (const col of result.analyzedCollections) {
-      console.log(`   • ${col.name.padEnd(20)} -> Тип: [${col.type}] (Образцов: ${col.sampleCount})`);
+      console.log(`   • ${col.name.padEnd(24)} -> Тип: [${col.type}] (Образцов: ${col.sampleCount})`);
     }
 
     console.log('\n📊 Статистика сущностей:');
     console.log(`   👤 Клиенты:          ${result.stats.importedCustomersCount.toLocaleString()}`);
     console.log(`   📦 Посылки (треки):  ${result.stats.importedPackagesCount.toLocaleString()}`);
-    console.log(`   🔗 Связи из заказов: ${result.stats.totalOrdersFound.toLocaleString()}`);
+    console.log(`   🏢 Филиалы / ПВЗ:    ${result.stats.importedBranchesCount.toLocaleString()}`);
+    console.log(`   💳 Транзакции кассы: ${result.stats.importedTransactionsCount.toLocaleString()}`);
+    console.log(`   💬 Обращения/отзывы: ${result.stats.importedComplaintsCount.toLocaleString()}`);
     console.log(`   🚚 Рейсы/Партии:     ${result.stats.importedTripsCount.toLocaleString()}`);
     console.log(`   ⚠️ Непривязанных:   ${result.stats.unassignedPackagesCount.toLocaleString()}`);
 
@@ -139,14 +147,14 @@ async function main() {
     if (result.sampleCustomers.length > 0) {
       console.log('\n👤 Образцы клиентов (первые 3):');
       for (const c of result.sampleCustomers.slice(0, 3)) {
-        console.log(`   [${c.cargoCode}] ${c.fullName} | Телефон: ${c.phone || '—'} | TG ID: ${c.telegramId || '—'}`);
+        console.log(`   [${c.cargoCode}] ${c.fullName} | Телефон: ${c.phone || '—'} | Баланс: ${c.balance} | TG ID: ${c.telegramId || '—'}`);
       }
     }
 
     if (result.samplePackages.length > 0) {
       console.log('\n📦 Образцы посылок (первые 3):');
       for (const p of result.samplePackages.slice(0, 3)) {
-        console.log(`   [${p.trackingNumber}] -> Клиент: ${p.customerCargoCode || 'Не привязан'} | Статус: ${p.status} | Вес: ${p.weightKg} кг`);
+        console.log(`   [${p.trackingNumber}] -> Клиент: ${p.customerCargoCode || 'Не привязан'} | Статус: ${p.status} | Стоимость: ${p.costUSD} | Вес: ${p.weightKg} кг`);
       }
     }
 

@@ -319,15 +319,21 @@ EOF
       9)
         echo -e "\n${CYAN}=== Умный импорт данных в CargonaOS ===${NC}"
         read -p "Тип источника (1 - MongoDB URI, 2 - Папка с JSON файлами): " imp_type
-        read -p "Slug организации (например: cargona): " imp_tenant
+        read -p "Slug организации (например: cargona, prime): " imp_tenant
         imp_tenant=${imp_tenant:-cargona}
+        read -p "Очистить старую базу тенанта перед импортом? (y/n) [n]: " imp_wipe_choice
+        local wipe_flag=""
+        if [[ "$imp_wipe_choice" =~ ^[Yy]$ ]]; then
+          wipe_flag="--wipe"
+          echo -e "${YELLOW}[!] Режим: Полная замена старой базы на новую${NC}"
+        fi
         if [ "$imp_type" = "1" ]; then
           read -p "MongoDB URI (например: mongodb://user:pass@host:27017/db): " imp_uri
-          node apps/api/src/importer/cli.ts --mongo "$imp_uri" --tenant "$imp_tenant" 2>/dev/null || npx tsx apps/api/src/importer/cli.ts --mongo "$imp_uri" --tenant "$imp_tenant"
+          node apps/api/src/importer/cli.ts --mongo "$imp_uri" --tenant "$imp_tenant" $wipe_flag 2>/dev/null || npx tsx apps/api/src/importer/cli.ts --mongo "$imp_uri" --tenant "$imp_tenant" $wipe_flag
         else
           read -p "Путь к папке с JSON (по умолчанию ./dumps): " imp_dir
           imp_dir=${imp_dir:-./dumps}
-          node apps/api/src/importer/cli.ts --dir "$imp_dir" --tenant "$imp_tenant" 2>/dev/null || npx tsx apps/api/src/importer/cli.ts --dir "$imp_dir" --tenant "$imp_tenant"
+          node apps/api/src/importer/cli.ts --dir "$imp_dir" --tenant "$imp_tenant" $wipe_flag 2>/dev/null || npx tsx apps/api/src/importer/cli.ts --dir "$imp_dir" --tenant "$imp_tenant" $wipe_flag
         fi
         read -p "Нажмите Enter для продолжения..."
         ;;
