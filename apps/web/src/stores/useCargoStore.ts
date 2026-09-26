@@ -645,170 +645,99 @@ export const useCargoStore = defineStore('cargo', () => {
       if (data.settings) {
         settings.value = { ...settings.value, ...data.settings };
       }
-      if (Array.isArray(data.branches) && data.branches.length > 0) {
-        const branchMap = new Map(rawBranches.value.map((b) => [b.id, b]));
-        for (const b of data.branches) {
-          const existing = branchMap.get(b.id);
-          if (!existing) {
-            const newBranch = {
-              id: b.id,
-              name: b.name,
-              city: b.city,
-              address: b.address,
-              phone: b.phone || '',
-              cashBalanceUSD: b.cashBalance || b.cashBalanceUSD || 0,
-              cells: b.cells || [],
-              tenantSlug: slug,
-            };
-            rawBranches.value.push(newBranch);
-            branchMap.set(b.id, newBranch as any);
-          } else {
-            existing.name = b.name;
-            existing.city = b.city;
-            existing.address = b.address;
-            if (b.cells) existing.cells = b.cells;
-            if (typeof b.cashBalance === 'number') existing.cashBalanceUSD = b.cashBalance;
-          }
-        }
+      if (Array.isArray(data.branches)) {
+        const tenantBranches: Branch[] = data.branches.map((b: any) => ({
+          id: b.id,
+          name: b.name,
+          city: b.city,
+          address: b.address,
+          phone: b.phone || '',
+          cashBalanceUSD: typeof b.cashBalance === 'number' ? b.cashBalance : (b.cashBalanceUSD || 0),
+          cells: b.cells || [],
+          tenantSlug: slug,
+        }));
+        const otherBranches = rawBranches.value.filter((b) => b.tenantSlug && b.tenantSlug !== slug);
+        rawBranches.value = [...otherBranches, ...tenantBranches];
       }
 
-      if (Array.isArray(data.customers) && data.customers.length > 0) {
-        const customerMap = new Map<string, Customer>();
-        for (const c of rawCustomers.value) {
-          if (c.id) customerMap.set(c.id, c);
-          if (c.cargoCode) customerMap.set(c.cargoCode.toUpperCase(), c);
-        }
-        const toAdd: Customer[] = [];
-        for (const c of data.customers) {
-          const key = c.cargoCode ? c.cargoCode.toUpperCase() : c.id;
-          const existing = customerMap.get(c.id) || (key ? customerMap.get(key) : undefined);
-          if (!existing) {
-            const newCust: Customer = {
-              id: c.id,
-              cargoCode: c.cargoCode,
-              fullName: c.fullName,
-              phone: c.phone,
-              telegramUsername: c.telegramUsername || '',
-              balanceUSD: c.balance || c.balanceUSD || 0,
-              isBlocked: c.isBlocked || false,
-              preferredBranchId: c.preferredBranchId || '',
-              notes: c.notes || '',
-              tenantSlug: slug,
-            };
-            toAdd.push(newCust);
-            customerMap.set(c.id, newCust);
-            if (c.cargoCode) customerMap.set(c.cargoCode.toUpperCase(), newCust);
-          } else {
-            existing.fullName = c.fullName;
-            existing.phone = c.phone;
-            if (typeof c.balance === 'number') existing.balanceUSD = c.balance;
-            existing.isBlocked = c.isBlocked || false;
-          }
-        }
-        if (toAdd.length > 0) {
-          rawCustomers.value = [...rawCustomers.value, ...toAdd];
-        } else {
-          triggerRef(rawCustomers);
-        }
+      if (Array.isArray(data.customers)) {
+        const tenantCustomers: Customer[] = data.customers.map((c: any) => ({
+          id: c.id,
+          cargoCode: c.cargoCode,
+          fullName: c.fullName,
+          phone: c.phone || '',
+          telegramUsername: c.telegramUsername || '',
+          balanceUSD: typeof c.balance === 'number' ? c.balance : (c.balanceUSD || 0),
+          isBlocked: c.isBlocked || false,
+          preferredBranchId: c.preferredBranchId || '',
+          notes: c.notes || '',
+          tenantSlug: slug,
+        }));
+        const otherCustomers = rawCustomers.value.filter((c) => c.tenantSlug && c.tenantSlug !== slug);
+        rawCustomers.value = [...otherCustomers, ...tenantCustomers];
+        triggerRef(rawCustomers);
       }
 
-      if (Array.isArray(data.packages) && data.packages.length > 0) {
-        const pkgMap = new Map<string, PackageItem>();
-        for (const p of rawPackages.value) {
-          if (p.id) pkgMap.set(p.id, p);
-          if (p.trackingNumber) pkgMap.set(p.trackingNumber, p);
-        }
-        const toAdd: PackageItem[] = [];
-        for (const p of data.packages) {
-          const existing = pkgMap.get(p.id) || (p.trackingNumber ? pkgMap.get(p.trackingNumber) : undefined);
-          if (!existing) {
-            const newPkg: PackageItem = {
-              id: p.id,
-              trackingNumber: p.trackingNumber,
-              customerCargoCode: p.customerCargoCode || '',
-              description: p.description || '',
-              weightKg: p.weightKg || 0,
-              lengthCm: p.lengthCm,
-              widthCm: p.widthCm,
-              heightCm: p.heightCm,
-              volumeM3: p.volumeM3,
-              costUSD: p.cost || p.costUSD || 0,
-              shelfLocation: p.shelfLocation || '',
-              branchId: p.currentBranchId || p.branchId || '',
-              tripId: p.tripId || undefined,
-              status: p.status || 'RECEIVED_AT_ORIGIN',
-              createdAt: p.createdAt ? new Date(p.createdAt).toLocaleDateString('ru-RU') : '01.01.2026',
-              tenantSlug: slug,
-            };
-            toAdd.push(newPkg);
-            pkgMap.set(p.id, newPkg);
-            if (p.trackingNumber) pkgMap.set(p.trackingNumber, newPkg);
-          } else {
-            existing.status = p.status;
-            existing.weightKg = p.weightKg;
-            if (typeof p.cost === 'number') existing.costUSD = p.cost;
-            if (p.shelfLocation) existing.shelfLocation = p.shelfLocation;
-          }
-        }
-        if (toAdd.length > 0) {
-          rawPackages.value = [...rawPackages.value, ...toAdd];
-        } else {
-          triggerRef(rawPackages);
-        }
+      if (Array.isArray(data.packages)) {
+        const tenantPackages: PackageItem[] = data.packages.map((p: any) => ({
+          id: p.id,
+          trackingNumber: p.trackingNumber,
+          customerCargoCode: p.customerCargoCode || '',
+          description: p.description || '',
+          weightKg: p.weightKg || 0,
+          lengthCm: p.lengthCm,
+          widthCm: p.widthCm,
+          heightCm: p.heightCm,
+          volumeM3: p.volumeM3,
+          costUSD: typeof p.cost === 'number' ? p.cost : (p.costUSD || 0),
+          shelfLocation: p.shelfLocation || '',
+          branchId: p.currentBranchId || p.branchId || '',
+          tripId: p.tripId || undefined,
+          status: p.status || 'RECEIVED_AT_ORIGIN',
+          createdAt: p.createdAt ? new Date(p.createdAt).toLocaleDateString('ru-RU') : '01.01.2026',
+          tenantSlug: slug,
+        }));
+        const otherPackages = rawPackages.value.filter((p) => p.tenantSlug && p.tenantSlug !== slug);
+        rawPackages.value = [...otherPackages, ...tenantPackages];
+        triggerRef(rawPackages);
       }
 
-      if (Array.isArray(data.staff) && data.staff.length > 0) {
-        const staffMap = new Map(rawStaff.value.map((s) => [s.id, s]));
-        for (const u of data.staff) {
-          const existing = staffMap.get(u.id);
-          if (!existing) {
-            const newStaff = {
-              id: u.id,
-              fullName: u.fullName,
-              email: u.email,
-              password: u.password,
-              role: u.role === 'TENANT_OWNER' ? 'OWNER' : u.role,
-              phone: u.phone || '+992 90 000 0000',
-              branchId: u.assignedBranchId || '',
-              branchName: u.branchName || 'Главный офис',
-              isActive: u.isActive !== false,
-              tenantSlug: slug,
-            };
-            rawStaff.value.push(newStaff as any);
-            staffMap.set(u.id, newStaff as any);
-          }
-        }
+      if (Array.isArray(data.staff)) {
+        const tenantStaff: Employee[] = data.staff.map((u: any) => ({
+          id: u.id,
+          fullName: u.fullName,
+          email: u.email,
+          password: u.password,
+          role: u.role === 'TENANT_OWNER' ? 'OWNER' : u.role,
+          phone: u.phone || '+992 90 000 0000',
+          branchId: u.assignedBranchId || '',
+          branchName: u.branchName || 'Главный офис',
+          isActive: u.isActive !== false,
+          tenantSlug: slug,
+        }));
+        const otherStaff = rawStaff.value.filter((s) => s.tenantSlug && s.tenantSlug !== slug);
+        rawStaff.value = [...otherStaff, ...tenantStaff];
       }
 
-      if (Array.isArray(data.trips) && data.trips.length > 0) {
-        const tripMap = new Map(rawTrips.value.map((t) => [t.id, t]));
-        for (const t of data.trips) {
-          const existing = tripMap.get(t.id);
-          if (!existing) {
-            const newTrip = {
-              id: t.id,
-              tripCode: t.code || t.tripCode,
-              type: t.transportType || t.type || 'AUTO',
-              route: t.route || 'Китай → Таджикистан',
-              driverName: t.driverName || '',
-              vehiclePlate: t.vehiclePlate || '',
-              status: t.status || 'LOADING',
-              totalWeightKg: t.totalWeightKg || 0,
-              totalVolumeM3: t.totalVolumeM3 || 0,
-              sackCount: t.sackCount || 0,
-              departureDate: t.departureDate || '',
-              estimatedArrival: t.estimatedArrivalDate || '',
-              manifestItems: t.manifestItems || [],
-              tenantSlug: slug,
-            };
-            rawTrips.value.push(newTrip as any);
-            tripMap.set(t.id, newTrip as any);
-          } else {
-            existing.status = t.status;
-            existing.totalWeightKg = t.totalWeightKg;
-            existing.manifestItems = t.manifestItems || [];
-          }
-        }
+      if (Array.isArray(data.trips)) {
+        const tenantTrips: Trip[] = data.trips.map((t: any) => ({
+          id: t.id,
+          tripCode: t.code || t.tripCode,
+          type: t.transportType || t.type || 'AUTO',
+          route: t.route || 'Китай → Таджикистан',
+          driverName: t.driverName || '',
+          vehiclePlate: t.vehiclePlate || '',
+          status: t.status || 'LOADING',
+          totalWeightKg: t.totalWeightKg || 0,
+          totalVolumeM3: t.totalVolumeM3 || 0,
+          sackCount: t.sackCount || 0,
+          departureDate: t.departureDate || '',
+          estimatedArrival: t.estimatedArrivalDate || '',
+          manifestItems: t.manifestItems || [],
+          tenantSlug: slug,
+        }));
+        const otherTrips = rawTrips.value.filter((t) => t.tenantSlug && t.tenantSlug !== slug);
+        rawTrips.value = [...otherTrips, ...tenantTrips];
         triggerRef(rawTrips);
       }
     } catch {
