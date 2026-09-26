@@ -311,7 +311,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
+import { useRoute } from 'vue-router';
 import {
   Search,
   Plus,
@@ -328,7 +329,17 @@ import { useCargoStore } from '../stores/useCargoStore';
 import { useI18n } from '../locales';
 
 const store = useCargoStore();
+const route = useRoute();
 const { t } = useI18n();
+const slug = computed(() => (route.params.slug as string) || store.activeTenantSlug || store.tenants[0]?.slug || '');
+
+onMounted(() => {
+  if (slug.value) {
+    store.setTenantSlug(slug.value);
+    store.syncTenantData(slug.value, true);
+  }
+});
+
 const searchQuery = ref('');
 const showCreateCustomerModal = ref(false);
 const showDetailsModal = ref(false);

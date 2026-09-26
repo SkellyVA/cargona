@@ -939,8 +939,11 @@ export const useCargoStore = defineStore('cargo', () => {
 
   // 5. Клиенты (shallowRef для мгновенной работы с 10,000+ записями)
   const defaultCustomers: Customer[] = [];
-  const savedCustomers = typeof window !== 'undefined' ? localStorage.getItem('cargona_customers') : null;
-  const rawCustomers = shallowRef<Customer[]>(safeParse<Customer[]>(savedCustomers, defaultCustomers));
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('cargona_customers');
+    localStorage.removeItem('cargona_packages');
+  }
+  const rawCustomers = shallowRef<Customer[]>(defaultCustomers);
 
   // 6. Рейсы
   const defaultTrips: Trip[] = [];
@@ -949,8 +952,7 @@ export const useCargoStore = defineStore('cargo', () => {
 
   // 7. Посылки (shallowRef для мгновенной работы с 10,000+ записями)
   const defaultPackages: PackageItem[] = [];
-  const savedPackages = typeof window !== 'undefined' ? localStorage.getItem('cargona_packages') : null;
-  const rawPackages = shallowRef<PackageItem[]>(safeParse<PackageItem[]>(savedPackages, defaultPackages));
+  const rawPackages = shallowRef<PackageItem[]>(defaultPackages);
 
   // 8. Аудит (Неизменяемый журнал с привязкой к ПВЗ)
   const defaultAuditLogs: AuditEntry[] = [];
