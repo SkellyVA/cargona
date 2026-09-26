@@ -82,6 +82,25 @@
 
     <!-- Список / Таблица клиентов -->
     <div class="bg-surface border border-surface-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-card space-y-4">
+      <!-- Панель сортировки и фильтрации -->
+      <div class="flex items-center justify-between border-b border-white/[0.06] pb-3 sm:pb-4 gap-2">
+        <div class="flex items-center gap-1.5 p-1 bg-[#181B23] border border-white/[0.06] rounded-2xl overflow-x-auto scrollbar-none max-w-[85vw] sm:max-w-full">
+          <button
+            v-for="s in sortOptions"
+            :key="s.id"
+            @click="sortBy = s.id"
+            class="px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition cursor-pointer"
+            :class="sortBy === s.id ? 'bg-surface text-accent-cyan shadow-sm border border-accent-cyan/30' : 'text-text-secondary hover:text-white'"
+          >
+            {{ s.label }}
+          </button>
+        </div>
+
+        <div class="text-xs font-mono font-medium text-text-tertiary shrink-0 hidden sm:block">
+          {{ filteredCustomers.length }} клиентов
+        </div>
+      </div>
+
       <!-- 1. МОБИЛЬНЫЙ ВИД: Карточки клиентов -->
       <div class="md:hidden space-y-3">
         <div
@@ -139,12 +158,32 @@
       <div class="hidden md:block overflow-x-auto">
         <table class="w-full text-left text-xs">
           <thead>
-            <tr class="border-b border-white/[0.06] text-text-tertiary font-semibold uppercase tracking-wider">
-              <th class="pb-3 px-3">Код</th>
-              <th class="pb-3 px-3">Клиент</th>
+            <tr class="border-b border-white/[0.06] text-text-tertiary font-semibold uppercase tracking-wider select-none">
+              <th class="pb-3 px-3 cursor-pointer hover:text-white transition" @click="toggleSort('code')">
+                <div class="flex items-center gap-1.5">
+                  <span>Код</span>
+                  <ArrowUpDown class="w-3.5 h-3.5" :class="sortBy.startsWith('code') ? 'text-accent-cyan' : 'text-text-tertiary'" />
+                </div>
+              </th>
+              <th class="pb-3 px-3 cursor-pointer hover:text-white transition" @click="toggleSort('name')">
+                <div class="flex items-center gap-1.5">
+                  <span>Клиент</span>
+                  <ArrowUpDown class="w-3.5 h-3.5" :class="sortBy === 'name' ? 'text-accent-cyan' : 'text-text-tertiary'" />
+                </div>
+              </th>
               <th class="pb-3 px-3">Телефон / Telegram</th>
-              <th class="pb-3 px-3">Баланс</th>
-              <th class="pb-3 px-3">В ПВЗ</th>
+              <th class="pb-3 px-3 cursor-pointer hover:text-white transition" @click="toggleSort('balance')">
+                <div class="flex items-center gap-1.5">
+                  <span>Баланс</span>
+                  <ArrowUpDown class="w-3.5 h-3.5" :class="sortBy.startsWith('balance') ? 'text-accent-cyan' : 'text-text-tertiary'" />
+                </div>
+              </th>
+              <th class="pb-3 px-3 cursor-pointer hover:text-white transition" @click="toggleSort('pvz')">
+                <div class="flex items-center gap-1.5">
+                  <span>В ПВЗ</span>
+                  <ArrowUpDown class="w-3.5 h-3.5" :class="sortBy === 'pvz_desc' ? 'text-accent-cyan' : 'text-text-tertiary'" />
+                </div>
+              </th>
               <th class="pb-3 px-3 text-right">Действия</th>
             </tr>
           </thead>
@@ -322,6 +361,7 @@ import {
   PackageCheck,
   Receipt,
   Wallet,
+  ArrowUpDown,
 } from 'lucide-vue-next';
 import AppModal from '../components/ui/AppModal.vue';
 import CustomerDetailsModal from '../components/CustomerDetailsModal.vue';
@@ -346,6 +386,29 @@ const showDetailsModal = ref(false);
 const selectedCustomer = ref<any>(null);
 const toastMessage = ref('');
 
+const sortBy = ref<'code_asc' | 'code_desc' | 'name_asc' | 'balance_asc' | 'balance_desc' | 'pvz_desc'>('code_asc');
+
+const sortOptions = [
+  { id: 'code_asc' as const, label: 'По порядку (1 → 999)' },
+  { id: 'code_desc' as const, label: 'По коду (999 → 1)' },
+  { id: 'name_asc' as const, label: 'По имени (А-Я)' },
+  { id: 'balance_asc' as const, label: 'Сначала должники' },
+  { id: 'balance_desc' as const, label: 'С депозитом' },
+  { id: 'pvz_desc' as const, label: 'Посылки в ПВЗ' },
+];
+
+function toggleSort(field: 'code' | 'name' | 'balance' | 'pvz') {
+  if (field === 'code') {
+    sortBy.value = sortBy.value === 'code_asc' ? 'code_desc' : 'code_asc';
+  } else if (field === 'name') {
+    sortBy.value = sortBy.value === 'name_asc' ? 'code_asc' : 'name_asc';
+  } else if (field === 'balance') {
+    sortBy.value = sortBy.value === 'balance_asc' ? 'balance_desc' : 'balance_asc';
+  } else if (field === 'pvz') {
+    sortBy.value = sortBy.value === 'pvz_desc' ? 'code_asc' : 'pvz_desc';
+  }
+}
+
 const newCustomer = ref({
   fullName: '',
   phone: '',
@@ -358,14 +421,42 @@ const pageSize = ref(50);
 
 const filteredCustomers = computed(() => {
   const q = searchQuery.value.toLowerCase().trim();
-  if (!q) return store.customers;
-  return store.customers.filter(
-    (c) =>
-      c.cargoCode.toLowerCase().includes(q) ||
-      c.fullName.toLowerCase().includes(q) ||
-      c.phone.toLowerCase().includes(q) ||
-      (c.telegramUsername && c.telegramUsername.toLowerCase().includes(q))
-  );
+  let list = store.customers;
+  if (q) {
+    list = list.filter(
+      (c) =>
+        c.cargoCode.toLowerCase().includes(q) ||
+        c.fullName.toLowerCase().includes(q) ||
+        c.phone.toLowerCase().includes(q) ||
+        (c.telegramUsername && c.telegramUsername.toLowerCase().includes(q))
+    );
+  }
+
+  return [...list].sort((a, b) => {
+    if (sortBy.value === 'code_asc' || sortBy.value === 'code_desc') {
+      const numA = parseInt((a.cargoCode || '').replace(/\D+/g, ''), 10);
+      const numB = parseInt((b.cargoCode || '').replace(/\D+/g, ''), 10);
+      const diff = (!isNaN(numA) && !isNaN(numB) && numA !== numB)
+        ? numA - numB
+        : (a.cargoCode || '').localeCompare(b.cargoCode || '', undefined, { numeric: true, sensitivity: 'base' });
+      return sortBy.value === 'code_asc' ? diff : -diff;
+    }
+    if (sortBy.value === 'name_asc') {
+      return (a.fullName || '').localeCompare(b.fullName || '', 'ru', { sensitivity: 'base' });
+    }
+    if (sortBy.value === 'balance_asc') {
+      return (a.balanceUSD || 0) - (b.balanceUSD || 0); // Debts first (negative)
+    }
+    if (sortBy.value === 'balance_desc') {
+      return (b.balanceUSD || 0) - (a.balanceUSD || 0); // Deposits first (positive)
+    }
+    if (sortBy.value === 'pvz_desc') {
+      const pA = getClientReadyCount(a.cargoCode);
+      const pB = getClientReadyCount(b.cargoCode);
+      return pB - pA;
+    }
+    return 0;
+  });
 });
 
 const totalPages = computed(() => Math.ceil(filteredCustomers.value.length / pageSize.value) || 1);

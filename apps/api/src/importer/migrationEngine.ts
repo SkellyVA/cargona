@@ -289,6 +289,16 @@ export async function runSmartMigration(
     }
   }
 
+  // Natural sort imported customers in ascending numerical order (e.g. PR-1, PR-2, PR-3 ... PR-399)
+  importedCustomers.sort((a, b) => {
+    const numA = parseInt((a.cargoCode || '').replace(/\D+/g, ''), 10);
+    const numB = parseInt((b.cargoCode || '').replace(/\D+/g, ''), 10);
+    if (!isNaN(numA) && !isNaN(numB) && numA !== numB) {
+      return numA - numB;
+    }
+    return (a.cargoCode || '').localeCompare(b.cargoCode || '', undefined, { numeric: true, sensitivity: 'base' });
+  });
+
   // 7. Build lookup map from Order Junction Collections (e.g. cargo_orders)
   const trackToCustomerMap = new Map<string, Customer>();
   let totalOrdersFound = 0;
