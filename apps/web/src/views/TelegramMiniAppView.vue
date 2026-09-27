@@ -1569,13 +1569,34 @@ function handleLogout() {
 
 function getMaskedPhone(phone?: string): string {
   if (!phone) return '+••• ••• •• ••';
-  const clean = phone.trim();
+  const clean = String(phone).trim();
   const digits = clean.replace(/\D/g, '');
   if (digits.length <= 4) return '+••• ••• •• ••';
-  const parts = clean.split(' ');
-  const dial = parts[0] || (clean.startsWith('+') ? clean.slice(0, 4) : '+•••');
-  const op = parts[1] ? ` ${parts[1]}` : '';
-  return `${dial}${op} ••• •• ••`;
+
+  // 1. Tajikistan: 992 XX XXXXXX
+  if (digits.startsWith('992') && digits.length >= 7) {
+    return `+992 ${digits.slice(3, 5)} ••• •• ••`;
+  }
+  // 2. Russia / Kazakhstan: 7 XXX XXXXXXX
+  if (digits.startsWith('7') && digits.length >= 6) {
+    return `+7 (${digits.slice(1, 4)}) ••• •• ••`;
+  }
+  // 3. Uzbekistan: 998 XX XXXXXXX
+  if (digits.startsWith('998') && digits.length >= 7) {
+    return `+998 ${digits.slice(3, 5)} ••• •• ••`;
+  }
+  // 4. Turkey: 90 XXX XXXXXXX
+  if (digits.startsWith('90') && digits.length >= 7) {
+    return `+90 ${digits.slice(2, 5)} ••• •• ••`;
+  }
+  // 5. China: 86 XXX XXXXXXXX
+  if (digits.startsWith('86') && digits.length >= 7) {
+    return `+86 ${digits.slice(2, 5)} ••• •• ••`;
+  }
+
+  // 6. Generic format: show first 2-4 digits, mask the rest
+  const visiblePrefix = digits.slice(0, Math.min(4, Math.max(2, digits.length - 4)));
+  return `+${visiblePrefix} ••• •• ••`;
 }
 
 // Профиль клиента
