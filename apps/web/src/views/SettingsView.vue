@@ -267,6 +267,48 @@
             />
           </div>
 
+          <!-- Скриншоты-инструкции для клиентов (Taobao, 1688, Trendyol и др.) -->
+          <div class="space-y-1.5 pt-1">
+            <div class="flex items-center justify-between">
+              <label class="text-text-secondary block font-medium">Скриншоты-инструкции (Taobao, 1688, Trendyol и др.)</label>
+              <span class="text-[10px] text-text-tertiary">Отображаются клиентам в Mini App</span>
+            </div>
+
+            <div class="grid grid-cols-4 sm:grid-cols-6 gap-2">
+              <div
+                v-for="(img, idx) in (selectedWarehouse.guidePhotos || [])"
+                :key="idx"
+                class="relative aspect-square rounded-xl overflow-hidden border border-white/[0.1] group bg-[#13151B]"
+              >
+                <img :src="img" class="w-full h-full object-cover" />
+                <button
+                  type="button"
+                  @click="removeWarehousePhoto(selectedWarehouse, idx)"
+                  class="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/75 text-white hover:bg-accent-coral flex items-center justify-center transition cursor-pointer"
+                  title="Удалить скриншот"
+                >
+                  <X class="w-3 h-3" />
+                </button>
+              </div>
+
+              <label
+                v-if="(!selectedWarehouse.guidePhotos || selectedWarehouse.guidePhotos.length < 6)"
+                class="aspect-square rounded-xl border border-dashed border-white/[0.15] hover:border-accent-cyan/50 hover:bg-accent-cyan/5 transition flex flex-col items-center justify-center gap-1 cursor-pointer text-text-tertiary hover:text-accent-cyan"
+              >
+                <Camera class="w-4 h-4" />
+                <span class="text-[9px] font-semibold">Добавить</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  class="hidden"
+                  @change="(e) => handleWarehousePhotoUpload(selectedWarehouse, e)"
+                />
+              </label>
+            </div>
+            <p class="text-[10px] text-text-tertiary">Прикрепите скриншоты полей маркетплейса с подсказками для клиентов</p>
+          </div>
+
           <div class="pt-2 flex items-center justify-between">
             <button
               v-if="store.isOwner && selectedWarehouse"
@@ -950,6 +992,41 @@
             class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none"
           />
         </div>
+
+        <div>
+          <label class="text-text-secondary mb-1 block font-medium">Скриншоты-инструкции по заполнению (опционально)</label>
+          <div class="grid grid-cols-4 gap-2">
+            <div
+              v-for="(img, idx) in (newWh.guidePhotos || [])"
+              :key="idx"
+              class="relative aspect-square rounded-xl overflow-hidden border border-white/[0.1] group bg-[#13151B]"
+            >
+              <img :src="img" class="w-full h-full object-cover" />
+              <button
+                type="button"
+                @click="newWh.guidePhotos.splice(idx, 1)"
+                class="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/75 text-white hover:bg-rose-600 flex items-center justify-center transition cursor-pointer"
+              >
+                <X class="w-3 h-3" />
+              </button>
+            </div>
+
+            <label
+              v-if="(!newWh.guidePhotos || newWh.guidePhotos.length < 6)"
+              class="aspect-square rounded-xl border border-dashed border-white/[0.15] hover:border-accent-cyan/50 hover:bg-accent-cyan/5 transition flex flex-col items-center justify-center gap-1 cursor-pointer text-text-tertiary hover:text-accent-cyan"
+            >
+              <Camera class="w-4 h-4" />
+              <span class="text-[9px] font-semibold">Добавить</span>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                class="hidden"
+                @change="handleNewWhPhotoUpload"
+              />
+            </label>
+          </div>
+        </div>
       </div>
 
       <template #footer>
@@ -1001,6 +1078,7 @@ import {
   Sparkles,
   Clock,
   CreditCard,
+  Camera,
 } from 'lucide-vue-next';
 import AppModal from '../components/ui/AppModal.vue';
 import AppDropdown from '../components/ui/AppDropdown.vue';
@@ -1161,7 +1239,78 @@ const newWh = ref({
   receiverName: '',
   zipCode: '',
   instructions: '',
+  guidePhotos: [] as string[],
 });
+
+async function compressImage(file: File, maxDim = 1200, quality = 0.8): Promise<string> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        } else {
+          resolve((e.target?.result as string) || '');
+        }
+      };
+      img.onerror = () => resolve((e.target?.result as string) || '');
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
+}
+
+async function handleWarehousePhotoUpload(wh: any, event: Event) {
+  const target = event.target as HTMLInputElement;
+  if (!target.files || target.files.length === 0) return;
+  if (!wh.guidePhotos) wh.guidePhotos = [];
+  const files = Array.from(target.files).slice(0, 6 - wh.guidePhotos.length);
+  for (const file of files) {
+    const compressed = await compressImage(file);
+    if (compressed && wh.guidePhotos.length < 6) {
+      wh.guidePhotos.push(compressed);
+    }
+  }
+  target.value = '';
+}
+
+function removeWarehousePhoto(wh: any, index: number) {
+  if (wh && wh.guidePhotos) {
+    wh.guidePhotos.splice(index, 1);
+  }
+}
+
+async function handleNewWhPhotoUpload(event: Event) {
+  const target = event.target as HTMLInputElement;
+  if (!target.files || target.files.length === 0) return;
+  if (!newWh.value.guidePhotos) newWh.value.guidePhotos = [];
+  const files = Array.from(target.files).slice(0, 6 - newWh.value.guidePhotos.length);
+  for (const file of files) {
+    const compressed = await compressImage(file);
+    if (compressed && newWh.value.guidePhotos.length < 6) {
+      newWh.value.guidePhotos.push(compressed);
+    }
+  }
+  target.value = '';
+}
 
 function saveWarehouse() {
   if (!newWh.value.country || !newWh.value.address) return;
@@ -1174,17 +1323,18 @@ function saveWarehouse() {
     receiverName: newWh.value.receiverName || 'Логистический хаб',
     zipCode: newWh.value.zipCode || '00000',
     instructions: newWh.value.instructions || 'Для интернет-заказов',
+    guidePhotos: [...newWh.value.guidePhotos],
     isActive: true,
   });
   showAddWarehouseModal.value = false;
   toastMessage.value = `Склад отправления (${newWh.value.country}) успешно добавлен!`;
-  newWh.value = { country: '', countryCode: 'TR', city: '', address: '', phone: '', receiverName: '', zipCode: '', instructions: '' };
+  newWh.value = { country: '', countryCode: 'TR', city: '', address: '', phone: '', receiverName: '', zipCode: '', instructions: '', guidePhotos: [] };
 }
 
 function saveWarehouseSettings() {
   if (selectedWarehouse.value) {
     store.updateOriginWarehouse(selectedWarehouse.value.id, selectedWarehouse.value);
-    toastMessage.value = `Адрес склада «${selectedWarehouse.value.country}» успешно сохранен`;
+    toastMessage.value = `Адрес склада «${selectedWarehouse.value.country}» и скриншоты сохранены`;
   }
 }
 

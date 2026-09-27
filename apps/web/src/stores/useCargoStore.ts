@@ -88,6 +88,7 @@ export interface OriginWarehouse {
   phone: string;
   zipCode: string;
   instructions: string;
+  guidePhotos?: string[];
   isActive: boolean;
   cells?: StorageCell[];
   tenantSlug?: string;
@@ -1100,6 +1101,28 @@ export const useCargoStore = defineStore('cargo', () => {
         rawTrips.value = [...otherTrips, ...tenantTrips];
         triggerRef(rawTrips);
       }
+
+      if (Array.isArray(data.warehouses)) {
+        const tenantWarehouses: OriginWarehouse[] = data.warehouses.map((w: any) => ({
+          id: w.id,
+          name: w.name,
+          country: w.country,
+          countryCode: w.countryCode || 'CN',
+          city: w.city,
+          address: w.address,
+          receiverName: w.receiverName,
+          phone: w.phone,
+          zipCode: w.zipCode || '',
+          instructions: w.instructions || '',
+          guidePhotos: w.guidePhotos || [],
+          isActive: w.isActive !== false,
+          cells: w.cells || [],
+          tenantSlug: slug,
+        }));
+        const otherWh = rawOriginWarehouses.value.filter((w) => w.tenantSlug && w.tenantSlug !== slug);
+        rawOriginWarehouses.value = [...otherWh, ...tenantWarehouses];
+        safeStorageSet('cargona_warehouses', rawOriginWarehouses.value);
+      }
     } catch {
       // Backend offline fallback
     } finally {
@@ -1168,6 +1191,7 @@ export const useCargoStore = defineStore('cargo', () => {
       phone: wh.phone?.trim() || '',
       zipCode: wh.zipCode?.trim() || '',
       instructions: wh.instructions?.trim() || 'Для интернет-заказов',
+      guidePhotos: wh.guidePhotos || [],
       isActive: true,
       tenantSlug: activeTenantSlug.value,
       cells: wh.cells && wh.cells.length > 0 ? wh.cells : [
@@ -1177,9 +1201,7 @@ export const useCargoStore = defineStore('cargo', () => {
       ],
     };
     rawOriginWarehouses.value.push(newWh);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('cargona_warehouses', JSON.stringify(rawOriginWarehouses.value));
-    }
+    safeStorageSet('cargona_warehouses', rawOriginWarehouses.value);
     addAudit('CREATE', 'Новый склад отправки', newWh.name, `Добавлен склад ${newWh.name} (Код: ${newWh.countryCode})`);
 
     try {
@@ -1200,9 +1222,7 @@ export const useCargoStore = defineStore('cargo', () => {
     const wh = rawOriginWarehouses.value.find((w) => w.id === id);
     if (!wh) return;
     Object.assign(wh, data);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('cargona_warehouses', JSON.stringify(rawOriginWarehouses.value));
-    }
+    safeStorageSet('cargona_warehouses', rawOriginWarehouses.value);
     addAudit('UPDATE', 'Обновление склада', wh.name || wh.country, `Обновлены данные склада ${wh.city}`);
 
     try {

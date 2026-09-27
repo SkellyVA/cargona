@@ -369,6 +369,31 @@
             <Copy class="w-4 h-4 text-accent-cyan" />
             <span>{{ copyStatusOverride || copyButtonText }}</span>
           </button>
+
+          <!-- Скриншоты-инструкции по заполнению адреса на маркетплейсах -->
+          <div v-if="currentWarehouse?.guidePhotos && currentWarehouse.guidePhotos.length > 0" class="pt-2.5 border-t border-white/[0.06] space-y-2">
+            <div class="flex items-center justify-between text-[11px]">
+              <span class="flex items-center gap-1.5 font-bold text-white">
+                <Camera class="w-3.5 h-3.5 text-accent-cyan" />
+                <span>Инструкция в картинках (скриншоты)</span>
+              </span>
+              <span class="text-[10px] text-accent-cyan font-semibold">Нажмите для зума</span>
+            </div>
+
+            <div class="grid grid-cols-4 gap-2">
+              <div
+                v-for="(photo, pIdx) in currentWarehouse.guidePhotos"
+                :key="pIdx"
+                @click="openPhotoPreview(photo)"
+                class="aspect-square rounded-xl overflow-hidden border border-white/[0.1] hover:border-accent-cyan/60 hover:scale-105 transition cursor-pointer bg-black/40 relative group"
+              >
+                <img :src="photo" class="w-full h-full object-cover" />
+                <div class="absolute inset-0 bg-black/20 group-hover:bg-transparent transition flex items-center justify-center">
+                  <Search class="w-3.5 h-3.5 text-white drop-shadow opacity-0 group-hover:opacity-100 transition" />
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
