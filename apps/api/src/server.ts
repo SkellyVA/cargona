@@ -1105,27 +1105,82 @@ fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/t
   trip.updatedAt = new Date().toISOString();
   store.saveToFile();
 
-  // Notify clients if trip status changed to ARRIVED
-  if (request.body.status === 'ARRIVED' && oldStatus !== 'ARRIVED') {
-    const tripPackages = store.packages.filter((p) => p.tenantId === tenant.id && (p.tripId === trip.id || (trip.manifestItems || []).some((m: any) => m.packageId === p.id || m.trackingNumber === p.trackingNumber)));
-    const customerCargoCodes = [...new Set(tripPackages.map((p) => p.customerCargoCode).filter(Boolean))];
-    const domain = APP_DOMAIN.replace(/^https?:\/\//, '');
+  // Notify clients and auto-post to Telegram news channel
+  const botConfig = store.botConfigs.find((b) => b.tenantId === tenant.id && b.isActive && b.botToken);
+  const domain = APP_DOMAIN.replace(/^https?:\/\//, '');
 
-    for (const code of customerCargoCodes) {
-      const cust = store.customers.find((c) => c.tenantId === tenant.id && c.cargoCode === code);
-      if (cust) {
-        const custPkgs = tripPackages.filter((p) => p.customerCargoCode === code);
-        sendTelegramNotificationToCustomer(
-          tenant.id,
-          cust,
-          `🚚 <b>Рейс ${trip.tripCode} прибыл!</b>\n\n` +
-          `Ваши посылки (<b>${custPkgs.length} шт.</b>) поступили в пункт назначения и направлены на сортировку.\n\n` +
-          `👇 Мы пришлем вам уведомление сразу после размещения на полке ПВЗ:`,
-          undefined,
-          {
-            inline_keyboard: [[{ text: '📦 Открыть кабинет', web_app: { url: `https://${domain}/o/${slug}/app` } }]],
-          }
-        );
+  if (request.body.status && request.body.status !== oldStatus) {
+    const newSt = request.body.status;
+
+    // 1. Personal DM notifications to customers whose packages are in this trip upon arrival
+    if (newSt === 'ARRIVED') {
+      const tripPackages = store.packages.filter((p) => p.tenantId === tenant.id && (p.tripId === trip.id || (trip.manifestItems || []).some((m: any) => m.packageId === p.id || m.trackingNumber === p.trackingNumber)));
+      const customerCargoCodes = [...new Set(tripPackages.map((p) => p.customerCargoCode).filter(Boolean))];
+
+      for (const code of customerCargoCodes) {
+        const cust = store.customers.find((c) => c.tenantId === tenant.id && c.cargoCode === code);
+        if (cust) {
+          const custPkgs = tripPackages.filter((p) => p.customerCargoCode === code);
+          sendTelegramNotificationToCustomer(
+            tenant.id,
+            cust,
+            `🚚 <b>Рейс ${trip.tripCode} прибыл!</b>\n\n` +
+            `Ваши посылки (<b>${custPkgs.length} шт.</b>) поступили в пункт назначения и направлены на сортировку.\n\n` +
+            `👇 Мы пришлем вам уведомление сразу после размещения на полке ПВЗ:`,
+            undefined,
+            {
+              inline_keyboard: [[{ text: '📦 Открыть кабинет', web_app: { url: `https://${domain}/o/${slug}/app` } }]],
+            }
+          );
+        }
+      }
+    }
+
+    // 2. Auto-post to Telegram News Channel if configured
+    const channel = botConfig?.channelIdForPosting;
+    if (botConfig && botConfig.botToken && channel) {
+      const cleanChannel = channel.startsWith('@') || channel.startsWith('-') ? channel : `@${channel}`;
+      let postText = '';
+
+      if (newSt === 'ARRIVED') {
+        postText =
+          `🚚 <b>Рейс прибыл на склад!</b>\n\n` +
+          `• <b>Код рейса:</b> <code>${trip.tripCode}</code>\n` +
+          `• <b>Маршрут:</b> ${trip.route || 'Иу → Душанбе'}\n` +
+          `• <b>Вес груза:</b> ${trip.totalWeightKg || 0} кг (${trip.sackCount || 0} мест)\n\n` +
+          `📦 <i>Груз поступил на разгрузку и сортировку. Личные уведомления клиентам отправлены.</i>\n\n` +
+          `🏢 <b>${tenant.name}</b>`;
+      } else if (newSt === 'IN_TRANSIT' && oldStatus === 'LOADING') {
+        postText =
+          `🚛 <b>Рейс отправлен в путь!</b>\n\n` +
+          `• <b>Код рейса:</b> <code>${trip.tripCode}</code>\n` +
+          `• <b>Маршрут:</b> ${trip.route || 'Иу → Душанбе'}\n` +
+          `• <b>Транспорт:</b> ${trip.vehiclePlate ? `Авто (${trip.vehiclePlate})` : 'Магистральный рейс'}\n` +
+          `• <b>Вес:</b> ${trip.totalWeightKg || 0} кг\n\n` +
+          `⏳ <i>Следите за статусом ваших посылок в личном кабинете бота.</i>\n\n` +
+          `🏢 <b>${tenant.name}</b>`;
+      } else if (newSt === 'CUSTOMS') {
+        postText =
+          `🛃 <b>Рейс прибыл на таможенный пост</b>\n\n` +
+          `• <b>Код рейса:</b> <code>${trip.tripCode}</code>\n` +
+          `• <b>Маршрут:</b> ${trip.route || 'Иу → Душанбе'}\n\n` +
+          `🔍 <i>Проходит таможенное оформление. Скоро груз будет доставлен в ПВЗ.</i>\n\n` +
+          `🏢 <b>${tenant.name}</b>`;
+      }
+
+      if (postText) {
+        fetch(`https://api.telegram.org/bot${botConfig.botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: cleanChannel,
+            text: postText,
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [[{ text: '📦 Открыть приложение', url: `https://t.me/${botConfig.botUsername}` }]],
+            },
+          }),
+        }).catch((err) => console.warn('[Trip Channel Auto-Posting Error]:', err));
       }
     }
   }
