@@ -2069,52 +2069,6 @@ fastify.post<{
   return { success: true, message: 'Review recorded' };
 });
 
-// Loyalty Program & Noor Club Settings
-fastify.get<{ Params: { slug: string } }>('/api/o/:slug/loyalty', async (request, reply) => {
-  const { slug } = request.params;
-  const tenant = store.tenants.find((t) => t.slug === slug);
-  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
-
-  const isAllowed = isLoyaltyModuleAllowedForTenant(tenant);
-  const loyalty = (tenant as any).loyaltySettings || {
-    enabled: isAllowed,
-    clubName: 'NOOR CLUB',
-    requiredActiveReferralsForSpecialRate: 2,
-    specialRatePerKg: 26,
-    bonusPerNextReferral: 10,
-    bonusUsagePerKg: 1,
-    minRateAfterBonus: 25,
-    welcomeBonus: 0,
-    activeReferralMinPackages: 1,
-  };
-
-  loyalty.isModuleAllowed = isAllowed;
-  if (!isAllowed) {
-    loyalty.enabled = false;
-  }
-
-  return { loyalty, isModuleAllowed: isAllowed };
-});
-
-fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/loyalty', async (request, reply) => {
-  const { slug } = request.params;
-  const tenant = store.tenants.find((t) => t.slug === slug);
-  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
-
-  const isAllowed = isLoyaltyModuleAllowedForTenant(tenant);
-  if (!isAllowed) {
-    return reply.status(403).send({ error: 'Модуль NOOR CLUB отключен в настройках сервера (активируйте через команду cargona loyalty в терминале)' });
-  }
-
-  (tenant as any).loyaltySettings = {
-    ...request.body,
-    isModuleAllowed: true,
-  };
-  tenant.updatedAt = new Date().toISOString();
-  store.saveToFile();
-  return { success: true, loyalty: (tenant as any).loyaltySettings };
-});
-
 // Telegram Webhook Handler (Incoming messages from Telegram)
 fastify.post<{
   Params: { slug: string };
