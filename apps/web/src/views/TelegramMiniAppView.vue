@@ -442,6 +442,103 @@
         </div>
       </div>
 
+      <!-- СЕКЦИЯ: ПРОГРАММА ЛОЯЛЬНОСТИ / NOOR CLUB -->
+      <div
+        v-if="loyaltyInfo.enabled"
+        class="relative overflow-hidden rounded-3xl p-4 sm:p-5 border border-accent-cyan/30 shadow-card bg-gradient-to-br from-[#10192A] via-[#12151E] to-[#141824] space-y-3.5"
+      >
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2.5">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-accent-cyan/20 to-accent-blue/30 border border-accent-cyan/40 text-accent-cyan flex items-center justify-center shadow-sm">
+              <Award class="w-4 h-4" />
+            </div>
+            <div>
+              <div class="text-xs font-black text-white flex items-center gap-1.5 tracking-tight">
+                <span>{{ loyaltyInfo.clubName }}</span>
+                <span
+                  class="text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider"
+                  :class="loyaltyInfo.isMember
+                    ? 'bg-accent-emerald/20 text-accent-emerald border-accent-emerald/40'
+                    : 'bg-accent-blue/15 text-accent-cyan border-accent-cyan/30'"
+                >
+                  {{ loyaltyInfo.isMember ? 'Клубный тариф' : 'Базовый' }}
+                </span>
+              </div>
+              <div class="text-[11px] text-text-secondary mt-0.5">
+                {{ loyaltyInfo.isMember ? `Спец-тариф активен: ${loyaltyInfo.specialRatePerKg} ${store.activeCurrency}/кг` : `Пригласите ${loyaltyInfo.requiredForSpecialRate} друзей для спец-тарифа` }}
+              </div>
+            </div>
+          </div>
+
+          <div class="text-right">
+            <div class="text-[10px] text-text-tertiary uppercase font-semibold">Баланс бонусов</div>
+            <div class="text-sm font-black text-accent-emerald font-mono mt-0.5">
+              +{{ loyaltyInfo.bonusBalance }} {{ store.activeCurrency }}
+            </div>
+          </div>
+        </div>
+
+        <!-- Прогресс-бар рефералов -->
+        <div class="space-y-1.5 bg-[#181B23]/80 p-3 rounded-2xl border border-white/[0.06]">
+          <div class="flex items-center justify-between text-[11px]">
+            <span class="text-text-secondary">Активных приглашенных друзей:</span>
+            <span class="font-bold text-white font-mono">
+              {{ loyaltyInfo.activeReferralsCount }} / {{ loyaltyInfo.requiredForSpecialRate }}
+            </span>
+          </div>
+
+          <div class="w-full h-2 rounded-full bg-white/[0.08] overflow-hidden">
+            <div
+              class="h-full bg-gradient-to-r from-accent-blue to-accent-cyan transition-all duration-500 rounded-full"
+              :style="{ width: `${loyaltyInfo.progressPercent}%` }"
+            ></div>
+          </div>
+
+          <div class="flex items-center justify-between text-[10px] text-text-tertiary pt-0.5">
+            <span>2 друга ➔ {{ loyaltyInfo.specialRatePerKg }} сом/кг</span>
+            <span>Далее ➔ +{{ store.settings.loyaltySettings?.bonusPerNextReferral || 10 }} сом/друг</span>
+          </div>
+        </div>
+
+        <!-- Реферальная ссылка и кнопка поделиться -->
+        <div class="space-y-2">
+          <div class="flex items-center gap-2">
+            <div class="flex-1 h-10 px-3 rounded-xl bg-[#13151B] border border-white/[0.08] text-[11px] text-text-secondary font-mono flex items-center justify-between truncate">
+              <span class="truncate">{{ clientReferralUrl }}</span>
+              <span class="text-accent-cyan font-bold text-[10px] ml-1 shrink-0">Код: {{ activeCustomer.cargoCode }}</span>
+            </div>
+
+            <button
+              @click="copyReferralLink"
+              title="Скопировать ссылку"
+              class="h-10 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-accent-cyan border border-white/[0.08] text-xs font-bold transition flex items-center gap-1 shrink-0 cursor-pointer"
+            >
+              <Copy class="w-3.5 h-3.5" />
+              <span class="hidden sm:inline">Копировать</span>
+            </button>
+          </div>
+
+          <button
+            @click="shareReferralToTelegram"
+            class="w-full h-10 rounded-xl bg-gradient-to-r from-accent-blue to-accent-cyan hover:opacity-95 text-white font-bold text-xs shadow-glow-blue flex items-center justify-center gap-2 transition cursor-pointer active:scale-[0.99]"
+          >
+            <Send class="w-3.5 h-3.5" />
+            <span>Пригласить друзей в Telegram</span>
+          </button>
+        </div>
+
+        <!-- Кнопка раскрытия подробностей правил и истории -->
+        <div class="pt-1">
+          <button
+            @click="showLoyaltyDetailsModal = true"
+            class="w-full py-2 text-center text-[11px] text-accent-cyan hover:underline flex items-center justify-center gap-1 cursor-pointer font-semibold"
+          >
+            <span>История бонусов и правила программы</span>
+            <ChevronDown class="w-3 h-3 rotate-[-90deg]" />
+          </button>
+        </div>
+      </div>
+
       <!-- МОИ ДОСТАВКИ (ФОРМА ДОБАВЛЕНИЯ ТРЕКА + СПИСОК ПОСЫЛОК) -->
       <div class="bg-surface border border-surface-border rounded-3xl p-4 shadow-card flex items-center gap-2">
         <input
@@ -778,9 +875,46 @@
           <textarea
             v-model="reviewComment"
             rows="3"
-            placeholder="Всё пришло целым и очень быстро! Спасибо персоналу ПВЗ."
-            class="w-full p-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white text-xs focus:border-accent-cyan focus:outline-none placeholder:text-text-tertiary"
+            placeholder="Всё пришло в целости и сохранности! Очень доволен сервисом."
+            class="w-full p-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white text-xs focus:border-accent-cyan focus:outline-none placeholder:text-text-tertiary resize-none"
           ></textarea>
+        </div>
+
+        <!-- Фотографии распаковки/посылки -->
+        <div>
+          <label class="text-text-secondary block mb-1.5 font-medium">Прикрепить фото (распаковка, товар):</label>
+          <div class="grid grid-cols-4 gap-2">
+            <div
+              v-for="(photo, idx) in reviewPhotos"
+              :key="idx"
+              class="relative aspect-square rounded-xl overflow-hidden border border-white/[0.1] group bg-[#181B23]"
+            >
+              <img :src="photo" class="w-full h-full object-cover" />
+              <button
+                type="button"
+                @click="removeReviewPhoto(idx)"
+                class="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 text-white hover:bg-accent-coral flex items-center justify-center transition cursor-pointer"
+              >
+                <X class="w-3 h-3" />
+              </button>
+            </div>
+
+            <label
+              v-if="reviewPhotos.length < 4"
+              class="aspect-square rounded-xl border border-dashed border-white/[0.15] hover:border-accent-cyan/50 hover:bg-accent-cyan/5 transition flex flex-col items-center justify-center gap-1 cursor-pointer text-text-tertiary hover:text-accent-cyan"
+            >
+              <Camera class="w-5 h-5" />
+              <span class="text-[9px] font-semibold">Добавить</span>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                class="hidden"
+                @change="handleReviewPhotoUpload"
+              />
+            </label>
+          </div>
+          <p class="text-[10px] text-text-tertiary mt-1.5">Отзыв публикуется в официальном Telegram-канале отзывов компании</p>
         </div>
       </div>
 
@@ -797,6 +931,95 @@
         >
           <CheckCircle2 class="w-4 h-4 stroke-[2.5]" />
           <span>Отправить отзыв</span>
+        </button>
+      </template>
+    </AppModal>
+
+    <!-- МОДАЛЬНОЕ ОКНО: ДЕТАЛИ И ИСТОРИЯ NOOR CLUB -->
+    <AppModal v-model="showLoyaltyDetailsModal" :title="`Программа ${loyaltyInfo.clubName}`">
+      <div class="space-y-4 py-1 text-xs">
+        <!-- Карточка статуса -->
+        <div class="p-4 rounded-2xl bg-gradient-to-br from-[#10192A] via-[#12151E] to-[#141824] border border-accent-cyan/30 space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <Award class="w-5 h-5 text-accent-cyan" />
+              <span class="font-bold text-white text-sm">{{ loyaltyInfo.isMember ? 'Клубный участник' : 'Базовый статус' }}</span>
+            </div>
+            <span class="font-mono text-accent-cyan font-bold">{{ loyaltyInfo.currentRatePerKg }} {{ store.activeCurrency }}/кг</span>
+          </div>
+
+          <div class="grid grid-cols-3 gap-2 text-center pt-1 border-t border-white/[0.06]">
+            <div class="p-2 rounded-xl bg-white/[0.03]">
+              <div class="text-[10px] text-text-tertiary">Приглашено</div>
+              <div class="font-bold text-white text-xs mt-0.5">{{ loyaltyInfo.totalReferralsCount }} чел.</div>
+            </div>
+            <div class="p-2 rounded-xl bg-white/[0.03]">
+              <div class="text-[10px] text-text-tertiary">Активных</div>
+              <div class="font-bold text-accent-cyan text-xs mt-0.5">{{ loyaltyInfo.activeReferralsCount }} чел.</div>
+            </div>
+            <div class="p-2 rounded-xl bg-white/[0.03]">
+              <div class="text-[10px] text-text-tertiary">Бонусы</div>
+              <div class="font-bold text-accent-emerald text-xs mt-0.5">{{ loyaltyInfo.bonusBalance }} {{ store.activeCurrency }}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Правила и привилегии клуба -->
+        <div class="space-y-2">
+          <div class="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider px-1">Условия программы:</div>
+          <div class="space-y-1.5 text-[11px] text-text-secondary bg-[#181B23] p-3.5 rounded-2xl border border-white/[0.06]">
+            <div class="flex items-start gap-2">
+              <span class="w-1.5 h-1.5 rounded-full bg-accent-cyan mt-1.5 shrink-0"></span>
+              <span>После <b>{{ loyaltyInfo.requiredForSpecialRate }} активных приглашенных</b> фиксируется спец-тариф <b>{{ loyaltyInfo.specialRatePerKg }} {{ store.activeCurrency }}/кг</b>.</span>
+            </div>
+            <div class="flex items-start gap-2">
+              <span class="w-1.5 h-1.5 rounded-full bg-accent-emerald mt-1.5 shrink-0"></span>
+              <span>За каждого следующего друга начисляется <b>+{{ store.settings.loyaltySettings?.bonusPerNextReferral || 10 }} {{ store.activeCurrency }}</b> бонуса.</span>
+            </div>
+            <div class="flex items-start gap-2">
+              <span class="w-1.5 h-1.5 rounded-full bg-accent-blue mt-1.5 shrink-0"></span>
+              <span>Бонусы используются со скидкой <b>{{ loyaltyInfo.bonusUsagePerKg }} {{ store.activeCurrency }} на 1 кг</b> веса.</span>
+            </div>
+            <div class="flex items-start gap-2">
+              <span class="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0"></span>
+              <span>Минимальный тариф после применения бонусов — <b>{{ loyaltyInfo.minRateAfterBonus }} {{ store.activeCurrency }}/кг</b>.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- История начислений бонусов -->
+        <div class="space-y-2">
+          <div class="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider px-1">История операций:</div>
+          <div v-if="customerBonusHistory.length === 0" class="p-3 text-center text-[11px] text-text-tertiary bg-[#181B23] rounded-2xl border border-white/[0.06]">
+            Начислений пока нет. Приглашайте друзей по вашей персональной ссылке.
+          </div>
+          <div v-else class="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+            <div
+              v-for="tx in customerBonusHistory"
+              :key="tx.id"
+              class="p-2.5 rounded-xl bg-[#181B23] border border-white/[0.06] flex items-center justify-between text-xs"
+            >
+              <div>
+                <div class="text-white font-medium">{{ tx.description }}</div>
+                <div class="text-[10px] text-text-tertiary mt-0.5">{{ new Date(tx.createdAt).toLocaleDateString('ru-RU') }}</div>
+              </div>
+              <div
+                class="font-mono font-bold"
+                :class="tx.amount >= 0 ? 'text-accent-emerald' : 'text-accent-coral'"
+              >
+                {{ tx.amount >= 0 ? `+${tx.amount}` : tx.amount }} {{ tx.currency }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <button
+          @click="showLoyaltyDetailsModal = false"
+          class="w-full py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.12] text-white font-semibold text-xs transition cursor-pointer"
+        >
+          Закрыть
         </button>
       </template>
     </AppModal>
@@ -937,6 +1160,9 @@ import {
   CreditCard,
   Clock,
   Camera,
+  Award,
+  X,
+  Share2,
 } from 'lucide-vue-next';
 import AppleFlag from '../components/ui/AppleFlag.vue';
 import LanguageSwitcher from '../components/ui/LanguageSwitcher.vue';
@@ -953,6 +1179,30 @@ const showReviewModal = ref(false);
 const selectedReviewPkg = ref<any>(null);
 const reviewRating = ref(5);
 const reviewComment = ref('');
+const reviewPhotos = ref<string[]>([]);
+
+function handleReviewPhotoUpload(event: Event) {
+  const target = event.target as HTMLInputElement;
+  if (!target.files || target.files.length === 0) return;
+
+  const files = Array.from(target.files).slice(0, 4 - reviewPhotos.value.length);
+  for (const file of files) {
+    if (!file.type.startsWith('image/')) continue;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const result = e.target?.result as string;
+      if (result && reviewPhotos.value.length < 4) {
+        reviewPhotos.value.push(result);
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+  target.value = '';
+}
+
+function removeReviewPhoto(index: number) {
+  reviewPhotos.value.splice(index, 1);
+}
 
 const showPaymentModal = ref(false);
 const selectedPaymentPkg = ref<any>(null);
@@ -960,6 +1210,50 @@ const payMethod = ref<'CARD' | 'CASH'>('CARD');
 
 const showPhotoModal = ref(false);
 const photoModalUrl = ref('');
+
+// NOOR CLUB & Реферальная программа
+const showLoyaltyDetailsModal = ref(false);
+const referredByCode = ref('');
+
+const loyaltyInfo = computed(() => {
+  return store.getCustomerLoyaltyInfo(activeCustomer.value?.cargoCode || '');
+});
+
+const customerReferrals = computed(() => {
+  return store.getCustomerReferrals(activeCustomer.value?.cargoCode || '');
+});
+
+const customerBonusHistory = computed(() => {
+  const code = (activeCustomer.value?.cargoCode || '').toUpperCase();
+  const id = activeCustomer.value?.id;
+  return store.bonusTransactions.filter(
+    (tx) => (tx.customerCargoCode && tx.customerCargoCode.toUpperCase() === code) || tx.customerId === id
+  );
+});
+
+const clientReferralUrl = computed(() => {
+  const slug = (route.params.slug as string) || store.activeTenantSlug || 'app';
+  const code = activeCustomer.value?.cargoCode || '';
+  if (store.settings.botUsername) {
+    return `https://t.me/${store.settings.botUsername}?start=ref_${code}`;
+  }
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://cargona.io';
+  return `${origin}/o/${slug}/app?ref=${code}`;
+});
+
+function copyReferralLink() {
+  navigator.clipboard.writeText(clientReferralUrl.value);
+  miniAppToast.value = 'Реферальная ссылка скопирована!';
+  if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.HapticFeedback) {
+    (window as any).Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+  }
+}
+
+function shareReferralToTelegram() {
+  const text = encodeURIComponent(`Привет! Заказывай доставку товаров из Китая и Турции через ${tenantName.value}. Мой персональный промокод: ${activeCustomer.value.cargoCode}`);
+  const url = encodeURIComponent(clientReferralUrl.value);
+  window.open(`https://t.me/share/url?url=${url}&text=${text}`, '_blank');
+}
 
 function toggleNotification(pkg: any) {
   const nextState = !pkg.notifiedReady;
@@ -973,14 +1267,20 @@ function openReviewModal(pkg: any) {
   selectedReviewPkg.value = pkg;
   reviewRating.value = pkg.reviewRating || 5;
   reviewComment.value = pkg.reviewComment || '';
+  reviewPhotos.value = pkg.reviewPhotos ? [...pkg.reviewPhotos] : [];
   showReviewModal.value = true;
 }
 
 function submitReview() {
   if (!selectedReviewPkg.value) return;
-  store.submitPackageReview(selectedReviewPkg.value.id, reviewRating.value, reviewComment.value);
+  store.submitPackageReview(
+    selectedReviewPkg.value.id,
+    reviewRating.value,
+    reviewComment.value,
+    reviewPhotos.value
+  );
   showReviewModal.value = false;
-  miniAppToast.value = 'Спасибо за ваш отзыв! Он поможет улучшить качество нашего сервиса.';
+  miniAppToast.value = 'Спасибо за ваш отзыв! Он опубликован в канале отзывов компании.';
 }
 
 function openPaymentModal(pkg: any) {
@@ -1268,11 +1568,14 @@ function handleLogout() {
 }
 
 function getMaskedPhone(phone?: string): string {
-  if (!phone) return '+••• •• •• ••••';
-  const digits = phone.replace(/\D/g, '');
-  if (digits.length < 4) return phone;
-  const prefix = phone.split(' ')[0] || '+•••';
-  return `${prefix} ••• •• ${digits.slice(-4)}`;
+  if (!phone) return '+••• ••• •• ••';
+  const clean = phone.trim();
+  const digits = clean.replace(/\D/g, '');
+  if (digits.length <= 4) return '+••• ••• •• ••';
+  const parts = clean.split(' ');
+  const dial = parts[0] || (clean.startsWith('+') ? clean.slice(0, 4) : '+•••');
+  const op = parts[1] ? ` ${parts[1]}` : '';
+  return `${dial}${op} ••• •• ••`;
 }
 
 // Профиль клиента
@@ -1398,11 +1701,15 @@ async function fetchTenantInfo(slug: string) {
 }
 
 onMounted(() => {
-  // 1. Sync tenant slug from URL
+  // 1. Sync tenant slug and referral code from URL
   const slugParam = (route.params.slug as string) || store.activeTenantSlug || store.tenant?.slug || store.tenants[0]?.slug || 'test';
   if (slugParam) {
     store.setTenantSlug(slugParam);
     fetchTenantInfo(slugParam);
+  }
+
+  if (route.query.ref && typeof route.query.ref === 'string') {
+    referredByCode.value = route.query.ref.trim();
   }
 
   // Check saved customer in localStorage
@@ -1428,6 +1735,14 @@ onMounted(() => {
     } catch (e) {}
 
     const tgUser = tg.initDataUnsafe?.user;
+    const startParam = tg.initDataUnsafe?.start_param;
+    if (startParam && typeof startParam === 'string') {
+      const match = startParam.match(/^ref_(.+)$/);
+      if (match) {
+        referredByCode.value = match[1].trim();
+      }
+    }
+
     if (tgUser) {
       // Look up customer by telegram user ID or username
       const existing = store.customers.find((c) =>
@@ -1476,7 +1791,12 @@ function handleRegister() {
     telegramUsername: regForm.value.telegramUsername.replace('@', '').trim(),
     telegramUserId: regForm.value.telegramUserId || null,
     preferredBranchId: regForm.value.branchId || store.branches[0]?.id || 'b-001',
-    notes: 'Зарегистрирован через Telegram Mini App',
+    invitedByCustomerId: referredByCode.value || undefined,
+    referralCode: newCargoCode,
+    bonusBalance: 0,
+    notes: referredByCode.value
+      ? `Регистрация через Mini App (приглашен: ${referredByCode.value})`
+      : 'Зарегистрирован через Telegram Mini App',
   };
 
   store.addCustomer(newCust);
@@ -1487,6 +1807,7 @@ function handleRegister() {
     fullName: newCust.fullName,
     phone: newCust.phone,
     debtUSD: 0,
+    bonusBalance: 0,
     preferredBranchId: newCust.preferredBranchId,
   };
 

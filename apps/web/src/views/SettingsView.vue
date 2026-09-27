@@ -342,6 +342,16 @@
             />
           </div>
 
+          <div>
+            <label class="text-text-secondary mb-1 block">Канал для публикации отзывов клиентов (с фото)</label>
+            <input
+              v-model="store.settings.reviewsChannelId"
+              placeholder="@cargona_reviews"
+              class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono"
+            />
+            <p class="text-[10px] text-text-tertiary mt-1">Отзывы клиентов с оценкой, комментарием и фото из Mini App будут автоматически публиковаться сюда</p>
+          </div>
+
           <div class="flex items-center justify-between pt-2">
             <span class="text-text-secondary">Автопостинг статусов рейсов в канал</span>
             <AppToggle v-model="store.settings.autoChannelPosting" />
@@ -376,6 +386,146 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Секция 2.5: Программа лояльности и реферальная система (NOOR CLUB) -->
+    <div class="bg-surface border border-surface-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-card space-y-4">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/[0.06] pb-3">
+        <div class="flex items-center gap-2.5">
+          <Award class="w-5 h-5 text-accent-amber shrink-0" />
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 class="text-sm sm:text-base font-bold text-white">Программа лояльности ({{ store.loyaltySettings.clubName || 'NOOR CLUB' }})</h3>
+              <span v-if="store.loyaltySettings.enabled" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-accent-amber/15 text-accent-amber border border-accent-amber/30">
+                Активна
+              </span>
+              <span v-else class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/[0.05] text-text-tertiary border border-white/[0.08]">
+                Выключена
+              </span>
+            </div>
+            <p class="text-xs text-text-secondary mt-0.5">Персональные реферальные ссылки для клиентов, спец. тариф за приглашенных друзей и бонусный баланс</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 self-start sm:self-auto">
+          <span class="text-xs text-text-secondary">Включить клуб</span>
+          <AppToggle v-model="store.loyaltySettings.enabled" />
+        </div>
+      </div>
+
+      <div v-if="store.loyaltySettings.enabled" class="space-y-4 text-xs">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div>
+            <label class="text-text-secondary mb-1.5 block">Название клуба / программы</label>
+            <input
+              v-model="store.loyaltySettings.clubName"
+              placeholder="NOOR CLUB"
+              class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-amber focus:outline-none font-bold"
+            />
+          </div>
+
+          <div>
+            <label class="text-text-secondary mb-1.5 block">Друзей для спец. тарифа (чел.)</label>
+            <div class="relative">
+              <input
+                v-model.number="store.loyaltySettings.requiredActiveReferralsForSpecialRate"
+                type="number"
+                min="1"
+                step="1"
+                class="w-full h-10 px-3 pr-14 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-amber focus:outline-none font-mono"
+              />
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary font-mono pointer-events-none">
+                чел.
+              </span>
+            </div>
+            <p class="text-[10px] text-text-tertiary mt-1">После скольких активных друзей открывается спец. тариф</p>
+          </div>
+
+          <div>
+            <label class="text-text-secondary mb-1.5 block">Спец. тариф со скидкой ({{ store.activeCurrency }}/кг)</label>
+            <div class="relative">
+              <input
+                v-model.number="store.loyaltySettings.specialRatePerKg"
+                type="number"
+                min="1"
+                step="0.5"
+                class="w-full h-10 px-3 pr-16 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-amber focus:outline-none font-mono font-bold text-accent-amber"
+              />
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary font-mono pointer-events-none">
+                {{ store.activeCurrency }}/кг
+              </span>
+            </div>
+            <p class="text-[10px] text-text-tertiary mt-1">Применяется автоматически при достижении лимита друзей</p>
+          </div>
+
+          <div>
+            <label class="text-text-secondary mb-1.5 block">Бонус за каждого след. друга ({{ store.activeCurrency }})</label>
+            <div class="relative">
+              <input
+                v-model.number="store.loyaltySettings.bonusPerNextReferral"
+                type="number"
+                min="0"
+                step="1"
+                class="w-full h-10 px-3 pr-14 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-amber focus:outline-none font-mono"
+              />
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary font-mono pointer-events-none">
+                {{ store.activeCurrency }}
+              </span>
+            </div>
+            <p class="text-[10px] text-text-tertiary mt-1">Начисляется на баланс клиента за 3-го, 4-го и т.д. активного друга</p>
+          </div>
+
+          <div>
+            <label class="text-text-secondary mb-1.5 block">Использование бонусов ({{ store.activeCurrency }} за 1 кг)</label>
+            <div class="relative">
+              <input
+                v-model.number="store.loyaltySettings.bonusUsagePerKg"
+                type="number"
+                min="0.1"
+                step="0.1"
+                class="w-full h-10 px-3 pr-16 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-amber focus:outline-none font-mono"
+              />
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary font-mono pointer-events-none">
+                {{ store.activeCurrency }}/кг
+              </span>
+            </div>
+            <p class="text-[10px] text-text-tertiary mt-1">Максимальная скидка бонусами за 1 кг веса посылки</p>
+          </div>
+
+          <div>
+            <label class="text-text-secondary mb-1.5 block">Мин. тариф после бонусов ({{ store.activeCurrency }}/кг)</label>
+            <div class="relative">
+              <input
+                v-model.number="store.loyaltySettings.minRateAfterBonus"
+                type="number"
+                min="1"
+                step="0.5"
+                class="w-full h-10 px-3 pr-16 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-amber focus:outline-none font-mono"
+              />
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary font-mono pointer-events-none">
+                {{ store.activeCurrency }}/кг
+              </span>
+            </div>
+            <p class="text-[10px] text-text-tertiary mt-1">Нижний порог цены доставки за кг при списании бонусов</p>
+          </div>
+        </div>
+
+        <div class="p-3.5 rounded-2xl bg-[#181B23]/70 border border-white/[0.06] flex items-center justify-between gap-4">
+          <div class="text-text-secondary text-xs">
+            <span class="font-bold text-white">Условие активности друга:</span> должен забрать как минимум
+            <span class="font-mono text-accent-cyan font-bold">{{ store.loyaltySettings.activeReferralMinPackages || 1 }}</span> посылку в ПВЗ.
+          </div>
+          <button
+            @click="saveLoyaltySettings"
+            class="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-accent-amber hover:bg-accent-amber/90 text-black font-bold text-xs shadow-glow-amber transition cursor-pointer shrink-0"
+          >
+            <Check class="w-3.5 h-3.5" />
+            <span>Сохранить настройки {{ store.loyaltySettings.clubName || 'NOOR CLUB' }}</span>
+          </button>
+        </div>
+      </div>
+      <div v-else class="text-text-tertiary text-xs py-2">
+        Программа лояльности сейчас выключена. Включите тумблер выше, чтобы активировать персональные реферальные ссылки и начисление бонусов клиентам.
       </div>
     </div>
 
@@ -779,6 +929,9 @@ import {
   ExternalLink,
   Building2,
   Trash2,
+  Award,
+  Sparkles,
+  Clock,
 } from 'lucide-vue-next';
 import AppModal from '../components/ui/AppModal.vue';
 import AppDropdown from '../components/ui/AppDropdown.vue';
@@ -887,6 +1040,16 @@ function saveStorageSettings() {
   toastMessage.value = `Условия хранения сохранены: ${storageForm.value.freeStorageDays} дн. бесплатно, далее ${storageForm.value.overdueRatePerDay} ${store.activeCurrency}/день`;
 }
 
+// Сохранение настроек программы лояльности (NOOR CLUB)
+async function saveLoyaltySettings() {
+  try {
+    await store.updateLoyaltySettings(store.loyaltySettings);
+    toastMessage.value = `Настройки программы лояльности «${store.loyaltySettings.clubName || 'NOOR CLUB'}» успешно сохранены`;
+  } catch (err: any) {
+    toastMessage.value = `Ошибка сохранения программы лояльности: ${err.message || 'Сбой сети'}`;
+  }
+}
+
 const activeWarehouseId = ref('wh-cn');
 const selectedWarehouse = computed(() => {
   return store.originWarehouses.find((w) => w.id === activeWarehouseId.value) || store.originWarehouses[0];
@@ -966,6 +1129,7 @@ async function loadBotSettings() {
       if (data.botToken) store.settings.botToken = data.botToken;
       if (data.botUsername) store.settings.botUsername = data.botUsername;
       if (data.channelId) store.settings.channelId = data.channelId;
+      if (data.reviewsChannelId) store.settings.reviewsChannelId = data.reviewsChannelId;
     }
   } catch (e) {
     // Local fallback
@@ -1002,6 +1166,7 @@ async function saveBotSettings() {
         companyName,
         managerUsername: store.settings.managerUsername,
         channelId: store.settings.channelId,
+        reviewsChannelId: store.settings.reviewsChannelId,
         autoChannelPosting: store.settings.autoChannelPosting,
       }),
     });

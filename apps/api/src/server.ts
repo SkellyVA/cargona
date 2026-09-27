@@ -1678,6 +1678,7 @@ fastify.get<{ Params: { slug: string } }>('/api/o/:slug/bot-settings', async (re
       channelId: '',
       welcomeMessage: '',
       appUrl: `https://${APP_DOMAIN}/o/${slug}/app`,
+      reviewsChannelId: '',
     };
   }
 
@@ -1687,6 +1688,7 @@ fastify.get<{ Params: { slug: string } }>('/api/o/:slug/bot-settings', async (re
     botUsername: botConfig?.botUsername || '',
     isActive: botConfig?.isActive || false,
     channelId: botConfig?.channelIdForPosting || '',
+    reviewsChannelId: (botConfig as any)?.reviewsChannelId || (tenant as any)?.reviewsChannelId || '',
     welcomeMessage: botConfig?.welcomeMessage || '',
     appUrl: `https://${APP_DOMAIN}/o/${tenant.slug}/app`,
   };
@@ -1699,13 +1701,14 @@ fastify.post<{
     botToken: string;
     managerUsername?: string;
     channelId?: string;
+    reviewsChannelId?: string;
     autoChannelPosting?: boolean;
     welcomeMessage?: string;
     companyName?: string;
   };
 }>('/api/o/:slug/bot-settings', async (request, reply) => {
   const { slug } = request.params;
-  const { botToken, managerUsername, channelId, welcomeMessage, companyName } = request.body;
+  const { botToken, managerUsername, channelId, reviewsChannelId, welcomeMessage, companyName } = request.body;
   let tenant = store.tenants.find((t) => t.slug === slug);
   if (!tenant && store.tenants.length > 0 && (slug === 'cargona' || !slug)) {
     tenant = store.tenants[0];
@@ -1750,11 +1753,14 @@ fastify.post<{
     }
   }
 
+  (tenant as any).reviewsChannelId = reviewsChannelId || (tenant as any).reviewsChannelId || null;
+
   if (!botToken || !botToken.trim()) {
     // Disable bot for tenant
     const existing = store.botConfigs.find((b) => b.tenantId === tenant.id);
     if (existing) {
       existing.isActive = false;
+      (existing as any).reviewsChannelId = reviewsChannelId || (existing as any).reviewsChannelId || null;
       store.saveToFile();
     }
     return { success: true, message: 'Бот отключен' };
@@ -1780,6 +1786,7 @@ fastify.post<{
         botUsername: botInfo.username,
         welcomeMessage: welcomeMessage || `Добро пожаловать в ${tenant.name}!`,
         channelIdForPosting: channelId || null,
+        reviewsChannelId: reviewsChannelId || null,
         isActive: true,
         webhookSecret: `sec_${Date.now()}`,
         updatedAt: new Date().toISOString(),
@@ -1789,6 +1796,7 @@ fastify.post<{
       botConfig.botToken = botToken.trim();
       botConfig.botUsername = botInfo.username;
       botConfig.channelIdForPosting = channelId || botConfig.channelIdForPosting;
+      (botConfig as any).reviewsChannelId = reviewsChannelId !== undefined ? reviewsChannelId : (botConfig as any).reviewsChannelId;
       botConfig.welcomeMessage = welcomeMessage || botConfig.welcomeMessage;
       botConfig.isActive = true;
       botConfig.updatedAt = new Date().toISOString();
@@ -1825,6 +1833,129 @@ fastify.post<{
       error: err.message || 'Ошибка подключения бота к Telegram. Проверьте правильность токена.',
     });
   }
+});
+
+// Submit Package Review & Post to Reviews Channel
+fastify.post<{
+  Params: { slug: string; id: string };
+  Body: {
+    rating: number;
+    comment?: string;
+    photos?: string[];
+    customerName?: string;
+    customerCargoCode?: string;
+  };
+}>('/api/o/:slug/packages/:id/review', async (request, reply) => {
+  const { slug, id } = request.params;
+  const { rating, comment, photos, customerName, customerCargoCode } = request.body;
+  const tenant = store.tenants.find((t) => t.slug === slug);
+  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
+
+  const pkg = store.packages.find((p) => (p.id === id || p.trackingNumber === id) && p.tenantId === tenant.id);
+  if (pkg) {
+    (pkg as any).reviewRating = rating;
+    (pkg as any).reviewComment = comment || '';
+    (pkg as any).reviewPhotos = photos || [];
+    pkg.updatedAt = new Date().toISOString();
+  }
+
+  // Post review to Telegram reviews channel if configured
+  const botConfig = store.botConfigs.find((b) => b.tenantId === tenant.id && b.isActive && b.botToken);
+  const reviewsChannel = (botConfig as any)?.reviewsChannelId || (tenant as any)?.reviewsChannelId;
+
+  if (botConfig && botConfig.botToken && reviewsChannel) {
+    try {
+      const cleanChannel = reviewsChannel.startsWith('@') || reviewsChannel.startsWith('-') ? reviewsChannel : `@${reviewsChannel}`;
+      const stars = '⭐️'.repeat(Math.max(1, Math.min(5, Number(rating) || 5)));
+      const custName = customerName || (pkg?.customerCargoCode ? `Клиент (${pkg.customerCargoCode})` : 'Клиент');
+      const tracking = pkg?.trackingNumber || id;
+      const reviewText = comment ? `\n\n💬 <b>Отзыв:</b> <i>«${comment}»</i>` : '';
+
+      const caption =
+        `⭐️ <b>Новый отзыв о доставке</b>\n\n` +
+        `👤 <b>Клиент:</b> ${custName} (${customerCargoCode || pkg?.customerCargoCode || '—'})\n` +
+        `📦 <b>Трек:</b> <code>${tracking}</code>\n` +
+        `⭐️ <b>Оценка:</b> ${stars} (${rating}/5)${reviewText}\n\n` +
+        `🏢 <b>${tenant.name}</b>`;
+
+      if (photos && photos.length > 0) {
+        const firstPhoto = photos[0];
+        if (firstPhoto.startsWith('data:image')) {
+          const base64Data = firstPhoto.split(',')[1];
+          const buffer = Buffer.from(base64Data, 'base64');
+          const formData = new FormData();
+          formData.append('chat_id', cleanChannel);
+          formData.append('caption', caption);
+          formData.append('parse_mode', 'HTML');
+          const blob = new Blob([buffer], { type: 'image/jpeg' });
+          formData.append('photo', blob, 'review.jpg');
+
+          await fetch(`https://api.telegram.org/bot${botConfig.botToken}/sendPhoto`, {
+            method: 'POST',
+            body: formData,
+          });
+        } else {
+          await fetch(`https://api.telegram.org/bot${botConfig.botToken}/sendPhoto`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: cleanChannel,
+              photo: firstPhoto,
+              caption,
+              parse_mode: 'HTML',
+            }),
+          });
+        }
+      } else {
+        await fetch(`https://api.telegram.org/bot${botConfig.botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: cleanChannel,
+            text: caption,
+            parse_mode: 'HTML',
+          }),
+        });
+      }
+    } catch (err) {
+      console.warn('[Review Channel Posting Error]:', err);
+    }
+  }
+
+  store.saveToFile();
+  return { success: true, message: 'Review recorded' };
+});
+
+// Loyalty Program & Noor Club Settings
+fastify.get<{ Params: { slug: string } }>('/api/o/:slug/loyalty', async (request, reply) => {
+  const { slug } = request.params;
+  const tenant = store.tenants.find((t) => t.slug === slug);
+  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
+
+  const loyalty = (tenant as any).loyaltySettings || {
+    enabled: true,
+    clubName: 'NOOR CLUB',
+    requiredActiveReferralsForSpecialRate: 2,
+    specialRatePerKg: 26,
+    bonusPerNextReferral: 10,
+    bonusUsagePerKg: 1,
+    minRateAfterBonus: 25,
+    welcomeBonus: 0,
+    activeReferralMinPackages: 1,
+  };
+
+  return { loyalty };
+});
+
+fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/loyalty', async (request, reply) => {
+  const { slug } = request.params;
+  const tenant = store.tenants.find((t) => t.slug === slug);
+  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
+
+  (tenant as any).loyaltySettings = request.body;
+  tenant.updatedAt = new Date().toISOString();
+  store.saveToFile();
+  return { success: true, loyalty: (tenant as any).loyaltySettings };
 });
 
 // Telegram Webhook Handler (Incoming messages from Telegram)

@@ -119,6 +119,9 @@ export interface Customer {
   currency: string;
   isBlocked: boolean;
   notes?: string | null;
+  referralCode?: string;
+  invitedByCustomerId?: string | null;
+  bonusBalance?: number;
   createdAt: string;
 }
 
@@ -160,6 +163,9 @@ export interface Package {
   status: PackageStatus;
   receivedAt?: string | null;
   releasedAt?: string | null;
+  reviewRating?: number | null;
+  reviewComment?: string | null;
+  reviewPhotos?: string[] | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -280,6 +286,7 @@ export interface TelegramBotConfig {
   botUsername: string;
   welcomeMessage?: string | null;
   channelIdForPosting?: string | null; // @channel_name
+  reviewsChannelId?: string | null; // @channel_reviews
   isActive: boolean;
   webhookSecret: string;
   updatedAt: string;
@@ -362,15 +369,31 @@ export interface ExpenseCategory {
   isActive: boolean;
 }
 
-export interface TripExpense {
+// ==========================================
+// 12. Loyalty Program & Noor Club (Реферальная система)
+// ==========================================
+export interface LoyaltySettings {
+  enabled: boolean;
+  clubName: string; // 'NOOR CLUB'
+  requiredActiveReferralsForSpecialRate: number; // default: 2
+  specialRatePerKg: number; // default: 26 (в основной валюте, напр. TJS)
+  bonusPerNextReferral: number; // default: 10 (бонус за каждого следующего активного реферала)
+  bonusUsagePerKg: number; // default: 1 (сколько бонусов можно списать за 1 кг)
+  minRateAfterBonus: number; // default: 25 (минимальный тариф после применения бонусов)
+  welcomeBonus?: number; // default: 0
+  activeReferralMinPackages: number; // default: 1
+}
+
+export interface BonusTransaction {
   id: string;
-  tenantId: string;
-  tripId: string;
-  category: string; // 'TRUCK_FREIGHT' | 'CUSTOMS' | 'WAREHOUSE' | 'ROAD_TOLLS' | 'OTHER'
-  amount: number;
+  customerId: string;
+  amount: number; // +10, -5
   currency: string;
-  amountUSD: number;
-  comment?: string | null;
+  type: 'EARNED' | 'SPENT' | 'MANUAL' | 'WELCOME';
+  description: string;
+  relatedCustomerId?: string | null;
+  relatedPackageId?: string | null;
   createdAt: string;
 }
+
 

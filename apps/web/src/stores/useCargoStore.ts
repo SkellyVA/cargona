@@ -177,16 +177,46 @@ export interface ExpenseCategory {
 }
 
 
+export interface LoyaltySettings {
+  enabled: boolean;
+  clubName: string; // 'NOOR CLUB'
+  requiredActiveReferralsForSpecialRate: number; // default: 2
+  specialRatePerKg: number; // default: 26
+  bonusPerNextReferral: number; // default: 10
+  bonusUsagePerKg: number; // default: 1
+  minRateAfterBonus: number; // default: 25
+  welcomeBonus: number; // default: 0
+  activeReferralMinPackages: number; // default: 1
+}
+
+export interface BonusTransaction {
+  id: string;
+  customerId: string;
+  customerCargoCode: string;
+  amount: number;
+  currency: string;
+  type: 'EARNED' | 'SPENT' | 'MANUAL' | 'WELCOME';
+  description: string;
+  relatedCustomerId?: string;
+  relatedPackageId?: string;
+  createdAt: string;
+  tenantSlug?: string;
+}
+
 export interface Customer {
   id: string;
   cargoCode: string;
   fullName: string;
   phone: string;
   telegramUsername?: string;
+  telegramUserId?: number | null;
   balanceUSD: number; // положительный = депозит, отрицательный = долг
   isBlocked: boolean;
   notes?: string;
   preferredBranchId?: string;
+  referralCode?: string;
+  invitedByCustomerId?: string;
+  bonusBalance?: number;
   tenantSlug?: string;
 }
 
@@ -218,6 +248,7 @@ export interface PackageItem {
   notifiedReady?: boolean;
   reviewRating?: number;
   reviewComment?: string;
+  reviewPhotos?: string[];
   storagePaidUntil?: string;
   isPaidOnline?: boolean;
   createdAt: string;
@@ -336,12 +367,24 @@ export const useCargoStore = defineStore('cargo', () => {
     botUsername: '',
     autoChannelPosting: false,
     channelId: '',
+    reviewsChannelId: '',
     managerUsername: '',
     autoDeliveryRatePerKgUSD: 2.80,
     airDeliveryRatePerKgUSD: 5.50,
     minPackageCostUSD: 1.50,
     freeStorageDays: 3,
     storageOverdueRatePerDayUSD: 0.50,
+    loyaltySettings: {
+      enabled: true,
+      clubName: 'NOOR CLUB',
+      requiredActiveReferralsForSpecialRate: 2,
+      specialRatePerKg: 26,
+      bonusPerNextReferral: 10,
+      bonusUsagePerKg: 1,
+      minRateAfterBonus: 25,
+      welcomeBonus: 0,
+      activeReferralMinPackages: 1,
+    } as LoyaltySettings,
   });
 
   // 2.0 Тарифы доставки и хранения в выбранной валюте (<выбранная валюта>/кг, /день)
@@ -395,6 +438,206 @@ export const useCargoStore = defineStore('cargo', () => {
         });
       }
     } catch {}
+  }
+
+  // 2.0.1 Программа лояльности NOOR CLUB & Реферальная система
+  const savedBonusTx = typeof window !== 'undefined' ? localStorage.getItem('cargona_bonus_transactions') : null;
+  const rawBonusTransactions = ref<BonusTransaction[]>(safeParse<BonusTransaction[]>(savedBonusTx, []));
+
+  const bonusTransactions = computed(() => {
+    const slug = activeTenantSlug.value;
+    if (!slug) return rawBonusTransactions.value;
+    return rawBonusTransactions.value.filter((tx) => !tx.tenantSlug || tx.tenantSlug === slug);
+  });
+
+  function updateLoyaltySettings(newSettings: Partial<LoyaltySettings>) {
+    Object.assign(settings.value.loyaltySettings, newSettings);
+    addAudit(
+      'UPDATE',
+      'Программа лояльности',
+      settings.value.loyaltySettings.clubName,
+      `Обновлены правила лояльности (${settings.value.loyaltySettings.enabled ? 'Включена' : 'Отключена'}): спец-тариф ${settings.value.loyaltySettings.specialRatePerKg} за ${settings.value.loyaltySettings.requiredActiveReferralsForSpecialRate} рефералов`
+    );
+
+    try {
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        fetch(`/api/o/${slug}/loyalty`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(settings.value.loyaltySettings),
+        });
+      }
+    } catch {}
+  }
+
+  function addBonusTransaction(
+    customerIdOrCode: string,
+    amount: number,
+    type: 'EARNED' | 'SPENT' | 'MANUAL' | 'WELCOME',
+    description: string,
+    relatedPkgId?: string
+  ) {
+    const cust = rawCustomers.value.find(
+      (c) => c.id === customerIdOrCode || c.cargoCode.toUpperCase() === customerIdOrCode.toUpperCase()
+    );
+    if (!cust) return;
+
+    cust.bonusBalance = Math.max(0, (cust.bonusBalance || 0) + amount);
+
+    const tx: BonusTransaction = {
+      id: nextSeqId('bon', rawBonusTransactions.value),
+      customerId: cust.id,
+      customerCargoCode: cust.cargoCode,
+      amount,
+      currency: activeCurrency.value,
+      type,
+      description,
+      relatedPackageId: relatedPkgId,
+      createdAt: new Date().toISOString(),
+      tenantSlug: activeTenantSlug.value,
+    };
+
+    rawBonusTransactions.value.unshift(tx);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('cargona_bonus_transactions', JSON.stringify(rawBonusTransactions.value));
+      localStorage.setItem('cargona_customers', JSON.stringify(rawCustomers.value));
+    }
+  }
+
+  function getCustomerReferrals(customerIdOrCode: string) {
+    const cust = rawCustomers.value.find(
+      (c) => c.id === customerIdOrCode || c.cargoCode.toUpperCase() === customerIdOrCode.toUpperCase()
+    );
+    if (!cust) return { total: [], active: [], inactive: [] };
+
+    const code = cust.cargoCode.toUpperCase();
+    const id = cust.id;
+
+    const invited = rawCustomers.value.filter(
+      (c) =>
+        c.id !== id &&
+        ((c.invitedByCustomerId && (c.invitedByCustomerId.toUpperCase() === code || c.invitedByCustomerId === id)) ||
+          (c.referralCode && (c.referralCode.toUpperCase() === code || c.referralCode === id)))
+    );
+
+    const minPackages = settings.value.loyaltySettings?.activeReferralMinPackages || 1;
+
+    const active = invited.filter((refCust) => {
+      const deliveredCount = rawPackages.value.filter(
+        (p) => p.customerCargoCode.toUpperCase() === refCust.cargoCode.toUpperCase() && p.status === 'RELEASED'
+      ).length;
+      return deliveredCount >= minPackages;
+    });
+
+    const inactive = invited.filter((refCust) => !active.some((a) => a.id === refCust.id));
+
+    return { total: invited, active, inactive };
+  }
+
+  function getCustomerLoyaltyInfo(customerIdOrCode: string) {
+    const cust = rawCustomers.value.find(
+      (c) => c.id === customerIdOrCode || c.cargoCode.toUpperCase() === customerIdOrCode.toUpperCase()
+    );
+    const loyalty = settings.value.loyaltySettings || {
+      enabled: true,
+      clubName: 'NOOR CLUB',
+      requiredActiveReferralsForSpecialRate: 2,
+      specialRatePerKg: 26,
+      bonusPerNextReferral: 10,
+      bonusUsagePerKg: 1,
+      minRateAfterBonus: 25,
+      welcomeBonus: 0,
+      activeReferralMinPackages: 1,
+    };
+
+    if (!cust) {
+      return {
+        enabled: loyalty.enabled,
+        clubName: loyalty.clubName,
+        isMember: false,
+        activeReferralsCount: 0,
+        totalReferralsCount: 0,
+        bonusBalance: 0,
+        currentRatePerKg: deliveryRates.value.autoRatePerKg,
+        specialRatePerKg: loyalty.specialRatePerKg,
+        requiredForSpecialRate: loyalty.requiredActiveReferralsForSpecialRate,
+        progressPercent: 0,
+        bonusUsagePerKg: loyalty.bonusUsagePerKg,
+        minRateAfterBonus: loyalty.minRateAfterBonus,
+      };
+    }
+
+    const { total, active } = getCustomerReferrals(cust.cargoCode);
+    const isMember = loyalty.enabled && active.length >= loyalty.requiredActiveReferralsForSpecialRate;
+    const progressPercent = Math.min(
+      100,
+      Math.round((active.length / (loyalty.requiredActiveReferralsForSpecialRate || 1)) * 100)
+    );
+
+    const standardRate = deliveryRates.value.autoRatePerKg;
+    const effectiveRate = isMember ? loyalty.specialRatePerKg : standardRate;
+
+    return {
+      enabled: loyalty.enabled,
+      clubName: loyalty.clubName,
+      isMember,
+      activeReferralsCount: active.length,
+      totalReferralsCount: total.length,
+      bonusBalance: cust.bonusBalance || 0,
+      currentRatePerKg: effectiveRate,
+      specialRatePerKg: loyalty.specialRatePerKg,
+      requiredForSpecialRate: loyalty.requiredActiveReferralsForSpecialRate,
+      progressPercent,
+      bonusUsagePerKg: loyalty.bonusUsagePerKg,
+      minRateAfterBonus: loyalty.minRateAfterBonus,
+    };
+  }
+
+  function checkReferralRewardForCustomer(customerCargoCode: string) {
+    const cust = rawCustomers.value.find((c) => c.cargoCode.toUpperCase() === customerCargoCode.toUpperCase());
+    if (!cust || !cust.invitedByCustomerId) return;
+
+    const inviter = rawCustomers.value.find(
+      (c) =>
+        c.cargoCode.toUpperCase() === cust.invitedByCustomerId?.toUpperCase() ||
+        c.id === cust.invitedByCustomerId
+    );
+    if (!inviter) return;
+
+    const loyalty = settings.value.loyaltySettings;
+    if (!loyalty || !loyalty.enabled) return;
+
+    const deliveredCount = rawPackages.value.filter(
+      (p) => p.customerCargoCode.toUpperCase() === cust.cargoCode.toUpperCase() && p.status === 'RELEASED'
+    ).length;
+
+    // Check if this delivery reaches qualifying threshold
+    if (deliveredCount === (loyalty.activeReferralMinPackages || 1)) {
+      const { active } = getCustomerReferrals(inviter.cargoCode);
+      if (active.length === loyalty.requiredActiveReferralsForSpecialRate) {
+        addAudit(
+          'LOYALTY',
+          'NOOR CLUB Уровень',
+          inviter.cargoCode,
+          `Клиент ${inviter.fullName} достиг ${loyalty.requiredActiveReferralsForSpecialRate} активных рефералов и получил спец-тариф ${loyalty.specialRatePerKg} ${activeCurrency.value}/кг!`
+        );
+      } else if (active.length > loyalty.requiredActiveReferralsForSpecialRate) {
+        const bonus = loyalty.bonusPerNextReferral || 10;
+        addBonusTransaction(
+          inviter.cargoCode,
+          bonus,
+          'EARNED',
+          `Бонус за активного реферала ${cust.fullName} (${cust.cargoCode})`
+        );
+        addAudit(
+          'LOYALTY',
+          'Бонус реферала',
+          inviter.cargoCode,
+          `Начислено +${bonus} ${activeCurrency.value} бонусов за активного друга ${cust.cargoCode}`
+        );
+      }
+    }
   }
 
   // --- Хелперы для последовательной генерации ID (001, 002, 003...) ---
@@ -1518,6 +1761,10 @@ export const useCargoStore = defineStore('cargo', () => {
     if (!pkg) return;
     const oldStatus = pkg.status;
     pkg.status = newStatus;
+    if (newStatus === 'RELEASED' && oldStatus !== 'RELEASED') {
+      pkg.releasedAt = new Date().toISOString();
+      checkReferralRewardForCustomer(pkg.customerCargoCode);
+    }
     const branch = rawBranches.value.find((b) => b.id === pkg.branchId);
     addAudit('STATUS_CHANGE', 'Статус посылки', pkg.trackingNumber, `Статус изменен с ${oldStatus} на ${newStatus}`, currentUser.value?.name || 'operator', pkg.branchId || 'b-1', branch?.name);
 
@@ -1838,6 +2085,8 @@ export const useCargoStore = defineStore('cargo', () => {
       });
     } catch {}
 
+    checkReferralRewardForCustomer(cargoCode);
+
     return totalSumUSD;
   }
 
@@ -1934,23 +2183,38 @@ export const useCargoStore = defineStore('cargo', () => {
   }
 
   // Оставить отзыв о посылке / сервисе
-  function submitPackageReview(pkgId: string, rating: number, comment: string = '') {
+  function submitPackageReview(pkgId: string, rating: number, comment: string = '', photos: string[] = []) {
     const pkg = rawPackages.value.find((p) => p.id === pkgId);
     if (!pkg) return;
     pkg.reviewRating = rating;
     pkg.reviewComment = comment;
+    pkg.reviewPhotos = photos;
     if (typeof window !== 'undefined') {
       localStorage.setItem('cargona_packages', JSON.stringify(rawPackages.value));
     }
-    addAudit('REVIEW', 'Отзыв клиента', pkg.trackingNumber, `Оценка: ${rating}/5${comment ? `. Комментарий: ${comment}` : ''}`, pkg.customerCargoCode, pkg.branchId);
+    const cust = rawCustomers.value.find((c) => c.cargoCode === pkg.customerCargoCode);
+    addAudit(
+      'REVIEW',
+      'Отзыв клиента',
+      pkg.trackingNumber,
+      `Оценка: ${rating}/5${comment ? `. Отзыв: ${comment}` : ''}${photos.length ? ` (${photos.length} фото)` : ''}`,
+      pkg.customerCargoCode,
+      pkg.branchId
+    );
 
     try {
       const slug = activeTenantSlug.value;
       if (slug) {
-        fetch(`/api/o/${slug}/packages/${pkgId}`, {
-          method: 'PUT',
+        fetch(`/api/o/${slug}/packages/${pkgId}/review`, {
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reviewRating: rating, reviewComment: comment }),
+          body: JSON.stringify({
+            rating,
+            comment,
+            photos,
+            customerName: cust?.fullName,
+            customerCargoCode: pkg.customerCargoCode,
+          }),
         });
       }
     } catch {}
@@ -2808,8 +3072,12 @@ export const useCargoStore = defineStore('cargo', () => {
     removePackageFromTrip,
     addPackage,
     updateRates,
-    nextSeqId,
-    nextCargoCode,
+    // Loyalty & Noor Club
+    bonusTransactions,
+    updateLoyaltySettings,
+    addBonusTransaction,
+    getCustomerReferrals,
+    getCustomerLoyaltyInfo,
     // Finance & Accounting
     cashAccounts,
     financialTransactions,

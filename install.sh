@@ -213,6 +213,15 @@ DEFAULT_LIMIT="0"
 prompt_read "$(echo -e "${BOLD}5. Лимит организаций по лицензии${NC} (1 для одного клиента, 0 для безлимита) [${DEFAULT_LIMIT}]: ")" INPUT_LIMIT "$DEFAULT_LIMIT"
 MAX_TENANTS_LIMIT="$INPUT_LIMIT"
 
+# NOOR CLUB Loyalty Module
+DEFAULT_LOYALTY="y"
+prompt_read "$(echo -e "${BOLD}6. Включить реферальную систему и программу лояльности NOOR CLUB?${NC} (y/n) [${DEFAULT_LOYALTY}]: ")" INPUT_LOYALTY "$DEFAULT_LOYALTY"
+if [[ "$INPUT_LOYALTY" =~ ^[Yy]$ ]]; then
+  ENABLE_NOOR_CLUB="true"
+else
+  ENABLE_NOOR_CLUB="false"
+fi
+
 # Generate Secrets
 JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || date +%s%N | sha256sum | head -c 64)
 DB_PASSWORD=$(openssl rand -hex 16 2>/dev/null || date +%s%N | sha256sum | head -c 24)
@@ -237,6 +246,9 @@ SUPERADMIN_NAME=${SUPERADMIN_NAME}
 
 # Licensing Limits (0 = Unlimited, 1 = Dedicated Single-Tenant, N = Custom)
 MAX_TENANTS_LIMIT=${MAX_TENANTS_LIMIT}
+
+# Loyalty Module (NOOR CLUB)
+ENABLE_NOOR_CLUB=${ENABLE_NOOR_CLUB}
 
 # Security & Secrets
 JWT_SECRET=${JWT_SECRET}
@@ -300,6 +312,7 @@ if [ "$MAX_TENANTS_LIMIT" -gt 0 ] 2>/dev/null; then
 else
   echo -e "🏢 ${BOLD}Лимит организаций:${NC}      Безлимит (SaaS Platform)"
 fi
+echo -e "🏆 ${BOLD}Программа NOOR CLUB:${NC}    $([ "$ENABLE_NOOR_CLUB" = "true" ] && echo -e "${GREEN}Включена${NC}" || echo -e "${YELLOW}Отключена${NC})"
 echo -e "🤖 ${BOLD}Telegram Bot Webhook:${NC}    https://${APP_DOMAIN}/api/bot/webhook/:slug"
 echo -e "🛠️ ${BOLD}CLI Управление:${NC}          Команда 'cargona' доступна из любой папки"
 echo -e "${BLUE}================================================================${NC}"
