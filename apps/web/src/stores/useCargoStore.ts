@@ -277,12 +277,53 @@ export interface CurrentUser {
   organizationName: string;
 }
 
+export interface PaymentRequisites {
+  bankName: string;
+  cardNumber: string;
+  recipientName: string;
+  instructions?: string;
+}
+
 function safeParse<T>(raw: string | null | undefined, fallback: T): T {
   if (!raw || raw === 'undefined' || raw === 'null') return fallback;
   try {
     return JSON.parse(raw) as T;
   } catch {
     return fallback;
+  }
+}
+
+function sanitizePackagesForStorage(packages: PackageItem[]): any[] {
+  if (!Array.isArray(packages)) return [];
+  return packages.map((p) => {
+    const { handoverPhoto, photos, reviewPhotos, ...rest } = p;
+    // Strip heavy base64 images from localStorage persistence to avoid QuotaExceededError
+    const cleanPhotos = photos?.filter((ph) => typeof ph === 'string' && !ph.startsWith('data:')) || [];
+    return {
+      ...rest,
+      photos: cleanPhotos.length > 0 ? cleanPhotos : undefined,
+    };
+  });
+}
+
+export function safeStorageSet(key: string, data: any) {
+  if (typeof window === 'undefined') return;
+  try {
+    let payload = data;
+    if (key.startsWith('cargona_packages') && Array.isArray(data)) {
+      payload = sanitizePackagesForStorage(data);
+    }
+    const serialized = typeof payload === 'string' ? payload : JSON.stringify(payload);
+    localStorage.setItem(key, serialized);
+  } catch (e) {
+    console.warn(`[Storage] safeStorageSet warning for key "${key}":`, e);
+    try {
+      if (key.startsWith('cargona_packages') && Array.isArray(data)) {
+        // Keep only recent 100 packages locally as offline fallback
+        const trimmed = sanitizePackagesForStorage(data.slice(-100));
+        localStorage.setItem(key, JSON.stringify(trimmed));
+      }
+    } catch (_) {}
   }
 }
 
@@ -303,7 +344,7 @@ export const useCargoStore = defineStore('cargo', () => {
   function login(user: CurrentUser) {
     currentUser.value = user;
     if (typeof window !== 'undefined') {
-      localStorage.setItem('cargona_auth_user', JSON.stringify(user));
+      safeStorageSet('cargona_auth_user', user);
     }
     addAudit('AUTH', 'Вход в систему', user.email, `Вход выполнен с ролью ${user.role}`, user.email);
   }
@@ -339,7 +380,7 @@ export const useCargoStore = defineStore('cargo', () => {
   function setActiveCurrency(currency: string) {
     activeCurrency.value = currency;
     if (typeof window !== 'undefined') {
-      localStorage.setItem('cargona_active_currency', currency);
+      safeStorageSet('cargona_active_currency', currency);
     }
   }
 
@@ -374,6 +415,12 @@ export const useCargoStore = defineStore('cargo', () => {
     minPackageCostUSD: 1.50,
     freeStorageDays: 3,
     storageOverdueRatePerDayUSD: 0.50,
+    paymentRequisites: {
+      bankName: '',
+      cardNumber: '',
+      recipientName: '',
+      instructions: '',
+    } as PaymentRequisites,
     loyaltySettings: {
       enabled: false,
       isModuleAllowed: false,
@@ -428,6 +475,32 @@ export const useCargoStore = defineStore('cargo', () => {
     settings.value.freeStorageDays = Math.max(0, Math.floor(data.freeStorageDays));
     settings.value.storageOverdueRatePerDayUSD = Math.round((data.storageOverdueRatePerDay / rate) * 1000) / 1000;
     addAudit('UPDATE', 'Условия хранения', 'Склад & ПВЗ', `Бесплатное хранение: ${settings.value.freeStorageDays} дн., просрочка: ${data.storageOverdueRatePerDay} ${activeCurrency.value}/день`);
+
+    try {
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        fetch(`/api/o/${slug}/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(settings.value),
+        });
+      }
+    } catch {}
+  }
+
+  function updatePaymentRequisites(req: Partial<PaymentRequisites>) {
+    if (!settings.value.paymentRequisites) {
+      settings.value.paymentRequisites = {
+        bankName: '',
+        cardNumber: '',
+        recipientName: '',
+        instructions: '',
+      };
+    }
+    Object.assign(settings.value.paymentRequisites, req);
+    safeStorageSet(`cargona_settings_${activeTenantSlug.value || 'cargona'}`, settings.value);
+    safeStorageSet('cargona_settings', settings.value);
+    addAudit('UPDATE', 'Реквизиты перевода', 'Финансы', `Обновлены реквизиты: ${req.bankName || ''} ${req.cardNumber || ''}`);
 
     try {
       const slug = activeTenantSlug.value;
@@ -2049,8 +2122,14 @@ export const useCargoStore = defineStore('cargo', () => {
     } catch {}
   }
 
-  // Подтверждение выдачи и оплаты клиенту (с поддержкой выбора конкретных посылок и фото-фиксации)
-  function handoverClientPackages(cargoCode: string, branchId: string = 'b-1', packageIds?: string[], handoverPhoto?: string): number {
+  // Подтверждение выдачи и оплаты клиенту (с поддержкой выбора конкретных посылок, фото-фиксации и способа оплаты)
+  function handoverClientPackages(
+    cargoCode: string,
+    branchId: string = 'b-1',
+    packageIds?: string[],
+    handoverPhoto?: string,
+    paymentMethod: 'CASH' | 'TRANSFER' | 'CARD' = 'CASH'
+  ): number {
     const clientPkgs = rawPackages.value.filter((p) => {
       const isClient = p.customerCargoCode.toUpperCase() === cargoCode.toUpperCase();
       const isReady = p.status === 'READY_FOR_PICKUP';
@@ -2076,20 +2155,19 @@ export const useCargoStore = defineStore('cargo', () => {
     });
 
     const branch = rawBranches.value.find((b) => b.id === branchId) || rawBranches.value[0];
-    if (branch) {
+    if (branch && paymentMethod === 'CASH') {
       branch.cashBalanceUSD = Math.round(((branch.cashBalanceUSD || 0) + totalSumUSD) * 100) / 100;
     }
 
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('cargona_packages', JSON.stringify(rawPackages.value));
-      localStorage.setItem('cargona_branches', JSON.stringify(rawBranches.value));
-    }
+    safeStorageSet('cargona_packages', rawPackages.value);
+    safeStorageSet('cargona_branches', rawBranches.value);
 
+    const payLabel = paymentMethod === 'TRANSFER' || paymentMethod === 'CARD' ? 'Перевод на карту' : 'Наличные в кассу';
     addAudit(
       'HANDOVER',
       'Выдача по QR',
       cargoCode,
-      `Выдано ${clientPkgs.length} посылок на сумму ${formatMoney(totalSumUSD)}. Внесено в кассу «${branch?.name || ''}»${handoverPhoto ? ' (с фото-фиксацией)' : ''}`,
+      `Выдано ${clientPkgs.length} посылок на сумму ${formatMoney(totalSumUSD)} (${payLabel}). ПВЗ «${branch?.name || ''}»${handoverPhoto ? ' (с фото-фиксацией)' : ''}`,
       currentUser.value?.name || 'operator',
       branch?.id || branchId,
       branch?.name
@@ -2105,7 +2183,7 @@ export const useCargoStore = defineStore('cargo', () => {
           customerId: cust?.id || 'cust-direct',
           packageIds: pkgIdList,
           amountPaid: totalSumUSD,
-          paymentMethod: 'CASH',
+          paymentMethod,
           branchId: branch?.id || branchId,
           handoverPhoto: handoverPhoto || undefined,
           tenantSlug: slug || undefined,
@@ -2175,9 +2253,7 @@ export const useCargoStore = defineStore('cargo', () => {
       }
     }
 
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('cargona_packages', JSON.stringify(rawPackages.value));
-    }
+    safeStorageSet('cargona_packages', rawPackages.value);
 
     const branchName = originWh ? `Склад ${originWh.city} (${originWh.country})` : branch?.name || 'ПВЗ';
     addAudit(
@@ -2211,27 +2287,32 @@ export const useCargoStore = defineStore('cargo', () => {
   }
 
   // Оставить отзыв о посылке / сервисе
-  function submitPackageReview(pkgId: string, rating: number, comment: string = '', photos: string[] = []) {
+  function submitPackageReview(
+    pkgId: string,
+    rating: number,
+    comment: string = '',
+    photos: string[] = [],
+    tenantSlugOverride?: string
+  ) {
     const pkg = rawPackages.value.find((p) => p.id === pkgId);
-    if (!pkg) return;
-    pkg.reviewRating = rating;
-    pkg.reviewComment = comment;
-    pkg.reviewPhotos = photos;
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('cargona_packages', JSON.stringify(rawPackages.value));
+    if (pkg) {
+      pkg.reviewRating = rating;
+      pkg.reviewComment = comment;
+      pkg.reviewPhotos = photos;
     }
-    const cust = rawCustomers.value.find((c) => c.cargoCode === pkg.customerCargoCode);
+    safeStorageSet('cargona_packages', rawPackages.value);
+    const cust = rawCustomers.value.find((c) => c.cargoCode === pkg?.customerCargoCode);
     addAudit(
       'REVIEW',
       'Отзыв клиента',
-      pkg.trackingNumber,
+      pkg?.trackingNumber || pkgId,
       `Оценка: ${rating}/5${comment ? `. Отзыв: ${comment}` : ''}${photos.length ? ` (${photos.length} фото)` : ''}`,
-      pkg.customerCargoCode,
-      pkg.branchId
+      pkg?.customerCargoCode || '',
+      pkg?.branchId
     );
 
     try {
-      const slug = activeTenantSlug.value;
+      const slug = tenantSlugOverride || activeTenantSlug.value || (typeof window !== 'undefined' ? window.location.pathname.split('/o/')[1]?.split('/')[0] : '');
       if (slug) {
         fetch(`/api/o/${slug}/packages/${pkgId}/review`, {
           method: 'POST',
@@ -2241,7 +2322,7 @@ export const useCargoStore = defineStore('cargo', () => {
             comment,
             photos,
             customerName: cust?.fullName,
-            customerCargoCode: pkg.customerCargoCode,
+            customerCargoCode: pkg?.customerCargoCode,
           }),
         });
       }
@@ -2253,9 +2334,7 @@ export const useCargoStore = defineStore('cargo', () => {
     const pkg = rawPackages.value.find((p) => p.id === pkgId);
     if (!pkg) return;
     pkg.notifiedReady = enabled;
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('cargona_packages', JSON.stringify(rawPackages.value));
-    }
+    safeStorageSet('cargona_packages', rawPackages.value);
   }
 
   // Онлайн оплата посылки
@@ -2263,9 +2342,7 @@ export const useCargoStore = defineStore('cargo', () => {
     const pkg = rawPackages.value.find((p) => p.id === pkgId);
     if (!pkg) return;
     pkg.isPaidOnline = true;
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('cargona_packages', JSON.stringify(rawPackages.value));
-    }
+    safeStorageSet('cargona_packages', rawPackages.value);
     addAudit('PAYMENT', 'Онлайн оплата', pkg.trackingNumber, `Оплачено картой: ${formatMoney(pkg.costUSD)}`, pkg.customerCargoCode, pkg.branchId);
   }
 
@@ -3096,6 +3173,7 @@ export const useCargoStore = defineStore('cargo', () => {
     submitPackageReview,
     toggleNotifyWhenReady,
     payPackageOnline,
+    updatePaymentRequisites,
     intakePackage,
     addPackageToTrip,
     removePackageFromTrip,

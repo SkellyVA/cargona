@@ -476,6 +476,73 @@
             </div>
           </div>
 
+          <!-- Выбор способа оплаты при выдаче на ПВЗ -->
+          <div class="p-3.5 sm:p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-white">Способ оплаты клиентом:</span>
+              <span class="text-xs font-mono font-bold text-accent-cyan">{{ store.formatMoney(selectedTotalAmountUSD) }}</span>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 text-xs">
+              <button
+                type="button"
+                @click="handoverPayMethod = 'CASH'"
+                class="p-2.5 rounded-xl border text-left flex items-center justify-between transition cursor-pointer"
+                :class="handoverPayMethod === 'CASH' ? 'bg-accent-emerald/15 border-accent-emerald text-white' : 'bg-white/[0.03] border-white/[0.08] text-text-secondary hover:text-white'"
+              >
+                <div class="flex items-center gap-2">
+                  <Banknote class="w-4 h-4 text-accent-emerald" />
+                  <span class="font-bold">Наличные</span>
+                </div>
+                <Check v-if="handoverPayMethod === 'CASH'" class="w-3.5 h-3.5 text-accent-emerald" />
+              </button>
+
+              <button
+                type="button"
+                @click="handoverPayMethod = 'TRANSFER'"
+                class="p-2.5 rounded-xl border text-left flex items-center justify-between transition cursor-pointer"
+                :class="handoverPayMethod === 'TRANSFER' ? 'bg-accent-emerald/15 border-accent-emerald text-white' : 'bg-white/[0.03] border-white/[0.08] text-text-secondary hover:text-white'"
+              >
+                <div class="flex items-center gap-2">
+                  <CreditCard class="w-4 h-4 text-accent-cyan" />
+                  <span class="font-bold">Перевод на карту</span>
+                </div>
+                <Check v-if="handoverPayMethod === 'TRANSFER'" class="w-3.5 h-3.5 text-accent-emerald" />
+              </button>
+            </div>
+
+            <!-- Блок реквизитов компании при выборе перевода -->
+            <div v-if="handoverPayMethod === 'TRANSFER'" class="p-3 rounded-xl bg-black/40 border border-white/[0.08] text-[11px] space-y-2">
+              <div class="flex items-center justify-between text-text-secondary">
+                <span class="flex items-center gap-1.5 font-bold text-white">
+                  <CreditCard class="w-3.5 h-3.5 text-accent-cyan" />
+                  <span>{{ store.settings.paymentRequisites?.bankName || 'Реквизиты для перевода' }}</span>
+                </span>
+                <span v-if="store.settings.paymentRequisites?.recipientName" class="text-text-tertiary">
+                  {{ store.settings.paymentRequisites.recipientName }}
+                </span>
+              </div>
+
+              <div class="flex items-center justify-between gap-2 p-2 rounded-lg bg-[#181B23] border border-white/[0.06]">
+                <span class="font-mono font-bold text-white text-xs tracking-wider">
+                  {{ store.settings.paymentRequisites?.cardNumber || 'Номер карты не указан в настройках' }}
+                </span>
+                <button
+                  v-if="store.settings.paymentRequisites?.cardNumber"
+                  type="button"
+                  @click="copyHandoverCardNumber"
+                  class="px-2 py-0.5 rounded bg-white/[0.06] hover:bg-white/[0.1] text-accent-cyan text-[10px] font-bold transition cursor-pointer"
+                >
+                  {{ isHandoverCardCopied ? 'Скопировано' : 'Копировать' }}
+                </button>
+              </div>
+
+              <div v-if="store.settings.paymentRequisites?.instructions" class="text-[10px] text-text-tertiary">
+                {{ store.settings.paymentRequisites.instructions }}
+              </div>
+            </div>
+          </div>
+
           <!-- Итоговая кнопка подтверждения выдачи -->
           <div class="pt-4 border-t border-white/[0.06] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
             <div class="text-xs text-text-secondary">
@@ -1018,6 +1085,9 @@ import {
   Store,
   AlertTriangle,
   ListPlus,
+  Banknote,
+  CreditCard,
+  Check,
 } from 'lucide-vue-next';
 import AppModal from '../components/ui/AppModal.vue';
 import AppDropdown from '../components/ui/AppDropdown.vue';
@@ -1390,6 +1460,19 @@ function confirmHandoverReturn() {
   playChime(660);
 }
 
+const handoverPayMethod = ref<'CASH' | 'TRANSFER'>('CASH');
+const isHandoverCardCopied = ref(false);
+
+function copyHandoverCardNumber() {
+  const card = store.settings.paymentRequisites?.cardNumber || '';
+  if (!card) return;
+  navigator.clipboard.writeText(card.replace(/\s+/g, ''));
+  isHandoverCardCopied.value = true;
+  setTimeout(() => {
+    isHandoverCardCopied.value = false;
+  }, 2000);
+}
+
 function completeHandover() {
   if (selectedPackagesCount.value === 0) return;
   playChime(1046);
@@ -1397,10 +1480,12 @@ function completeHandover() {
   const branchId = selectedBranchId.value || 'b-1';
   const idsToRelease = [...selectedPackageIds.value];
   const photo = handoverPhotoPreview.value || undefined;
+  const payMethod = handoverPayMethod.value;
 
-  const sumUSD = store.handoverClientPackages(cargoCode, branchId, idsToRelease, photo);
+  const sumUSD = store.handoverClientPackages(cargoCode, branchId, idsToRelease, photo, payMethod);
   const curName = currentBranch.value?.name || 'ПВЗ';
-  successToast.value = `Выдано ${idsToRelease.length} посылок клиенту ${cargoCode} в «${curName}»${photo ? ' (фото сохранено)' : ''}. Сумма ${store.formatMoney(sumUSD)} внесена в кассу ПВЗ.`;
+  const payDesc = payMethod === 'TRANSFER' ? 'оплачено переводом на карту' : 'внесено в кассу ПВЗ';
+  successToast.value = `Выдано ${idsToRelease.length} посылок клиенту ${cargoCode} в «${curName}»${photo ? ' (фото сохранено)' : ''}. Сумма ${store.formatMoney(sumUSD)} (${payDesc}).`;
   activeHandover.value = null;
   selectedPackageIds.value = [];
   handoverPhotoPreview.value = '';

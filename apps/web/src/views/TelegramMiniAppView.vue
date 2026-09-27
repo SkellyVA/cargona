@@ -1071,9 +1071,40 @@
           </div>
         </div>
 
-        <div v-if="payMethod === 'CARD'" class="p-3 rounded-xl bg-black/30 border border-white/[0.06] text-[11px] text-text-secondary leading-relaxed space-y-1">
-          <div class="flex items-center gap-1.5"><CreditCard class="w-3.5 h-3.5 text-accent-emerald shrink-0" /><span>Номер карты для перевода:</span> <b class="text-white font-mono">9992 0012 3456 7890</b></div>
-          <div>Получатель: <b class="text-white">{{ tenantName }}</b></div>
+        <div v-if="payMethod === 'CARD'" class="p-3.5 rounded-2xl bg-[#181B23] border border-accent-emerald/30 text-xs space-y-2.5">
+          <div class="flex items-center justify-between border-b border-white/[0.06] pb-2">
+            <div class="flex items-center gap-1.5 font-bold text-white">
+              <CreditCard class="w-4 h-4 text-accent-emerald shrink-0" />
+              <span>{{ store.settings.paymentRequisites?.bankName || 'Перевод на карту' }}</span>
+            </div>
+            <span class="text-[10px] text-accent-emerald font-semibold uppercase">Реквизиты</span>
+          </div>
+
+          <div class="space-y-1.5">
+            <div class="text-[11px] text-text-secondary">Номер карты / счета для перевода:</div>
+            <div class="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-black/40 border border-white/[0.08]">
+              <span class="font-mono font-bold text-white text-sm tracking-wider">
+                {{ store.settings.paymentRequisites?.cardNumber || '9762 0000 0000 0000' }}
+              </span>
+              <button
+                type="button"
+                @click="copyCardNumber"
+                class="px-2.5 py-1 rounded-lg bg-accent-emerald/20 hover:bg-accent-emerald/30 text-accent-emerald text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
+              >
+                <Copy class="w-3 h-3" />
+                <span>{{ isCardCopied ? 'Скопировано!' : 'Копировать' }}</span>
+              </button>
+            </div>
+          </div>
+
+          <div v-if="store.settings.paymentRequisites?.recipientName" class="flex items-center justify-between text-[11px] text-text-secondary">
+            <span>Получатель:</span>
+            <b class="text-white">{{ store.settings.paymentRequisites.recipientName }}</b>
+          </div>
+
+          <div class="p-2.5 rounded-xl bg-accent-blue/10 border border-accent-blue/20 text-[11px] text-accent-cyan leading-relaxed">
+            <b>Инструкция:</b> {{ store.settings.paymentRequisites?.instructions || `В комментарии к переводу укажите ваш карго-код (${activeCustomer?.cargoCode || 'код'}) и покажите чек при получении.` }}
+          </div>
         </div>
       </div>
 
@@ -1271,16 +1302,32 @@ function openReviewModal(pkg: any) {
   showReviewModal.value = true;
 }
 
+const isCardCopied = ref(false);
+function copyCardNumber() {
+  const card = store.settings.paymentRequisites?.cardNumber || '9762 0000 0000 0000';
+  navigator.clipboard.writeText(card.replace(/\s+/g, ''));
+  isCardCopied.value = true;
+  miniAppToast.value = 'Номер карты скопирован в буфер обмена!';
+  setTimeout(() => {
+    isCardCopied.value = false;
+  }, 2000);
+}
+
 function submitReview() {
   if (!selectedReviewPkg.value) return;
+  const slugParam = (route.params.slug as string) || store.activeTenantSlug || 'cargona';
   store.submitPackageReview(
     selectedReviewPkg.value.id,
     reviewRating.value,
     reviewComment.value,
-    reviewPhotos.value
+    reviewPhotos.value,
+    slugParam
   );
+  selectedReviewPkg.value.reviewRating = reviewRating.value;
+  selectedReviewPkg.value.reviewComment = reviewComment.value;
+  selectedReviewPkg.value.reviewPhotos = [...reviewPhotos.value];
   showReviewModal.value = false;
-  miniAppToast.value = 'Спасибо за ваш отзыв! Он опубликован в канале отзывов компании.';
+  miniAppToast.value = 'Спасибо за ваш отзыв! Он успешно отправлен.';
 }
 
 function openPaymentModal(pkg: any) {

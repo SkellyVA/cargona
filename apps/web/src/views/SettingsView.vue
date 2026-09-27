@@ -733,6 +733,74 @@
       </div>
     </div>
 
+    <!-- Секция 6: Реквизиты для оплаты переводом (Банковская карта / Перевод) -->
+    <div class="bg-surface border border-surface-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-card space-y-4">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/[0.06] pb-3">
+        <div class="flex items-center gap-2.5">
+          <CreditCard class="w-5 h-5 text-accent-emerald shrink-0" />
+          <div>
+            <h3 class="text-sm sm:text-base font-bold text-white">Реквизиты для оплаты переводом (Карта / Банк)</h3>
+            <p class="text-xs text-text-secondary mt-0.5">Отображаются клиентам в Telegram Mini App и операторам на ПВЗ при выборе безналичной оплаты</p>
+          </div>
+        </div>
+        <span class="text-xs font-mono px-3 py-1 rounded-lg bg-accent-emerald/15 text-accent-emerald border border-accent-emerald/30 self-start sm:self-auto">
+          {{ paymentForm.bankName ? paymentForm.bankName : 'Реквизиты не заданы' }}
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+        <div>
+          <label class="text-text-secondary mb-1.5 block">Банк / Сервис перевода</label>
+          <input
+            v-model="paymentForm.bankName"
+            placeholder="Душанбе Сити / Alif Mobi / Сбербанк / T-Bank / Kaspi"
+            class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-emerald focus:outline-none"
+          />
+          <p class="text-[10px] text-text-tertiary mt-1">Название банка или платежного приложения</p>
+        </div>
+
+        <div>
+          <label class="text-text-secondary mb-1.5 block">Номер карты / Счета / Кошелька</label>
+          <input
+            v-model="paymentForm.cardNumber"
+            placeholder="9762 0000 0000 0000"
+            class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-emerald focus:outline-none font-mono"
+          />
+          <p class="text-[10px] text-text-tertiary mt-1">Клиенты смогут скопировать этот номер в 1 клик</p>
+        </div>
+
+        <div>
+          <label class="text-text-secondary mb-1.5 block">ФИО / Имя получателя</label>
+          <input
+            v-model="paymentForm.recipientName"
+            placeholder="Абдуллоев А. / ООО Каргона"
+            class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-emerald focus:outline-none"
+          />
+          <p class="text-[10px] text-text-tertiary mt-1">Для сверки получателя перед переводом</p>
+        </div>
+      </div>
+
+      <div>
+        <label class="text-text-secondary mb-1.5 block text-xs">Инструкция для клиентов при переводе</label>
+        <textarea
+          v-model="paymentForm.instructions"
+          rows="2"
+          placeholder="В комментарии к переводу обязательно укажите ваш карго-код. После оплаты покажите чек сотруднику на ПВЗ."
+          class="w-full p-2.5 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-emerald focus:outline-none text-xs resize-none placeholder:text-text-tertiary"
+        ></textarea>
+      </div>
+
+      <div class="flex justify-end pt-1">
+        <button
+          @click="savePaymentSettings"
+          class="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-accent-emerald hover:bg-accent-emerald/90 text-white font-bold text-xs shadow-glow-emerald transition cursor-pointer"
+        >
+          <Check class="w-3.5 h-3.5" />
+          <span>Сохранить реквизиты перевода</span>
+        </button>
+      </div>
+    </div>
+
     <!-- Модальное окно добавления сотрудника -->
     <AppModal v-model="showAddStaffModal" title="Добавить сотрудника">
       <div class="space-y-3.5 text-xs">
@@ -932,6 +1000,7 @@ import {
   Award,
   Sparkles,
   Clock,
+  CreditCard,
 } from 'lucide-vue-next';
 import AppModal from '../components/ui/AppModal.vue';
 import AppDropdown from '../components/ui/AppDropdown.vue';
@@ -947,6 +1016,34 @@ const { t } = useI18n();
 const showAddStaffModal = ref(false);
 const showAddWarehouseModal = ref(false);
 const toastMessage = ref('');
+
+// Форма реквизитов для оплаты переводом
+const paymentForm = ref({
+  bankName: store.settings.paymentRequisites?.bankName || '',
+  cardNumber: store.settings.paymentRequisites?.cardNumber || '',
+  recipientName: store.settings.paymentRequisites?.recipientName || '',
+  instructions: store.settings.paymentRequisites?.instructions || '',
+});
+
+watch(
+  () => store.settings.paymentRequisites,
+  (val) => {
+    if (val) {
+      paymentForm.value = {
+        bankName: val.bankName || '',
+        cardNumber: val.cardNumber || '',
+        recipientName: val.recipientName || '',
+        instructions: val.instructions || '',
+      };
+    }
+  },
+  { deep: true }
+);
+
+function savePaymentSettings() {
+  store.updatePaymentRequisites(paymentForm.value);
+  toastMessage.value = `Реквизиты для оплаты переводом успешно сохранены (${paymentForm.value.bankName || 'Банк'})`;
+}
 
 const confirmModal = ref({
   isOpen: false,
