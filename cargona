@@ -91,9 +91,76 @@ cmd_status() {
 
 # 2. ADMIN PASSWORD & EMAIL RESET
 cmd_reset_admin() {
-  echo -e "\n${CYAN}=== Сброс учетных данных Супер-Администратора ===${NC}"
+  echo -e "\n${CYAN}=== Сброс учетных данных администраторов ===${NC}"
+  echo -e "Выберите тип учетной записи для сброса:"
+  echo -e "  ${BOLD}1)${NC} Супер-Администратор платформы (панель /admin)"
+  echo -e "  ${BOLD}2)${NC} Владелец карго-компании (Tenant Owner, вход в /login)"
+  read -p "Ваш выбор [1-2, по умолчанию 1]: " reset_type
+  reset_type=${reset_type:-1}
+
+  if [ "$reset_type" = "2" ]; then
+    read -p "Введите slug организации (например: prime, cargona) [cargona]: " t_slug
+    t_slug=${t_slug:-cargona}
+    read -p "Новый Email владельца [owner@${t_slug}.com]: " t_email
+    t_email=${t_email:-owner@${t_slug}.com}
+    
+    while true; do
+      echo -ne "${BOLD}Новый Пароль владельца${NC} (ввод скрыт): "
+      read -s pass1
+      echo ""
+      if [ -z "$pass1" ] || [ ${#pass1} -lt 6 ]; then
+        echo -e "${YELLOW}[!] Пароль должен содержать минимум 6 символов.${NC}"
+        continue
+      fi
+      echo -ne "${BOLD}Подтвердите пароль${NC}: "
+      read -s pass2
+      echo ""
+      if [ "$pass1" != "$pass2" ]; then
+        echo -e "${RED}[!] Пароли не совпадают! Попробуйте снова.${NC}\n"
+      else
+        break
+      fi
+    done
+
+    # Update cargona-store.json directly
+    if [ -f "$STORE_FILE" ]; then
+      node -e "
+        const fs = require('fs');
+        try {
+          const data = JSON.parse(fs.readFileSync('$STORE_FILE', 'utf8'));
+          let found = false;
+          if (Array.isArray(data.tenants)) {
+            for (const t of data.tenants) {
+              if (t.slug === '$t_slug' || (!t.slug && '$t_slug' === 'cargona')) {
+                t.ownerEmail = '$t_email';
+                t.ownerPassword = '$pass1';
+                found = true;
+              }
+            }
+          }
+          if (found) {
+            fs.writeFileSync('$STORE_FILE', JSON.stringify(data, null, 2));
+            console.log('JSON_UPDATED');
+          } else {
+            console.log('TENANT_NOT_FOUND');
+          }
+        } catch (e) {
+          console.error(e.message);
+        }
+      " 2>/dev/null || true
+    fi
+
+    echo -e "${CYAN}Применение пароля...${NC}"
+    dc_cmd restart backend 2>/dev/null || true
+
+    echo -e "\n${GREEN}✓ Учетные данные владельца организации «${t_slug}» успешно обновлены!${NC}"
+    echo -e "📧 Email:  ${BOLD}${t_email}${NC}"
+    echo -e "🔑 Пароль: ${BOLD}${pass1}${NC}"
+    echo -e "🌐 Вход:   https://$(get_env_var "APP_DOMAIN")/login\n"
+    return
+  fi
+
   local current_email=$(get_env_var "SUPERADMIN_EMAIL")
-  
   read -p "$(echo -e "${BOLD}Новый Email Супер-Админа${NC} [${current_email:-admin@cargona.io}]: ")" new_email
   new_email=${new_email:-${current_email:-admin@cargona.io}}
   
@@ -122,8 +189,8 @@ cmd_reset_admin() {
   set_env_var "SUPERADMIN_EMAIL" "$new_email"
   set_env_var "SUPERADMIN_PASSWORD" "$pass1"
 
-  echo -e "${CYAN}Перезапуск бэкенда для применения новых учетных данных...${NC}"
-  dc_cmd restart backend 2>/dev/null || dc_cmd restart api 2>/dev/null || true
+  echo -e "${CYAN}Перезапуск контейнера бэкенда для применения нового .env...${NC}"
+  dc_cmd up -d backend 2>/dev/null || dc_cmd restart backend 2>/dev/null || true
 
   echo -e "\n${GREEN}✓ Учетные данные Супер-Админа успешно обновлены!${NC}"
   echo -e "📧 Email:  ${BOLD}${new_email}${NC}"
@@ -144,7 +211,7 @@ cmd_set_limit() {
   set_env_var "MAX_TENANTS_LIMIT" "$new_limit"
 
   echo -e "${CYAN}Применение нового лимита...${NC}"
-  dc_cmd restart backend 2>/dev/null || dc_cmd restart api 2>/dev/null || true
+  dc_cmd up -d backend 2>/dev/null || dc_cmd restart backend 2>/dev/null || true
 
   if [ "$new_limit" -gt 0 ] 2>/dev/null; then
     echo -e "${GREEN}✓ Лимит успешно установлен: ${BOLD}максимум ${new_limit} организаций${NC}.\n"
