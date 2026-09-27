@@ -290,8 +290,10 @@ echo -e "\n${CYAN}[5/5] Сборка и компиляция сервисов п
 
 build_and_up_cmd() {
   if docker compose version &> /dev/null; then
+    docker compose pull 2>/dev/null || true
     docker compose up -d --build
   else
+    docker-compose pull 2>/dev/null || true
     docker-compose up -d --build
   fi
 }

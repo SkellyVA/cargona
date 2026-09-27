@@ -89,8 +89,10 @@ run_with_spinner "Синхронизация с репозиторием GitHub.
 echo -e "\n${CYAN}[3/3] Пересборка и запуск обновленных контейнеров...${NC}"
 docker_up_cmd() {
   if docker compose version &> /dev/null; then
+    docker compose pull 2>/dev/null || true
     docker compose up -d --build
   else
+    docker-compose pull 2>/dev/null || true
     docker-compose up -d --build
   fi
 }
