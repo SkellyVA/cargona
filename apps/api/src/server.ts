@@ -2275,60 +2275,75 @@ fastify.post<{
 // Handover packages & accept payment at PVZ
 fastify.post<{
   Body: {
-    customerId: string;
+    customerId?: string;
     packageIds: string[];
     amountPaid: number;
-    paymentMethod: 'CASH' | 'CARD' | 'ONLINE_QR';
-    branchId: string;
+    paymentMethod: 'CASH' | 'CARD' | 'ONLINE_QR' | 'TRANSFER';
+    branchId?: string;
+    handoverPhoto?: string;
+    tenantSlug?: string;
   };
 }>('/api/wms/handover', async (request, reply) => {
-  const { customerId, packageIds, amountPaid, paymentMethod, branchId } = request.body;
+  const { customerId, packageIds, amountPaid, paymentMethod, branchId, tenantSlug } = request.body;
 
-  const customer = store.customers.find((c) => c.id === customerId);
-  if (!customer) return reply.status(404).send({ error: 'Customer not found' });
+  let tenant = tenantSlug ? store.tenants.find((t) => t.slug === tenantSlug) : null;
+  const customer = store.customers.find(
+    (c) =>
+      (customerId && c.id === customerId) ||
+      (customerId && c.cargoCode.toUpperCase() === customerId.toUpperCase())
+  );
+  if (customer && !tenant) {
+    tenant = store.tenants.find((t) => t.id === customer.tenantId) || null;
+  }
 
   // Update package statuses to RELEASED
-  for (const pkgId of packageIds) {
-    const pkg = store.packages.find((p) => p.id === pkgId);
+  let updatedCount = 0;
+  for (const pkgId of packageIds || []) {
+    const pkg = store.packages.find((p) => p.id === pkgId || p.trackingNumber === pkgId);
     if (pkg) {
       pkg.status = 'RELEASED';
       pkg.releasedAt = new Date().toISOString();
       pkg.storageCellId = null;
+      if (!tenant) {
+        tenant = store.tenants.find((t) => t.id === pkg.tenantId) || null;
+      }
+      updatedCount++;
     }
   }
 
   // Update branch cash desk
-  const branch = store.branches.find((b) => b.id === branchId);
+  const branch = store.branches.find((b) => b.id === branchId || b.name === branchId);
   if (branch && paymentMethod === 'CASH') {
-    branch.cashBalance += amountPaid;
+    branch.cashBalance = Math.round(((branch.cashBalance || 0) + (amountPaid || 0)) * 100) / 100;
   }
 
   // Record payment
   const payment = {
     id: store.nextId('pay', store.payments),
-    tenantId: customer.tenantId,
-    branchId,
-    customerId: customer.id,
+    tenantId: tenant?.id || customer?.tenantId || 'tenant-cargona-001',
+    branchId: branch?.id || branchId || 'b-1',
+    customerId: customer?.id || customerId || 'cust-direct',
     cashierUserId: 'user-cashier-001',
-    amount: amountPaid,
+    amount: amountPaid || 0,
     currency: 'TJS',
-    method: paymentMethod,
+    method: paymentMethod || 'CASH',
     type: 'DELIVERY_PAYMENT' as const,
     createdAt: new Date().toISOString(),
   };
+  store.payments.push(payment);
 
   // Add audit log
   store.auditLogs.push({
     id: store.nextId('audit', store.auditLogs),
-    tenantId: customer.tenantId,
-    branchId,
+    tenantId: tenant?.id || customer?.tenantId || 'tenant-cargona-001',
+    branchId: branch?.id || branchId || 'b-1',
     userId: 'user-cashier-001',
     userName: 'Кассир ПВЗ',
     userRole: 'PVZ_OPERATOR',
     entityType: 'PACKAGE',
-    entityId: packageIds[0] || customerId,
+    entityId: packageIds?.[0] || customerId || 'handover',
     action: 'HANDOVER',
-    details: `Выдано ${packageIds.length} посылок клиенту ${customer.cargoCode}. Принято: ${amountPaid} TJS (${paymentMethod})`,
+    details: `Выдано ${packageIds?.length || 0} посылок клиенту ${customer?.cargoCode || customerId || '—'}. Принято: ${amountPaid || 0} (${paymentMethod || 'CASH'})`,
     createdAt: new Date().toISOString(),
   });
 
@@ -2337,7 +2352,7 @@ fastify.post<{
   return {
     success: true,
     message: 'Посылки успешно выданы',
-    releasedCount: packageIds.length,
+    releasedCount: updatedCount || packageIds?.length || 0,
     paymentId: payment.id,
   };
 });
