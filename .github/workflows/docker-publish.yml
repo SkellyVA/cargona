@@ -14,8 +14,6 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_API: ghcr.io/${{ github.repository_owner }}/cargona-api
-  IMAGE_WEB: ghcr.io/${{ github.repository_owner }}/cargona-web
 
 jobs:
   build-and-push:
@@ -23,6 +21,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set lower case repository variables
+        run: |
+          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_API=ghcr.io/${OWNER_LC}/cargona-api" >> $GITHUB_ENV
+          echo "IMAGE_WEB=ghcr.io/${OWNER_LC}/cargona-web" >> $GITHUB_ENV
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
