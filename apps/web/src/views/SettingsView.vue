@@ -1097,7 +1097,7 @@ const route = useRoute();
 const isSavingBot = ref(false);
 
 const currentSlug = computed(() => {
-  return (route.params.slug as string) || store.activeTenantSlug || store.tenant?.slug || store.tenants[0]?.slug || '';
+  return (route.params.slug as string) || store.activeTenantSlug || store.tenant?.slug || store.tenants[0]?.slug || 'cargona';
 });
 
 function saveCompanyProfile() {
@@ -1122,10 +1122,11 @@ function saveCompanyProfile() {
 
 async function loadBotSettings() {
   try {
-    const slug = currentSlug.value;
+    const slug = currentSlug.value || 'cargona';
     const res = await fetch(`/api/o/${slug}/bot-settings`);
     if (res.ok) {
-      const data = await res.json();
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : {};
       if (data.botToken) store.settings.botToken = data.botToken;
       if (data.botUsername) store.settings.botUsername = data.botUsername;
       if (data.channelId) store.settings.channelId = data.channelId;
@@ -1156,7 +1157,7 @@ watch(
 );
 
 async function saveBotSettings() {
-  const slug = currentSlug.value;
+  const slug = currentSlug.value || 'cargona';
   const companyName = store.settings.companyName.trim() || store.tenant?.name || slug;
   isSavingBot.value = true;
   try {
@@ -1164,7 +1165,7 @@ async function saveBotSettings() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        botToken: store.settings.botToken,
+        botToken: (store.settings.botToken || '').trim(),
         companyName,
         managerUsername: store.settings.managerUsername,
         channelId: store.settings.channelId,
@@ -1173,7 +1174,15 @@ async function saveBotSettings() {
       }),
     });
 
-    const data = await res.json();
+    const text = await res.text();
+    let data: any = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      if (!res.ok) {
+        throw new Error(`Сервер вернул статус ${res.status}. Проверьте соединение.`);
+      }
+    }
 
     if (!res.ok || data.error) {
       toastMessage.value = data.error || 'Ошибка подключения бота к Telegram';
@@ -1191,7 +1200,7 @@ async function saveBotSettings() {
     localStorage.setItem('cargona_settings', JSON.stringify(store.settings));
     store.addAudit('UPDATE', 'Telegram Бот', 'Настройки бота', `Обновлен токен бота @${store.settings.botUsername || ''} для компании ${companyName}`);
   } catch (err: any) {
-    toastMessage.value = `Ошибка сети: ${err.message || 'Не удалось связаться с сервером'}`;
+    toastMessage.value = `Ошибка: ${err.message || 'Не удалось связаться с сервером'}`;
   } finally {
     isSavingBot.value = false;
   }

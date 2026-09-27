@@ -1736,27 +1736,47 @@ async function setupTelegramBotWebhook(token: string, tenantSlug: string, tenant
   const appUrl = `https://${domain}/o/${tenantSlug}/app`;
 
   // 1. Verify token & get bot username
-  const meRes = await fetch(`https://api.telegram.org/bot${cleanToken}/getMe`);
-  const meData = (await meRes.json()) as any;
-  if (!meData || !meData.ok) {
-    throw new Error(meData?.description || 'Неверный токен Telegram бота. Проверьте токен от @BotFather.');
+  let meRes: Response;
+  try {
+    meRes = await fetch(`https://api.telegram.org/bot${cleanToken}/getMe`, {
+      signal: AbortSignal.timeout(12000),
+    });
+  } catch (err: any) {
+    throw new Error(`Не удалось связаться с серверами Telegram: ${err.message || 'таймаут соединения'}`);
+  }
+
+  const meText = await meRes.text();
+  let meData: any = {};
+  try {
+    meData = meText ? JSON.parse(meText) : {};
+  } catch {
+    throw new Error(`Некорректный ответ от Telegram API (HTTP ${meRes.status})`);
+  }
+
+  if (!meData || !meData.ok || !meData.result?.username) {
+    throw new Error(meData?.description || 'Неверный токен Telegram бота. Проверьте токен, полученный от @BotFather.');
   }
 
   const botUsername = meData.result.username;
 
   // 2. Set Telegram Webhook
-  const hookRes = await fetch(`https://api.telegram.org/bot${cleanToken}/setWebhook`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      url: webhookUrl,
-      drop_pending_updates: true,
-      allowed_updates: ['message', 'callback_query'],
-    }),
-  });
-  const hookData = (await hookRes.json()) as any;
-  if (!hookData.ok) {
-    console.warn(`[Bot Webhook] Warning for ${botUsername}:`, hookData);
+  try {
+    const hookRes = await fetch(`https://api.telegram.org/bot${cleanToken}/setWebhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: webhookUrl,
+        drop_pending_updates: true,
+        allowed_updates: ['message', 'callback_query'],
+      }),
+      signal: AbortSignal.timeout(12000),
+    });
+    const hookData = (await hookRes.json().catch(() => ({}))) as any;
+    if (!hookData.ok) {
+      console.warn(`[Bot Webhook] Warning for ${botUsername}:`, hookData);
+    }
+  } catch (e) {
+    console.warn(`[Bot Webhook] Failed setting webhook for ${botUsername}:`, e);
   }
 
   // 3. Set Default Chat Menu Button (Persistent WebApp button)
@@ -1771,6 +1791,7 @@ async function setupTelegramBotWebhook(token: string, tenantSlug: string, tenant
           web_app: { url: appUrl },
         },
       }),
+      signal: AbortSignal.timeout(10000),
     });
   } catch (e) {
     console.error(`[Bot Menu Button] Failed for ${botUsername}:`, e);
@@ -1784,6 +1805,7 @@ async function setupTelegramBotWebhook(token: string, tenantSlug: string, tenant
       body: JSON.stringify({
         commands: [{ command: 'start', description: '📦 Открыть личный кабинет' }],
       }),
+      signal: AbortSignal.timeout(10000),
     });
   } catch (e) {
     console.error(`[Bot Commands] Failed for ${botUsername}:`, e);
