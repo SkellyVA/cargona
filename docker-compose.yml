@@ -22,7 +22,6 @@ services:
       - cargona_net
 
   backend:
-    image: ghcr.io/skellyva/cargona-api:latest
     build:
       context: .
       dockerfile: apps/api/Dockerfile
@@ -59,7 +58,6 @@ services:
           - api
 
   frontend:
-    image: ghcr.io/skellyva/cargona-web:latest
     build:
       context: .
       dockerfile: apps/web/Dockerfile
