@@ -80,7 +80,8 @@ fi
 echo -e "\n${CYAN}[2/3] Получение свежего кода обновления...${NC}"
 git_pull_cmd() {
   if [ -d .git ]; then
-    git pull origin main || git pull
+    git fetch origin main
+    git reset --hard origin/main
   fi
 }
 run_with_spinner "Синхронизация с репозиторием GitHub..." git_pull_cmd
