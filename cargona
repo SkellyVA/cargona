@@ -260,7 +260,12 @@ cmd_loyalty() {
   local current_status=$(get_env_var "ENABLE_NOOR_CLUB")
   [ -z "$current_status" ] && current_status="true"
 
-  echo -e "Текущий статус модуля NOOR CLUB: ${BOLD}$([ "$current_status" = "true" ] && echo -e "${GREEN}ВКЛЮЧЕН${NC}" || echo -e "${YELLOW}ОТКЛЮЧЕН${NC})"
+  local status_label="${YELLOW}ОТКЛЮЧЕН${NC}"
+  if [ "$current_status" = "true" ]; then
+    status_label="${GREEN}ВКЛЮЧЕН${NC}"
+  fi
+
+  echo -e "Текущий статус модуля NOOR CLUB: ${BOLD}${status_label}${NC}"
   echo -e "Параметры по умолчанию:"
   echo -e "  • Спец. тариф: 26 сом/кг (после 2 активных друзей)"
   echo -e "  • Бонус: +10 сом за каждого следующего друга"
@@ -318,7 +323,17 @@ EOF
     local loyalty=$(get_env_var "ENABLE_NOOR_CLUB")
     [ -z "$limit" ] && limit="0"
     [ -z "$loyalty" ] && loyalty="true"
-    echo -e "🌐 Домен: ${BOLD}https://${domain:-cargona.local}${NC} | 🏢 Лимит: ${BOLD}$([ "$limit" -gt 0 ] && echo "$limit" || echo "Безлимит")${NC} | 🏆 Клуб: ${BOLD}$([ "$loyalty" = "true" ] && echo "Вкл" || echo "Выкл")${NC}"
+
+    local limit_label="Безлимит"
+    if [ "$limit" -gt 0 ] 2>/dev/null; then
+      limit_label="$limit"
+    fi
+    local loyalty_label="Выкл"
+    if [ "$loyalty" = "true" ]; then
+      loyalty_label="Вкл"
+    fi
+
+    echo -e "🌐 Домен: ${BOLD}https://${domain:-cargona.local}${NC} | 🏢 Лимит: ${BOLD}${limit_label}${NC} | 🏆 Клуб: ${BOLD}${loyalty_label}${NC}"
     echo -e "${BLUE}================================================================${NC}"
     echo -e " ${BOLD}1)${NC} 📊 Статус системы и контейнеров"
     echo -e " ${BOLD}2)${NC} 🔑 Сменить пароль / email Супер-Админа"
