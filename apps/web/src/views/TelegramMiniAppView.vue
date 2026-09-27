@@ -1433,10 +1433,12 @@ const currentWarehouse = computed(() => {
 function fillWarehouseTemplate(templateStr: string, customer: any, tenant: any): string {
   if (!templateStr) return '';
   const code = customer?.cargoCode || `${tenant?.codePrefix || store.settings.codePrefix || 'CRG'}-001`;
-  const name = customer?.fullName || 'Клиент';
+  const name = customer?.fullName || '';
   const phone = customer?.phone || '';
-  const rawId = customer?.id ? String(customer.id).replace(/\D+/g, '') || String(customer.id) : '';
-  const id = rawId || code.replace(/\D+/g, '') || code;
+
+  // Extract number from cargo code e.g. "MAZK-311" -> "311", "CRG-021" -> "021" or "21"
+  const codeNumMatch = code.match(/\d+/);
+  const id = codeNumMatch ? codeNumMatch[0] : (customer?.id ? String(customer.id).replace(/\D+/g, '') : code);
 
   return templateStr
     .replace(/\{code\}/gi, code)
@@ -1449,21 +1451,33 @@ function fillWarehouseTemplate(templateStr: string, customer: any, tenant: any):
 function formatWarehouseAddress(wh: any) {
   if (!wh) return '';
   const code = activeCustomer.value?.cargoCode || `${store.tenant?.codePrefix || store.settings.codePrefix || 'CRG'}-001`;
-  const rawId = activeCustomer.value?.id ? String(activeCustomer.value.id).replace(/\D+/g, '') || String(activeCustomer.value.id) : '';
-  const id = rawId || code.replace(/\D+/g, '') || code;
-
-  const formattedAddress = fillWarehouseTemplate(wh.address || '', activeCustomer.value, store.tenant);
+  const formattedAddress = fillWarehouseTemplate(wh.address || '', activeCustomer.value, store.tenant).trim();
   const formattedReceiver = wh.receiverName ? fillWarehouseTemplate(wh.receiverName, activeCustomer.value, store.tenant).trim() : '';
   const whPhone = (wh.phone || '').trim();
 
+  const isMultiLine = formattedAddress.includes('\n');
+  const hasEmbeddedLabels = /(?:收[件货]人|详细地址|所在地区|手机号码|Alıcı|Adres|Recipient:|Address:)/i.test(formattedAddress);
+
+  // 1. If admin left receiverName & phone empty OR pasted full multi-line address text
+  if (!formattedReceiver && !whPhone) {
+    return formattedAddress;
+  }
+
+  if (isMultiLine || hasEmbeddedLabels) {
+    const parts: string[] = [];
+    if (formattedReceiver && !formattedAddress.includes(formattedReceiver)) parts.push(formattedReceiver);
+    if (whPhone && !formattedAddress.includes(whPhone)) parts.push(whPhone);
+    parts.push(formattedAddress);
+    return parts.join('\n');
+  }
+
+  // 2. Single-line address with separate receiver/phone fields
   const lines: string[] = [];
 
   if (wh.countryCode === 'CN') {
-    const hasCodeOrId = formattedAddress.includes(code) || (id && formattedAddress.includes(id));
-    const addressWithCode = hasCodeOrId ? formattedAddress : `${formattedAddress} (${code})`;
     if (formattedReceiver) lines.push(`收件人: ${formattedReceiver}`);
     if (whPhone) lines.push(`电话: ${whPhone}`);
-    if (addressWithCode) lines.push(`地址: ${addressWithCode}`);
+    if (formattedAddress) lines.push(`地址: ${formattedAddress}`);
     return lines.join('\n');
   }
 
