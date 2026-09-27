@@ -450,6 +450,13 @@ export const useCargoStore = defineStore('cargo', () => {
     return rawBonusTransactions.value.filter((tx) => !tx.tenantSlug || tx.tenantSlug === slug);
   });
 
+  const loyaltySettings = computed({
+    get: () => settings.value.loyaltySettings,
+    set: (val) => {
+      if (val) Object.assign(settings.value.loyaltySettings, val);
+    },
+  });
+
   function updateLoyaltySettings(newSettings: Partial<LoyaltySettings>) {
     Object.assign(settings.value.loyaltySettings, newSettings);
     addAudit(
@@ -3060,6 +3067,7 @@ export const useCargoStore = defineStore('cargo', () => {
     deleteEmployee,
     toggleEmployeeStatus,
     addCustomer,
+    nextCargoCode,
     setCustomerPreferredBranch,
     adjustCustomerBalance,
     handoverClientPackages,
@@ -3073,6 +3081,7 @@ export const useCargoStore = defineStore('cargo', () => {
     addPackage,
     updateRates,
     // Loyalty & Noor Club
+    loyaltySettings,
     bonusTransactions,
     updateLoyaltySettings,
     addBonusTransaction,
