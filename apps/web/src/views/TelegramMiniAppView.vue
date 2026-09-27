@@ -1706,7 +1706,7 @@ onMounted(() => {
   if (slugParam) {
     store.setTenantSlug(slugParam);
     fetchTenantInfo(slugParam);
-    store.loadLoyaltySettingsFromBackend();
+    store.loadLoyaltySettingsFromBackend?.();
   }
 
   if (route.query.ref && typeof route.query.ref === 'string') {
@@ -1773,7 +1773,7 @@ watch(
   (newSlug) => {
     if (newSlug && typeof newSlug === 'string') {
       fetchTenantInfo(newSlug);
-      store.loadLoyaltySettingsFromBackend();
+      store.loadLoyaltySettingsFromBackend?.();
     }
   }
 );

@@ -3102,7 +3102,9 @@ export const useCargoStore = defineStore('cargo', () => {
     addPackage,
     updateRates,
     // Loyalty & Noor Club
+    isLoyaltyModuleAllowed,
     loyaltySettings,
+    loadLoyaltySettingsFromBackend,
     bonusTransactions,
     updateLoyaltySettings,
     addBonusTransaction,

@@ -1142,7 +1142,7 @@ onMounted(() => {
     store.setTenantSlug(route.params.slug as string);
   }
   loadBotSettings();
-  store.loadLoyaltySettingsFromBackend();
+  store.loadLoyaltySettingsFromBackend?.();
 });
 
 watch(
@@ -1152,7 +1152,7 @@ watch(
       store.setTenantSlug(newSlug);
     }
     loadBotSettings();
-    store.loadLoyaltySettingsFromBackend();
+    store.loadLoyaltySettingsFromBackend?.();
   }
 );
 
