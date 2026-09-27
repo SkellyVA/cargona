@@ -1760,7 +1760,16 @@ async function setupTelegramBotWebhook(token: string, tenantSlug: string, tenant
 
   const botUsername = meData.result.username;
 
-  // 2. Set Telegram Webhook
+  // 2. Clear old webhook / conflicts before setting new webhook
+  try {
+    await fetch(`https://api.telegram.org/bot${cleanToken}/deleteWebhook?drop_pending_updates=true`, {
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch (e) {
+    console.warn(`[Bot Webhook] Failed deleteWebhook for ${botUsername}:`, e);
+  }
+
+  // 3. Set Telegram Webhook
   try {
     const hookRes = await fetch(`https://api.telegram.org/bot${cleanToken}/setWebhook`, {
       method: 'POST',
@@ -1780,7 +1789,7 @@ async function setupTelegramBotWebhook(token: string, tenantSlug: string, tenant
     console.warn(`[Bot Webhook] Failed setting webhook for ${botUsername}:`, e);
   }
 
-  // 3. Set Default Chat Menu Button (Persistent WebApp button)
+  // 4. Set Default Chat Menu Button (Persistent WebApp button)
   try {
     await fetch(`https://api.telegram.org/bot${cleanToken}/setChatMenuButton`, {
       method: 'POST',
@@ -1798,7 +1807,7 @@ async function setupTelegramBotWebhook(token: string, tenantSlug: string, tenant
     console.error(`[Bot Menu Button] Failed for ${botUsername}:`, e);
   }
 
-  // 4. Set Bot Commands: ONLY /start
+  // 5. Set Bot Commands: ONLY /start
   try {
     await fetch(`https://api.telegram.org/bot${cleanToken}/setMyCommands`, {
       method: 'POST',
@@ -1866,14 +1875,7 @@ fastify.post<{
 
   if (!tenant) {
     const rawName = companyName?.trim() || (slug && slug !== 'cargona' ? slug : 'My Cargo');
-    const safeSlug =
-      slug && slug !== 'cargona'
-        ? slug
-        : rawName
-            .toLowerCase()
-            .replace(/[^a-z0-9]/g, '-')
-            .replace(/-+/g, '-')
-            .replace(/^-|-$/g, '') || 'cargo';
+    const safeSlug = slug || 'cargona';
     tenant = {
       id: store.nextId('tenant', store.tenants),
       name: rawName,
@@ -1891,15 +1893,6 @@ fastify.post<{
   } else {
     if (companyName && companyName.trim()) {
       tenant.name = companyName.trim();
-    }
-    if (tenant.slug === 'cargona') {
-      const safeSlug =
-        (companyName?.trim() || 'cargo')
-          .toLowerCase()
-          .replace(/[^a-z0-9]/g, '-')
-          .replace(/-+/g, '-')
-          .replace(/^-|-$/g, '') || 'cargo';
-      tenant.slug = safeSlug;
     }
   }
 
