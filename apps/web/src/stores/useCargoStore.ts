@@ -375,7 +375,8 @@ export const useCargoStore = defineStore('cargo', () => {
     freeStorageDays: 3,
     storageOverdueRatePerDayUSD: 0.50,
     loyaltySettings: {
-      enabled: true,
+      enabled: false,
+      isModuleAllowed: false,
       clubName: 'NOOR CLUB',
       requiredActiveReferralsForSpecialRate: 2,
       specialRatePerKg: 26,
@@ -440,7 +441,7 @@ export const useCargoStore = defineStore('cargo', () => {
     } catch {}
   }
 
-  // 2.0.1 Программа лояльности NOOR CLUB & Реферальная система
+  // 2.0.1 Программа лояльности NOOR CLUB & Реферальная система (Приватный модуль по лицензии)
   const savedBonusTx = typeof window !== 'undefined' ? localStorage.getItem('cargona_bonus_transactions') : null;
   const rawBonusTransactions = ref<BonusTransaction[]>(safeParse<BonusTransaction[]>(savedBonusTx, []));
 
@@ -450,12 +451,30 @@ export const useCargoStore = defineStore('cargo', () => {
     return rawBonusTransactions.value.filter((tx) => !tx.tenantSlug || tx.tenantSlug === slug);
   });
 
+  const isLoyaltyModuleAllowed = computed(() => {
+    return Boolean(settings.value.loyaltySettings?.isModuleAllowed);
+  });
+
   const loyaltySettings = computed({
     get: () => settings.value.loyaltySettings,
     set: (val) => {
       if (val) Object.assign(settings.value.loyaltySettings, val);
     },
   });
+
+  async function loadLoyaltySettingsFromBackend() {
+    try {
+      const slug = activeTenantSlug.value;
+      if (!slug) return;
+      const res = await fetch(`/api/o/${slug}/loyalty`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.loyalty) {
+          settings.value.loyaltySettings = data.loyalty;
+        }
+      }
+    } catch {}
+  }
 
   function updateLoyaltySettings(newSettings: Partial<LoyaltySettings>) {
     Object.assign(settings.value.loyaltySettings, newSettings);
@@ -547,7 +566,8 @@ export const useCargoStore = defineStore('cargo', () => {
       (c) => c.id === customerIdOrCode || c.cargoCode.toUpperCase() === customerIdOrCode.toUpperCase()
     );
     const loyalty = settings.value.loyaltySettings || {
-      enabled: true,
+      enabled: false,
+      isModuleAllowed: false,
       clubName: 'NOOR CLUB',
       requiredActiveReferralsForSpecialRate: 2,
       specialRatePerKg: 26,
@@ -557,10 +577,11 @@ export const useCargoStore = defineStore('cargo', () => {
       welcomeBonus: 0,
       activeReferralMinPackages: 1,
     };
+    const isLoyaltyActive = Boolean(loyalty.isModuleAllowed && loyalty.enabled);
 
     if (!cust) {
       return {
-        enabled: loyalty.enabled,
+        enabled: isLoyaltyActive,
         clubName: loyalty.clubName,
         isMember: false,
         activeReferralsCount: 0,
@@ -576,7 +597,7 @@ export const useCargoStore = defineStore('cargo', () => {
     }
 
     const { total, active } = getCustomerReferrals(cust.cargoCode);
-    const isMember = loyalty.enabled && active.length >= loyalty.requiredActiveReferralsForSpecialRate;
+    const isMember = isLoyaltyActive && active.length >= loyalty.requiredActiveReferralsForSpecialRate;
     const progressPercent = Math.min(
       100,
       Math.round((active.length / (loyalty.requiredActiveReferralsForSpecialRate || 1)) * 100)
@@ -586,7 +607,7 @@ export const useCargoStore = defineStore('cargo', () => {
     const effectiveRate = isMember ? loyalty.specialRatePerKg : standardRate;
 
     return {
-      enabled: loyalty.enabled,
+      enabled: isLoyaltyActive,
       clubName: loyalty.clubName,
       isMember,
       activeReferralsCount: active.length,

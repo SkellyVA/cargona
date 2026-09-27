@@ -325,11 +325,15 @@ cmd_domain() {
 cmd_loyalty() {
   echo -e "\n${CYAN}=== Программа лояльности и реферальная система (NOOR CLUB) ===${NC}"
   local current_status=$(get_env_var "ENABLE_NOOR_CLUB")
-  [ -z "$current_status" ] && current_status="true"
+  local allowed_tenants=$(get_env_var "ALLOWED_LOYALTY_TENANTS")
+  [ -z "$allowed_tenants" ] && allowed_tenants=$(get_env_var "ENABLE_NOOR_CLUB_TENANTS")
+  [ -z "$current_status" ] && current_status="false"
 
   local status_label="${YELLOW}ОТКЛЮЧЕН${NC}"
   if [ "$current_status" = "true" ]; then
-    status_label="${GREEN}ВКЛЮЧЕН${NC}"
+    status_label="${GREEN}ВКЛЮЧЕН (глобально для всех)${NC}"
+  elif [ -n "$allowed_tenants" ]; then
+    status_label="${GREEN}ВКЛЮЧЕН (выборочно для: ${allowed_tenants})${NC}"
   fi
 
   echo -e "Текущий статус модуля NOOR CLUB: ${BOLD}${status_label}${NC}"
@@ -339,15 +343,34 @@ cmd_loyalty() {
   echo -e "  • Списание: 1 сом скидки за 1 кг"
   echo -e "  • Мин. тариф: 25 сом/кг"
   echo -e ""
-  read -p "Включить или отключить NOOR CLUB? (1 - Включить, 2 - Отключить) [1]: " l_choice
-  l_choice=${l_choice:-1}
+  echo -e "  ${BOLD}[1]${NC} Включить глобально для ВСЕХ организаций"
+  echo -e "  ${BOLD}[2]${NC} Включить выборочно для конкретных организаций (slug через запятую)"
+  echo -e "  ${BOLD}[3]${NC} Отключить полностью"
+  read -p "Выберите вариант [1-3]: " l_choice
 
   if [ "$l_choice" = "1" ]; then
     set_env_var "ENABLE_NOOR_CLUB" "true"
-    echo -e "${GREEN}✓ Программа лояльности NOOR CLUB успешно активирована!${NC}\n"
+    set_env_var "ALLOWED_LOYALTY_TENANTS" ""
+    set_env_var "ENABLE_NOOR_CLUB_TENANTS" ""
+    echo -e "${CYAN}Применение настроек к контейнеру бэкенда...${NC}"
+    dc_cmd up -d backend 2>/dev/null || dc_cmd restart backend 2>/dev/null || true
+    echo -e "\n${GREEN}✓ Программа лояльности NOOR CLUB успешно активирована для всех организаций!${NC}\n"
+  elif [ "$l_choice" = "2" ]; then
+    read -p "Введите slug организаций через запятую (например: prime,has): " t_slugs
+    t_slugs=${t_slugs:-$allowed_tenants}
+    set_env_var "ENABLE_NOOR_CLUB" "false"
+    set_env_var "ALLOWED_LOYALTY_TENANTS" "$t_slugs"
+    set_env_var "ENABLE_NOOR_CLUB_TENANTS" "$t_slugs"
+    echo -e "${CYAN}Применение настроек к контейнеру бэкенда...${NC}"
+    dc_cmd up -d backend 2>/dev/null || dc_cmd restart backend 2>/dev/null || true
+    echo -e "\n${GREEN}✓ Программа лояльности NOOR CLUB активирована для организаций: ${BOLD}${t_slugs}${NC}\n"
   else
     set_env_var "ENABLE_NOOR_CLUB" "false"
-    echo -e "${YELLOW}✓ Программа лояльности NOOR CLUB отключена.${NC}\n"
+    set_env_var "ALLOWED_LOYALTY_TENANTS" ""
+    set_env_var "ENABLE_NOOR_CLUB_TENANTS" ""
+    echo -e "${CYAN}Применение настроек к контейнеру бэкенда...${NC}"
+    dc_cmd up -d backend 2>/dev/null || dc_cmd restart backend 2>/dev/null || true
+    echo -e "\n${YELLOW}✓ Программа лояльности NOOR CLUB отключена.${NC}\n"
   fi
 }
 

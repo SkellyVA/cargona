@@ -374,6 +374,7 @@ export interface ExpenseCategory {
 // ==========================================
 export interface LoyaltySettings {
   enabled: boolean;
+  isModuleAllowed?: boolean; // CLI / License feature flag (только если включено на сервере/для тенанта)
   clubName: string; // 'NOOR CLUB'
   requiredActiveReferralsForSpecialRate: number; // default: 2
   specialRatePerKg: number; // default: 26 (в основной валюте, напр. TJS)

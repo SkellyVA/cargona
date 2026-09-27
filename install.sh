@@ -213,9 +213,9 @@ DEFAULT_LIMIT="0"
 prompt_read "$(echo -e "${BOLD}5. Лимит организаций по лицензии${NC} (1 для одного клиента, 0 для безлимита) [${DEFAULT_LIMIT}]: ")" INPUT_LIMIT "$DEFAULT_LIMIT"
 MAX_TENANTS_LIMIT="$INPUT_LIMIT"
 
-# NOOR CLUB Loyalty Module
-DEFAULT_LOYALTY="y"
-prompt_read "$(echo -e "${BOLD}6. Включить реферальную систему и программу лояльности NOOR CLUB?${NC} (y/n) [${DEFAULT_LOYALTY}]: ")" INPUT_LOYALTY "$DEFAULT_LOYALTY"
+# NOOR CLUB Loyalty Module (Private Paid Module)
+DEFAULT_LOYALTY="n"
+prompt_read "$(echo -e "${BOLD}6. Включить реферальную систему и программу лояльности NOOR CLUB (Приватный модуль)?${NC} (y/n) [${DEFAULT_LOYALTY}]: ")" INPUT_LOYALTY "$DEFAULT_LOYALTY"
 if [[ "$INPUT_LOYALTY" =~ ^[Yy]$ ]]; then
   ENABLE_NOOR_CLUB="true"
 else

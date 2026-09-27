@@ -390,7 +390,7 @@
     </div>
 
     <!-- Секция 2.5: Программа лояльности и реферальная система (NOOR CLUB) -->
-    <div class="bg-surface border border-surface-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-card space-y-4">
+    <div v-if="store.isLoyaltyModuleAllowed" class="bg-surface border border-surface-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-card space-y-4">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/[0.06] pb-3">
         <div class="flex items-center gap-2.5">
           <Award class="w-5 h-5 text-accent-amber shrink-0" />
@@ -1141,6 +1141,7 @@ onMounted(() => {
     store.setTenantSlug(route.params.slug as string);
   }
   loadBotSettings();
+  store.loadLoyaltySettingsFromBackend();
 });
 
 watch(
@@ -1150,6 +1151,7 @@ watch(
       store.setTenantSlug(newSlug);
     }
     loadBotSettings();
+    store.loadLoyaltySettingsFromBackend();
   }
 );
 

@@ -24,6 +24,19 @@ const SUPERADMIN_PASSWORD = (process.env.SUPERADMIN_PASSWORD || 'password123').t
 const SUPERADMIN_NAME = (process.env.SUPERADMIN_NAME || 'Администратор Платформы').trim();
 const MAX_TENANTS_LIMIT = Number(process.env.MAX_TENANTS_LIMIT || 0); // 0 or negative means unlimited
 
+const ENABLE_NOOR_CLUB_ENV = (process.env.ENABLE_NOOR_CLUB || 'false').trim().toLowerCase();
+const ALLOWED_LOYALTY_TENANTS = (process.env.ENABLE_NOOR_CLUB_TENANTS || process.env.ALLOWED_LOYALTY_TENANTS || '')
+  .split(',')
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
+
+function isLoyaltyModuleAllowedForTenant(tenant: any): boolean {
+  if (ENABLE_NOOR_CLUB_ENV === 'true' || ENABLE_NOOR_CLUB_ENV === '1') return true;
+  if (tenant && ALLOWED_LOYALTY_TENANTS.includes(tenant.slug?.toLowerCase())) return true;
+  if (tenant && (tenant as any).isLoyaltyModuleAllowed === true) return true;
+  return false;
+}
+
 // ==========================================
 // 1. Health & Root
 // ==========================================
@@ -451,6 +464,65 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/settings', a
 
   store.saveToFile();
   return { success: true, settings: store.tenantSettings[tenant.id] };
+});
+
+// --- Loyalty & Referral System (NOOR CLUB) ---
+fastify.get<{ Params: { slug: string } }>('/api/o/:slug/loyalty', async (request, reply) => {
+  const { slug } = request.params;
+  const tenant = store.tenants.find((t) => t.slug === slug);
+  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
+
+  const isAllowed = isLoyaltyModuleAllowedForTenant(tenant);
+  const tenantSettings = store.tenantSettings[tenant.id] || {};
+  const loyalty = tenantSettings.loyaltySettings || {
+    enabled: false,
+    clubName: 'NOOR CLUB',
+    requiredActiveReferralsForSpecialRate: 2,
+    specialRatePerKg: 26,
+    bonusPerNextReferral: 10,
+    bonusUsagePerKg: 1,
+    minRateAfterBonus: 25,
+    welcomeBonus: 0,
+    activeReferralMinPackages: 1,
+  };
+
+  return {
+    loyalty: {
+      ...loyalty,
+      isModuleAllowed: isAllowed,
+      enabled: isAllowed ? Boolean(loyalty.enabled) : false,
+    },
+  };
+});
+
+fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/loyalty', async (request, reply) => {
+  const { slug } = request.params;
+  const tenant = store.tenants.find((t) => t.slug === slug);
+  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
+
+  if (!isLoyaltyModuleAllowedForTenant(tenant)) {
+    return reply.status(403).send({
+      error: 'Модуль программы лояльности отключен для данной организации. Включите его в консоли сервера (cargona loyalty).',
+    });
+  }
+
+  if (!store.tenantSettings[tenant.id]) {
+    store.tenantSettings[tenant.id] = {
+      companyName: tenant.name,
+      codePrefix: tenant.codePrefix,
+      ownerEmail: (tenant as any).ownerEmail,
+      baseCurrency: tenant.baseCurrency || 'USD',
+    };
+  }
+
+  store.tenantSettings[tenant.id].loyaltySettings = {
+    ...store.tenantSettings[tenant.id].loyaltySettings,
+    ...request.body,
+    isModuleAllowed: true,
+  };
+
+  store.saveToFile();
+  return { success: true, loyalty: store.tenantSettings[tenant.id].loyaltySettings };
 });
 
 // --- Branches & Cells Management ---
@@ -1987,8 +2059,9 @@ fastify.get<{ Params: { slug: string } }>('/api/o/:slug/loyalty', async (request
   const tenant = store.tenants.find((t) => t.slug === slug);
   if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
 
+  const isAllowed = isLoyaltyModuleAllowedForTenant(tenant);
   const loyalty = (tenant as any).loyaltySettings || {
-    enabled: true,
+    enabled: isAllowed,
     clubName: 'NOOR CLUB',
     requiredActiveReferralsForSpecialRate: 2,
     specialRatePerKg: 26,
@@ -1999,7 +2072,12 @@ fastify.get<{ Params: { slug: string } }>('/api/o/:slug/loyalty', async (request
     activeReferralMinPackages: 1,
   };
 
-  return { loyalty };
+  loyalty.isModuleAllowed = isAllowed;
+  if (!isAllowed) {
+    loyalty.enabled = false;
+  }
+
+  return { loyalty, isModuleAllowed: isAllowed };
 });
 
 fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/loyalty', async (request, reply) => {
@@ -2007,7 +2085,15 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/loyalty', as
   const tenant = store.tenants.find((t) => t.slug === slug);
   if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
 
-  (tenant as any).loyaltySettings = request.body;
+  const isAllowed = isLoyaltyModuleAllowedForTenant(tenant);
+  if (!isAllowed) {
+    return reply.status(403).send({ error: 'Модуль NOOR CLUB отключен в настройках сервера (активируйте через команду cargona loyalty в терминале)' });
+  }
+
+  (tenant as any).loyaltySettings = {
+    ...request.body,
+    isModuleAllowed: true,
+  };
   tenant.updatedAt = new Date().toISOString();
   store.saveToFile();
   return { success: true, loyalty: (tenant as any).loyaltySettings };
