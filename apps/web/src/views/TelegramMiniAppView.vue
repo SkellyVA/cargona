@@ -384,7 +384,7 @@
               <div
                 v-for="(photo, pIdx) in currentWarehouse.guidePhotos"
                 :key="pIdx"
-                @click="openPhotoPreview(photo)"
+                @click="openWarehousePhotoPreview(photo)"
                 class="aspect-square rounded-xl overflow-hidden border border-white/[0.1] hover:border-accent-cyan/60 hover:scale-105 transition cursor-pointer bg-black/40 relative group"
               >
                 <img :src="photo" class="w-full h-full object-cover" />
@@ -695,7 +695,7 @@
               <!-- Фото посылки при выдаче (если есть) -->
               <button
                 v-if="pkg.handoverPhoto || pkg.photos?.[0]"
-                @click="openPhotoPreview(pkg.handoverPhoto || pkg.photos?.[0] || '')"
+                @click="openHandoverPhotoPreview(pkg.handoverPhoto || pkg.photos?.[0] || '')"
                 class="px-2.5 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-accent-cyan border border-white/[0.08] text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
               >
                 <Camera class="w-3 h-3" />
@@ -1150,12 +1150,12 @@
       </template>
     </AppModal>
 
-    <!-- МОДАЛЬНОЕ ОКНО: ПРОСМОТР ФОТО ВЫДАЧИ -->
-    <AppModal v-model="showPhotoModal" title="Фото фиксации при выдаче">
+    <!-- МОДАЛЬНОЕ ОКНО: ПРОСМОТР ФОТО / СКРИНШОТОВ -->
+    <AppModal v-model="showPhotoModal" :title="photoModalTitle">
       <div class="py-2 text-center space-y-3">
-        <img :src="photoModalUrl" alt="Handover Proof" class="w-full max-h-[360px] object-contain rounded-2xl border border-white/[0.1] mx-auto bg-black" />
-        <div class="text-xs text-text-tertiary">
-          Фото сделано сотрудником филиала в момент передачи посылки клиенту
+        <img :src="photoModalUrl" alt="Photo Preview" class="w-full max-h-[360px] object-contain rounded-2xl border border-white/[0.1] mx-auto bg-black" />
+        <div v-if="photoModalSubtitle" class="text-xs text-text-tertiary">
+          {{ photoModalSubtitle }}
         </div>
       </div>
       <template #footer>
@@ -1266,6 +1266,32 @@ const payMethod = ref<'CARD' | 'CASH'>('CARD');
 
 const showPhotoModal = ref(false);
 const photoModalUrl = ref('');
+const photoModalTitle = ref('Фото фиксации при выдаче');
+const photoModalSubtitle = ref('Фото сделано сотрудником филиала в момент передачи посылки клиенту');
+
+function openWarehousePhotoPreview(url: string) {
+  if (!url) return;
+  photoModalUrl.value = url;
+  photoModalTitle.value = 'Инструкция по заполнению адреса';
+  photoModalSubtitle.value = 'Пример правильного заполнения полей адреса на маркетплейсе';
+  showPhotoModal.value = true;
+}
+
+function openHandoverPhotoPreview(url: string) {
+  if (!url) return;
+  photoModalUrl.value = url;
+  photoModalTitle.value = 'Фото фиксации при выдаче';
+  photoModalSubtitle.value = 'Фото сделано сотрудником филиала в момент передачи посылки клиенту';
+  showPhotoModal.value = true;
+}
+
+function openPhotoPreview(url: string) {
+  if (!url) return;
+  photoModalUrl.value = url;
+  photoModalTitle.value = 'Просмотр фотографии';
+  photoModalSubtitle.value = '';
+  showPhotoModal.value = true;
+}
 
 // NOOR CLUB & Реферальная программа
 const showLoyaltyDetailsModal = ref(false);
@@ -1370,12 +1396,6 @@ function confirmPaymentSubmit() {
     miniAppToast.value = `Заказ ${selectedPaymentPkg.value.trackingNumber} готов к оплате наличными в ПВЗ.`;
   }
   showPaymentModal.value = false;
-}
-
-function openPhotoPreview(url: string) {
-  if (!url) return;
-  photoModalUrl.value = url;
-  showPhotoModal.value = true;
 }
 
 const serverTenant = ref<{ name: string; slug: string; codePrefix: string; managerUsername?: string } | null>(null);

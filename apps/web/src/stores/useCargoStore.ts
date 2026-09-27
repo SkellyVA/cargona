@@ -1050,6 +1050,12 @@ export const useCargoStore = defineStore('cargo', () => {
             tripId: p.tripId || undefined,
             status: p.status || 'RECEIVED_AT_ORIGIN',
             createdAt: p.createdAt ? new Date(p.createdAt).toLocaleDateString('ru-RU') : '01.01.2026',
+            reviewRating: p.reviewRating || undefined,
+            reviewComment: p.reviewComment || undefined,
+            reviewPhotos: p.reviewPhotos || undefined,
+            handoverPhoto: p.handoverPhoto || undefined,
+            notifiedReady: p.notifiedReady || false,
+            isPaidOnline: p.isPaidOnline || false,
             tenantSlug: slug,
           };
         });
