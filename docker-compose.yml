@@ -39,6 +39,12 @@ services:
       SUPERADMIN_PASSWORD: ${SUPERADMIN_PASSWORD:-password123}
       SUPERADMIN_NAME: ${SUPERADMIN_NAME:-Администратор Платформы}
       MAX_TENANTS_LIMIT: ${MAX_TENANTS_LIMIT:-0}
+      ENABLE_NOOR_CLUB: ${ENABLE_NOOR_CLUB:-false}
+      ENABLE_NOOR_CLUB_TENANTS: ${ENABLE_NOOR_CLUB_TENANTS:-}
+      ALLOWED_LOYALTY_TENANTS: ${ALLOWED_LOYALTY_TENANTS:-}
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     depends_on:
       - postgres
     volumes:

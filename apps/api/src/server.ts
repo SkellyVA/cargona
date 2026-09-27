@@ -1730,8 +1730,8 @@ fastify.post<{
 
 // Helper: Setup Webhook with Telegram API
 async function setupTelegramBotWebhook(token: string, tenantSlug: string, tenantName: string) {
-  const cleanToken = token.trim();
-  const domain = APP_DOMAIN.replace(/^https?:\/\//, '');
+  const cleanToken = token.trim().replace(/^bot/i, '');
+  const domain = APP_DOMAIN.replace(/^https?:\/\//, '').replace(/\/+$/, '').trim();
   const webhookUrl = `https://${domain}/api/bot/webhook/${tenantSlug}`;
   const appUrl = `https://${domain}/o/${tenantSlug}/app`;
 
@@ -1754,7 +1754,8 @@ async function setupTelegramBotWebhook(token: string, tenantSlug: string, tenant
   }
 
   if (!meData || !meData.ok || !meData.result?.username) {
-    throw new Error(meData?.description || 'Неверный токен Telegram бота. Проверьте токен, полученный от @BotFather.');
+    const desc = meData?.description || 'Неверный токен Telegram бота. Проверьте токен, полученный от @BotFather.';
+    throw new Error(desc);
   }
 
   const botUsername = meData.result.username;
