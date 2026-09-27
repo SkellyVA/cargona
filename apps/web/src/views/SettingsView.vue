@@ -243,16 +243,18 @@
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label class="text-text-secondary mb-1 block">Контактный телефон</label>
+              <label class="text-text-secondary mb-1 block">Контактный телефон (опционально)</label>
               <input
                 v-model="selectedWarehouse.phone"
+                placeholder="+00 000 0000 (необязательно)"
                 class="w-full h-9 px-3 rounded-xl bg-[#13151B] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono"
               />
             </div>
             <div>
-              <label class="text-text-secondary mb-1 block">Получатель (Контактное лицо)</label>
+              <label class="text-text-secondary mb-1 block">Получатель / Контактное лицо (опционально)</label>
               <input
                 v-model="selectedWarehouse.receiverName"
+                placeholder="Имя получателя (необязательно)"
                 class="w-full h-9 px-3 rounded-xl bg-[#13151B] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none"
               />
             </div>
@@ -967,7 +969,7 @@
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="text-text-secondary mb-1 block">Контактный телефон</label>
+            <label class="text-text-secondary mb-1 block">Контактный телефон (опционально)</label>
             <input
               v-model="newWh.phone"
               placeholder="+49 000 0000"
@@ -975,7 +977,7 @@
             />
           </div>
           <div>
-            <label class="text-text-secondary mb-1 block">Имя получателя</label>
+            <label class="text-text-secondary mb-1 block">Получатель (опционально)</label>
             <input
               v-model="newWh.receiverName"
               placeholder="HUB Logistics"
@@ -1319,10 +1321,10 @@ function saveWarehouse() {
     countryCode: newWh.value.countryCode.trim().toUpperCase() || 'XX',
     city: newWh.value.city.trim() || 'Центральный хаб',
     address: newWh.value.address.trim(),
-    phone: newWh.value.phone || '+00 000 0000',
-    receiverName: newWh.value.receiverName || 'Логистический хаб',
-    zipCode: newWh.value.zipCode || '00000',
-    instructions: newWh.value.instructions || 'Для интернет-заказов',
+    phone: newWh.value.phone ? newWh.value.phone.trim() : '',
+    receiverName: newWh.value.receiverName ? newWh.value.receiverName.trim() : '',
+    zipCode: newWh.value.zipCode ? newWh.value.zipCode.trim() : '',
+    instructions: newWh.value.instructions ? newWh.value.instructions.trim() : '',
     guidePhotos: [...newWh.value.guidePhotos],
     isActive: true,
   });

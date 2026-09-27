@@ -1187,7 +1187,7 @@ export const useCargoStore = defineStore('cargo', () => {
       countryCode: code,
       city,
       address: wh.address?.trim() || '',
-      receiverName: wh.receiverName?.trim() || 'Cargona Warehouse',
+      receiverName: wh.receiverName?.trim() || '',
       phone: wh.phone?.trim() || '',
       zipCode: wh.zipCode?.trim() || '',
       instructions: wh.instructions?.trim() || 'Для интернет-заказов',

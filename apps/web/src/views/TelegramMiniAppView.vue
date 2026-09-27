@@ -351,7 +351,7 @@
                 <AppleFlag :countryCode="currentWarehouse.countryCode" :size="15" />
                 <span>{{ currentWarehouse.city }} ({{ currentWarehouse.country }})</span>
               </div>
-              <span class="text-[10px] text-accent-cyan font-mono">{{ currentWarehouse.phone }}</span>
+              <span v-if="currentWarehouse.phone" class="text-[10px] text-accent-cyan font-mono">{{ currentWarehouse.phone }}</span>
             </div>
             <div class="text-[10px] text-text-secondary font-mono leading-relaxed line-clamp-2">
               {{ formatWarehouseAddress(currentWarehouse) }}
@@ -1449,28 +1449,46 @@ function fillWarehouseTemplate(templateStr: string, customer: any, tenant: any):
 function formatWarehouseAddress(wh: any) {
   if (!wh) return '';
   const code = activeCustomer.value?.cargoCode || `${store.tenant?.codePrefix || store.settings.codePrefix || 'CRG'}-001`;
-  const name = activeCustomer.value?.fullName || 'Клиент';
-  const phone = activeCustomer.value?.phone || '';
   const rawId = activeCustomer.value?.id ? String(activeCustomer.value.id).replace(/\D+/g, '') || String(activeCustomer.value.id) : '';
   const id = rawId || code.replace(/\D+/g, '') || code;
 
   const formattedAddress = fillWarehouseTemplate(wh.address || '', activeCustomer.value, store.tenant);
-  const formattedReceiver = wh.receiverName
-    ? fillWarehouseTemplate(wh.receiverName, activeCustomer.value, store.tenant)
-    : `${name} (${code})`;
+  const formattedReceiver = wh.receiverName ? fillWarehouseTemplate(wh.receiverName, activeCustomer.value, store.tenant).trim() : '';
+  const whPhone = (wh.phone || '').trim();
+
+  const lines: string[] = [];
 
   if (wh.countryCode === 'CN') {
     const hasCodeOrId = formattedAddress.includes(code) || (id && formattedAddress.includes(id));
     const addressWithCode = hasCodeOrId ? formattedAddress : `${formattedAddress} (${code})`;
-    return `收件人: ${formattedReceiver}\n电话: ${wh.phone || ''}\n地址: ${addressWithCode}`;
+    if (formattedReceiver) lines.push(`收件人: ${formattedReceiver}`);
+    if (whPhone) lines.push(`电话: ${whPhone}`);
+    if (addressWithCode) lines.push(`地址: ${addressWithCode}`);
+    return lines.join('\n');
   }
+
   if (wh.countryCode === 'TR') {
-    return `Alıcı: ${formattedReceiver}\nTel: ${wh.phone || ''}\nAdres: ${formattedAddress}\nPosta Kodu: ${wh.zipCode || '34000'}`;
+    if (formattedReceiver) lines.push(`Alıcı: ${formattedReceiver}`);
+    if (whPhone) lines.push(`Tel: ${whPhone}`);
+    if (formattedAddress) lines.push(`Adres: ${formattedAddress}`);
+    if (wh.zipCode) lines.push(`Posta Kodu: ${wh.zipCode}`);
+    return lines.join('\n');
   }
+
   if (wh.countryCode === 'US') {
-    return `Full Name: ${formattedReceiver}\nAddress: ${formattedAddress}\nCity: ${wh.city || ''}, State: DE, ZIP: ${wh.zipCode || '19801'}\nPhone: ${wh.phone || ''}`;
+    if (formattedReceiver) lines.push(`Full Name: ${formattedReceiver}`);
+    if (formattedAddress) lines.push(`Address: ${formattedAddress}`);
+    const cityStateZip = [wh.city, 'State: DE', wh.zipCode ? `ZIP: ${wh.zipCode}` : ''].filter(Boolean).join(', ');
+    if (cityStateZip) lines.push(`City/State: ${cityStateZip}`);
+    if (whPhone) lines.push(`Phone: ${whPhone}`);
+    return lines.join('\n');
   }
-  return `Recipient: ${formattedReceiver}\nAddress: ${formattedAddress}${wh.city ? `, ${wh.city}` : ''}\nPhone: ${wh.phone || ''}`;
+
+  if (formattedReceiver) lines.push(`Recipient: ${formattedReceiver}`);
+  if (formattedAddress) lines.push(`Address: ${formattedAddress}${wh.city ? `, ${wh.city}` : ''}`);
+  if (wh.zipCode) lines.push(`ZIP: ${wh.zipCode}`);
+  if (whPhone) lines.push(`Phone: ${whPhone}`);
+  return lines.join('\n');
 }
 
 const copyButtonText = computed(() => {
