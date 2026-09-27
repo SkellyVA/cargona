@@ -233,12 +233,22 @@
           </div>
 
           <div>
-            <label class="text-text-secondary mb-1 block">Адрес склада (копируется клиентом для покупок)</label>
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-text-secondary block">Адрес склада (копируется клиентом для покупок)</label>
+              <div class="text-[10px] text-text-tertiary flex items-center gap-1 font-mono">
+                <span>Теги:</span>
+                <span class="px-1 py-0.5 rounded bg-white/[0.06] text-accent-cyan cursor-pointer" title="ID клиента">{id}</span>
+                <span class="px-1 py-0.5 rounded bg-white/[0.06] text-accent-cyan cursor-pointer" title="Карго-код клиента">{code}</span>
+                <span class="px-1 py-0.5 rounded bg-white/[0.06] text-accent-cyan cursor-pointer" title="ФИО клиента">{name}</span>
+                <span class="px-1 py-0.5 rounded bg-white/[0.06] text-accent-cyan cursor-pointer" title="Телефон клиента">{phone}</span>
+              </div>
+            </div>
             <textarea
               v-model="selectedWarehouse.address"
               rows="2"
               class="w-full p-2.5 rounded-xl bg-[#13151B] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono text-xs resize-none"
             ></textarea>
+            <p class="text-[10px] text-text-tertiary mt-0.5">Вставьте <code class="text-accent-cyan font-mono">{id}</code> или <code class="text-accent-cyan font-mono">{code}</code> в адрес или имя получателя — система автоматически подставит данные клиента при копировании.</p>
           </div>
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -958,13 +968,21 @@
         </div>
 
         <div>
-          <label class="text-text-secondary mb-1 block">Точный адрес склада (для интернет-магазинов)</label>
+          <div class="flex items-center justify-between mb-1">
+            <label class="text-text-secondary block">Точный адрес склада (для интернет-магазинов)</label>
+            <div class="text-[10px] text-text-tertiary flex items-center gap-1 font-mono">
+              <span>Теги:</span>
+              <span class="px-1 py-0.5 rounded bg-white/[0.06] text-accent-cyan cursor-pointer" title="ID клиента">{id}</span>
+              <span class="px-1 py-0.5 rounded bg-white/[0.06] text-accent-cyan cursor-pointer" title="Карго-код клиента">{code}</span>
+            </div>
+          </div>
           <textarea
             v-model="newWh.address"
             rows="2"
-            placeholder="Улица, номер дома, складской индекс..."
+            placeholder="Улица, номер дома, складской индекс, {code}..."
             class="w-full p-2.5 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none text-xs font-mono resize-none"
           ></textarea>
+          <p class="text-[10px] text-text-tertiary mt-0.5">Вставьте <code class="text-accent-cyan font-mono">{id}</code> или <code class="text-accent-cyan font-mono">{code}</code> — система автоматически подставит персональный код клиента при копировании.</p>
         </div>
 
         <div class="grid grid-cols-2 gap-3">
