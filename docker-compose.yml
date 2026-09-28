@@ -76,16 +76,23 @@ services:
       dockerfile: apps/bot/Dockerfile
     container_name: cargona_bot
     restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     environment:
       API_URL: http://backend:4000/api
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       WEBAPP_URL: ${WEBAPP_URL:-https://${APP_DOMAIN:-cargona.akii.world}/o/mir-cargo/app}
     depends_on:
       - backend
+
   caddy:
     image: caddy:2-alpine
     container_name: cargona_caddy
     restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     ports:
       - "80:80"
       - "443:443"
