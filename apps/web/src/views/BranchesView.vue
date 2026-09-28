@@ -78,7 +78,7 @@
           </p>
         </div>
         <button
-          @click="showAddBranchModal = true"
+          @click="showCreateBranchModal = true"
           class="px-5 py-2.5 rounded-xl bg-accent-blue hover:bg-accent-blue/90 text-white font-bold text-xs shadow-glow-blue inline-flex items-center gap-2 transition cursor-pointer"
         >
           <Plus class="w-4 h-4" />
@@ -224,7 +224,7 @@
           </p>
         </div>
         <button
-          @click="showAddWarehouseModal = true"
+          @click="showCreateWarehouseModal = true"
           class="px-5 py-2.5 rounded-xl bg-accent-blue hover:bg-accent-blue/90 text-white font-bold text-xs shadow-glow-blue inline-flex items-center gap-2 transition cursor-pointer"
         >
           <Plus class="w-4 h-4" />
