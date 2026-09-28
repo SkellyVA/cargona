@@ -5,10 +5,10 @@ WORKDIR /app
 # Copy root and workspace definitions
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY packages/ ./packages/
-COPY apps/web/ ./apps/web/
+COPY apps/ ./apps/
 
 # Install dependencies and build frontend
-RUN pnpm install --no-frozen-lockfile --ignore-scripts
+RUN pnpm install --ignore-scripts
 RUN pnpm --filter @cargona/types build && \
     pnpm --filter @cargona/web build
 

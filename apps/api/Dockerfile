@@ -5,7 +5,7 @@ WORKDIR /app
 # Copy root and workspace definitions
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY packages/ ./packages/
-COPY apps/api/ ./apps/api/
+COPY apps/ ./apps/
 
 # Install dependencies and build
 RUN pnpm install --ignore-scripts
