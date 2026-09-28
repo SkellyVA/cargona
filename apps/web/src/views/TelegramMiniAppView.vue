@@ -9,9 +9,10 @@
       <div class="space-y-2.5 max-w-sm">
         <h2 class="text-xl font-black text-white tracking-tight">{{ tenantName || 'Сервис настраивается' }}</h2>
         <div class="p-4 rounded-2xl bg-[#161922] border border-white/[0.08] text-xs text-text-secondary leading-relaxed space-y-2">
-          <p class="font-bold text-amber-400">
-            ⚠️ Сервис временно недоступен
-          </p>
+          <div class="flex items-center justify-center gap-1.5 font-bold text-amber-400">
+            <AlertTriangle class="w-3.5 h-3.5 shrink-0" />
+            <span>Сервис временно недоступен</span>
+          </div>
           <p>
             На данный момент сервис еще настраивается администратором (не добавлены пункты выдачи ПВЗ или склады отправления) и им временно невозможно пользоваться.
           </p>
