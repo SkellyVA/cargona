@@ -1426,22 +1426,27 @@ const managerTelegramLink = computed(() => {
 
 const activeWarehouses = computed(() => {
   if (store.originWarehouses && store.originWarehouses.length > 0) {
-    return store.originWarehouses.filter((w) => w.isActive);
+    const list = store.originWarehouses.filter((w) => w.isActive);
+    if (list.length > 0) return list;
   }
-  return [
-    {
-      id: 'wh-cn-default',
-      name: 'Склад в Иу (Китай)',
-      country: 'Китай',
-      countryCode: 'CN',
-      city: 'Иу (Yiwu)',
-      address: '浙江省金华市义乌市稠江街道北苑工业区288号 (Yiwu Warehouse)',
-      phone: '+86 138 0000 0000',
-      isActive: true,
-      workingHours: '09:00 - 21:00',
-      instructions: 'Указывайте ваш карго-код в графе получателя и в адресе',
-    },
-  ];
+  if (store.settings.chinaWarehouseAddress) {
+    return [
+      {
+        id: 'wh-cn-dynamic',
+        name: 'Склад в Китае',
+        country: 'Китай',
+        countryCode: 'CN',
+        city: 'Иу (Yiwu)',
+        address: store.settings.chinaWarehouseAddress,
+        phone: store.settings.chinaContactPhone || '',
+        receiverName: store.settings.chinaContactName || '',
+        isActive: true,
+        workingHours: '09:00 - 21:00',
+        instructions: 'Указывайте ваш карго-код в адресе',
+      },
+    ];
+  }
+  return [];
 });
 
 const selectedWarehouseId = ref<string>(store.originWarehouses[0]?.id || 'wh-cn-default');
