@@ -453,7 +453,7 @@ EOF
       10)
         echo -e "\n${CYAN}=== Умный импорт данных в CargonaOS ===${NC}"
         read -p "Тип источника (1 - MongoDB URI, 2 - Папка с JSON файлами): " imp_type
-        read -p "Slug организации (например: cargona, prime): " imp_tenant
+        read -p "Slug организации (например: cargona, prime, noor): " imp_tenant
         imp_tenant=${imp_tenant:-cargona}
         read -p "Очистить старую базу тенанта перед импортом? (y/n) [n]: " imp_wipe_choice
         local wipe_flag=""
@@ -463,11 +463,11 @@ EOF
         fi
         if [ "$imp_type" = "1" ]; then
           read -p "MongoDB URI (например: mongodb://user:pass@host:27017/db): " imp_uri
-          node apps/api/src/importer/cli.ts --mongo "$imp_uri" --tenant "$imp_tenant" $wipe_flag 2>/dev/null || npx tsx apps/api/src/importer/cli.ts --mongo "$imp_uri" --tenant "$imp_tenant" $wipe_flag
+          run_importer --mongo "$imp_uri" --tenant "$imp_tenant" $wipe_flag
         else
           read -p "Путь к папке с JSON (по умолчанию ./dumps): " imp_dir
           imp_dir=${imp_dir:-./dumps}
-          node apps/api/src/importer/cli.ts --dir "$imp_dir" --tenant "$imp_tenant" $wipe_flag 2>/dev/null || npx tsx apps/api/src/importer/cli.ts --dir "$imp_dir" --tenant "$imp_tenant" $wipe_flag
+          run_importer --dir "$imp_dir" --tenant "$imp_tenant" $wipe_flag
         fi
         read -p "Нажмите Enter для продолжения..."
         ;;
@@ -476,6 +476,24 @@ EOF
       *) echo -e "${RED}Неверный пункт меню${NC}"; sleep 1;;
     esac
   done
+}
+
+# Helper to execute smart importer
+run_importer() {
+  local args=("$@")
+  echo -e "${CYAN}Запуск импорта данных...${NC}"
+  if [ -f "${APP_DIR}/apps/api/dist/importer.js" ] && command -v node &> /dev/null; then
+    node "${APP_DIR}/apps/api/dist/importer.js" "${args[@]}"
+  elif dc_cmd ps 2>/dev/null | grep -q "cargona_api\|backend"; then
+    dc_cmd exec -T backend node apps/api/dist/importer.js "${args[@]}"
+  elif [ -f "${APP_DIR}/apps/api/dist/importer.mjs" ] && command -v node &> /dev/null; then
+    node "${APP_DIR}/apps/api/dist/importer.mjs" "${args[@]}"
+  else
+    pnpm --filter @cargona/api exec tsx src/importer/cli.ts "${args[@]}" 2>/dev/null || npx tsx "${APP_DIR}/apps/api/src/importer/cli.ts" "${args[@]}"
+  fi
+  # Reload backend container RAM state
+  echo -e "${CYAN}Синхронизация состояния сервера...${NC}"
+  dc_cmd restart backend 2>/dev/null || true
 }
 
 # CLI Router
@@ -509,13 +527,7 @@ case "$1" in
     ;;
   import)
     shift
-    if [ -f "${APP_DIR}/apps/api/src/importer/cli.ts" ] && command -v npx &> /dev/null; then
-      npx tsx "${APP_DIR}/apps/api/src/importer/cli.ts" "$@"
-    else
-      dc_cmd exec -T backend npx tsx apps/api/src/importer/cli.ts "$@"
-    fi
-    # Auto-reload backend container RAM state
-    dc_cmd restart backend 2>/dev/null || true
+    run_importer "$@"
     ;;
   logs) cmd_logs "$2" ;;
   help|--help|-h)

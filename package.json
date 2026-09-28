@@ -9,6 +9,9 @@
     "lint": "turbo lint",
     "typecheck": "turbo typecheck"
   },
+  "dependencies": {
+    "mongodb": "^7.6.0"
+  },
   "devDependencies": {
     "playwright": "^1.63.0",
     "turbo": "^2.4.4",
