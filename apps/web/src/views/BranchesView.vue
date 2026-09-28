@@ -1312,15 +1312,19 @@ const newCell = ref({
 
 function createBranch() {
   if (!newBranch.value.name) return;
+  const allExistingCells = store.branches.flatMap((b) => b.cells || []);
+  const cellId1 = store.nextSeqId ? store.nextSeqId('c', allExistingCells) : `c-${Date.now()}-1`;
+  const cellId2 = store.nextSeqId ? store.nextSeqId('c', [...allExistingCells, { id: cellId1 }]) : `c-${Date.now()}-2`;
+
   store.addBranch({
-    name: newBranch.value.name,
-    city: newBranch.value.city || 'Душанбе',
-    address: newBranch.value.address || 'ул. Айни',
-    phone: newBranch.value.phone || '+992 90 000 0000',
+    name: newBranch.value.name.trim(),
+    city: newBranch.value.city?.trim() || 'Душанбе',
+    address: newBranch.value.address?.trim() || '',
+    phone: newBranch.value.phone?.trim() || '+992 90 000 0000',
     cashBalanceUSD: 0,
     cells: [
-      { id: store.nextSeqId('c', store.branches.flatMap(b => b.cells || [])), rack: 'Стеллаж 1', shelf: 'Полка А-01', barcode: 'CELL-S1-A01', packageCount: 0 },
-      { id: store.nextSeqId('c', [...store.branches.flatMap(b => b.cells || []), { id: 'c-001' }]), rack: 'Стеллаж 1', shelf: 'Полка А-02', barcode: 'CELL-S1-A02', packageCount: 0 },
+      { id: cellId1, rack: 'Стеллаж 1', shelf: 'Полка А-01', barcode: 'CELL-S1-A01', packageCount: 0 },
+      { id: cellId2, rack: 'Стеллаж 1', shelf: 'Полка А-02', barcode: 'CELL-S1-A02', packageCount: 0 },
     ],
   });
   newBranch.value = { name: '', city: '', address: '', phone: '' };

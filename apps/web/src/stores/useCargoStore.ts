@@ -1783,6 +1783,9 @@ export const useCargoStore = defineStore('cargo', () => {
       ...data,
     };
     rawBranches.value.push(newB);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('cargona_branches', JSON.stringify(rawBranches.value));
+    }
     addAudit('CREATE', 'Новый филиал', newB.name, `Создан филиал ${newB.name} (${newB.city})`);
 
     try {
@@ -3362,5 +3365,6 @@ export const useCargoStore = defineStore('cargo', () => {
     addTripExpense,
     exportFinancialReportToCsv,
     syncTenantData,
+    nextSeqId,
   };
 });
