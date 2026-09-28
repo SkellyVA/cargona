@@ -882,17 +882,31 @@ export const useCargoStore = defineStore('cargo', () => {
     return newT;
   }
 
-  function updateTenant(tenantId: string, data: Partial<Tenant>) {
-    const t = tenants.value.find((item) => item.id === tenantId);
+  function updateTenant(tenantIdOrSlug: string, data: Partial<Tenant>) {
+    const t = tenants.value.find((item) => item.id === tenantIdOrSlug || item.slug.toLowerCase() === tenantIdOrSlug.toLowerCase());
     if (!t) return;
     Object.assign(t, data);
+    if (data.name) settings.value.companyName = data.name;
+    if (data.codePrefix) settings.value.codePrefix = data.codePrefix;
     if (typeof window !== 'undefined') {
       localStorage.setItem('cargona_tenants', JSON.stringify(tenants.value));
+      localStorage.setItem(`cargona_settings_${t.slug}`, JSON.stringify(settings.value));
     }
-    if (activeTenantSlug.value === t.slug) {
-      setTenantSlug(t.slug);
-    }
-    addAudit('UPDATE', 'Параметры карго', t.name, `Обновлены параметры компании ${t.name}`);
+    addAudit('UPDATE', 'Параметры карго', t.name, `Обновлены параметры компании ${t.name} (${t.codePrefix || ''})`);
+
+    try {
+      fetch(`/api/o/${t.slug}/profile`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: data.name,
+          codePrefix: data.codePrefix,
+          baseCurrency: data.baseCurrency,
+          ownerEmail: data.ownerEmail,
+          ownerPassword: data.ownerPassword,
+        }),
+      });
+    } catch {}
   }
 
   function deleteTenant(tenantIdOrSlug: string) {
@@ -949,6 +963,16 @@ export const useCargoStore = defineStore('cargo', () => {
     activeTenantSlug.value = slug;
     if (typeof window !== 'undefined') {
       localStorage.setItem('cargona_active_tenant_slug', slug);
+      // Restore cached settings for this tenant
+      const savedSettings = localStorage.getItem(`cargona_settings_${slug}`);
+      if (savedSettings) {
+        try {
+          const parsed = JSON.parse(savedSettings);
+          if (parsed && typeof parsed === 'object') {
+            Object.assign(settings.value, parsed);
+          }
+        } catch (_) {}
+      }
       // Load cached customers immediately for this tenant
       const cached = localStorage.getItem('cargona_customers_' + slug);
       if (cached) {
@@ -965,13 +989,19 @@ export const useCargoStore = defineStore('cargo', () => {
 
     let found = tenants.value.find((t) => t.slug === slug);
     if (found) {
-      settings.value.companyName = found.name;
-      settings.value.codePrefix = found.codePrefix;
-      settings.value.ownerEmail = found.ownerEmail;
+      if (found.name) settings.value.companyName = found.name;
+      if (found.codePrefix) settings.value.codePrefix = found.codePrefix;
+      if (found.ownerEmail) settings.value.ownerEmail = found.ownerEmail;
       settings.value.baseCurrency = found.baseCurrency || 'USD';
-      settings.value.chinaWarehouseAddress = `浙江省金华市义乌市国际商贸区4区12号门 (${found.name})`;
-      settings.value.chinaContactName = `${found.codePrefix} Warehouse Yiwu`;
-      settings.value.channelId = `@${found.slug}_news`;
+      if (!settings.value.chinaWarehouseAddress) {
+        settings.value.chinaWarehouseAddress = `浙江省金华市义乌市国际商贸区4区12号门 (${found.name})`;
+      }
+      if (!settings.value.chinaContactName) {
+        settings.value.chinaContactName = `${found.codePrefix} Warehouse Yiwu`;
+      }
+      if (!settings.value.channelId) {
+        settings.value.channelId = `@${found.slug}_news`;
+      }
     }
     syncTenantData(slug);
   }
@@ -997,6 +1027,8 @@ export const useCargoStore = defineStore('cargo', () => {
 
       if (data.tenant) {
         upsertTenant(data.tenant);
+        if (data.tenant.name) settings.value.companyName = data.tenant.name;
+        if (data.tenant.codePrefix) settings.value.codePrefix = data.tenant.codePrefix;
       }
       if (data.settings) {
         settings.value = { ...settings.value, ...data.settings };

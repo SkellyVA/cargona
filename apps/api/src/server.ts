@@ -320,6 +320,38 @@ fastify.put<{
   return { success: true, tenant };
 });
 
+fastify.put<{
+  Params: { slug: string };
+  Body: {
+    name?: string;
+    codePrefix?: string;
+    baseCurrency?: string;
+    ownerEmail?: string;
+    ownerPassword?: string;
+  };
+}>('/api/o/:slug/profile', async (request, reply) => {
+  const { slug } = request.params;
+  const tenant = store.tenants.find((t) => t.slug.toLowerCase() === (slug || '').toLowerCase() || t.id === slug);
+  if (!tenant) return reply.status(404).send({ error: 'Tenant not found' });
+
+  if (request.body.name) tenant.name = request.body.name.trim();
+  if (request.body.codePrefix !== undefined) tenant.codePrefix = request.body.codePrefix.toUpperCase().trim();
+  if (request.body.baseCurrency) tenant.baseCurrency = request.body.baseCurrency;
+  if (request.body.ownerEmail) (tenant as any).ownerEmail = request.body.ownerEmail.toLowerCase().trim();
+  if (request.body.ownerPassword) (tenant as any).ownerPassword = request.body.ownerPassword.trim();
+  tenant.updatedAt = new Date().toISOString();
+
+  // Also update owner user record if exists
+  const ownerUser = store.users.find((u) => u.tenantId === tenant.id && u.role === 'OWNER');
+  if (ownerUser) {
+    if (request.body.name) ownerUser.name = request.body.name.trim();
+    if (request.body.ownerEmail) ownerUser.email = request.body.ownerEmail.toLowerCase().trim();
+  }
+
+  store.saveToFile();
+  return { success: true, tenant };
+});
+
 fastify.delete<{ Params: { id: string } }>('/api/admin/tenants/:id', async (request, reply) => {
   const { id } = request.params;
   const index = store.tenants.findIndex((t) => t.id === id || t.slug === id);
