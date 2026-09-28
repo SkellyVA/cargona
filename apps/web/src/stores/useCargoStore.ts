@@ -2058,17 +2058,33 @@ export const useCargoStore = defineStore('cargo', () => {
     }
     const branch = rawBranches.value.find((b) => b.id === branchId);
     if (!branch) return;
+    if (!Array.isArray(branch.cells)) branch.cells = [];
     const allBranchCells = rawBranches.value.flatMap((b) => b.cells || []);
     const cellId = nextSeqId('c', allBranchCells);
     const barcode = `CELL-${rack.replace(/\s+/g, '')}-${shelf.replace(/\s+/g, '')}`;
-    branch.cells.push({
+    const newCell = {
       id: cellId,
       rack,
       shelf,
       barcode,
       packageCount: 0,
-    });
+    };
+    branch.cells.push(newCell);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('cargona_branches', JSON.stringify(rawBranches.value));
+    }
     addAudit('CREATE', 'Новая ячейка', `${branch.name} / ${shelf}`, `Создана ячейка ${rack}, ${shelf}`);
+
+    try {
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        fetch(`/api/o/${slug}/branches/${branch.id}/cells`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rack, shelf, barcode }),
+        });
+      }
+    } catch {}
   }
 
   function deleteWarehouseCell(branchOrWhId: string, cellId: string) {

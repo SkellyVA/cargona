@@ -395,7 +395,45 @@ fastify.get<{ Params: { slug: string } }>('/api/o/:slug/all', async (request, re
   const tenant = store.tenants.find((t) => t.slug === slug);
   if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
 
-  const tenantBranches = (store.branches || []).filter((b) => b.tenantId === tenant.id);
+  const tenantBranches = (store.branches || []).filter((b) => b.tenantId === tenant.id).map((b) => {
+    let cells = (store.storageCells || []).filter((c) => c.branchId === b.id);
+    if (cells.length === 0 && Array.isArray((b as any).cells) && (b as any).cells.length > 0) {
+      cells = (b as any).cells;
+    }
+    if (cells.length === 0) {
+      const cell1 = {
+        id: store.nextId('cell', store.storageCells),
+        tenantId: tenant.id,
+        branchId: b.id,
+        rack: 'Стеллаж 1',
+        shelf: 'Полка А-01',
+        barcode: `CELL-${b.id}-A01`,
+        isOccupied: false,
+        packageCount: 0,
+      };
+      const cell2 = {
+        id: store.nextId('cell', [...store.storageCells, cell1]),
+        tenantId: tenant.id,
+        branchId: b.id,
+        rack: 'Стеллаж 1',
+        shelf: 'Полка А-02',
+        barcode: `CELL-${b.id}-A02`,
+        isOccupied: false,
+        packageCount: 0,
+      };
+      store.storageCells.push(cell1, cell2);
+      cells = [cell1, cell2];
+      store.saveToFile();
+    }
+    const packagesAtBranch = (store.packages || []).filter((p) => p.currentBranchId === b.id && p.status === 'READY_FOR_PICKUP');
+    return {
+      ...b,
+      totalCells: cells.length,
+      occupiedCells: cells.filter((c) => c.isOccupied).length,
+      activePackagesCount: packagesAtBranch.length,
+      cells,
+    };
+  });
   const tenantStaff = (store.users || []).filter((u) => u.tenantId === tenant.id);
   const tenantCustomers = (store.customers || [])
     .filter((c) => c.tenantId === tenant.id)
@@ -586,7 +624,35 @@ fastify.get<{ Params: { slug: string } }>('/api/o/:slug/branches', async (reques
   if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
 
   const branches = store.branches.filter((b) => b.tenantId === tenant.id).map((b) => {
-    const cells = store.storageCells.filter((c) => c.branchId === b.id);
+    let cells = store.storageCells.filter((c) => c.branchId === b.id);
+    if (cells.length === 0 && Array.isArray((b as any).cells) && (b as any).cells.length > 0) {
+      cells = (b as any).cells;
+    }
+    if (cells.length === 0) {
+      const cell1 = {
+        id: store.nextId('cell', store.storageCells),
+        tenantId: tenant.id,
+        branchId: b.id,
+        rack: 'Стеллаж 1',
+        shelf: 'Полка А-01',
+        barcode: `CELL-${b.id}-A01`,
+        isOccupied: false,
+        packageCount: 0,
+      };
+      const cell2 = {
+        id: store.nextId('cell', [...store.storageCells, cell1]),
+        tenantId: tenant.id,
+        branchId: b.id,
+        rack: 'Стеллаж 1',
+        shelf: 'Полка А-02',
+        barcode: `CELL-${b.id}-A02`,
+        isOccupied: false,
+        packageCount: 0,
+      };
+      store.storageCells.push(cell1, cell2);
+      cells = [cell1, cell2];
+      store.saveToFile();
+    }
     const packagesAtBranch = store.packages.filter((p) => p.currentBranchId === b.id && p.status === 'READY_FOR_PICKUP');
     return {
       ...b,
@@ -633,21 +699,30 @@ fastify.post<{
 
   store.branches.push(newBranch as any);
 
-  if (Array.isArray(request.body.cells)) {
-    for (const cell of request.body.cells) {
-      store.storageCells.push({
-        id: store.nextId('cell', store.storageCells),
-        tenantId: tenant.id,
-        branchId: newBranch.id,
-        rack: cell.rack || 'Стеллаж 1',
-        shelf: cell.shelf || 'Полка 1',
-        barcode: cell.barcode || `CELL-${newBranch.id}-${Date.now()}`,
-        isOccupied: false,
-        packageCount: 0,
-      });
-    }
+  const initialCells = Array.isArray(request.body.cells) && request.body.cells.length > 0
+    ? request.body.cells
+    : [
+        { rack: 'Стеллаж 1', shelf: 'Полка А-01', barcode: `CELL-${newBranch.id}-A01` },
+        { rack: 'Стеллаж 1', shelf: 'Полка А-02', barcode: `CELL-${newBranch.id}-A02` },
+      ];
+
+  const createdCells = [];
+  for (const cell of initialCells) {
+    const newCell = {
+      id: cell.id || store.nextId('cell', store.storageCells),
+      tenantId: tenant.id,
+      branchId: newBranch.id,
+      rack: cell.rack || 'Стеллаж 1',
+      shelf: cell.shelf || 'Полка 1',
+      barcode: cell.barcode || `CELL-${newBranch.id}-${Date.now()}`,
+      isOccupied: false,
+      packageCount: 0,
+    };
+    store.storageCells.push(newCell);
+    createdCells.push(newCell);
   }
 
+  (newBranch as any).cells = createdCells;
   store.saveToFile();
   return { success: true, branch: newBranch };
 });
@@ -778,6 +853,33 @@ fastify.delete<{ Params: { slug: string; id: string } }>('/api/o/:slug/warehouse
 });
 
 // --- Storage Cells Management ---
+fastify.post<{
+  Params: { slug: string; id: string };
+  Body: { rack: string; shelf: string; barcode?: string };
+}>('/api/o/:slug/branches/:id/cells', async (request, reply) => {
+  const { slug, id } = request.params;
+  const tenant = store.tenants.find((t) => t.slug === slug);
+  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
+
+  const branch = store.branches.find((b) => b.id === id && b.tenantId === tenant.id);
+  if (!branch) return reply.status(404).send({ error: 'Branch not found' });
+
+  const newCell = {
+    id: store.nextId('cell', store.storageCells),
+    tenantId: tenant.id,
+    branchId: branch.id,
+    rack: request.body.rack || 'Стеллаж 1',
+    shelf: request.body.shelf || 'Полка 1',
+    barcode: request.body.barcode || `CELL-${branch.id}-${Date.now()}`,
+    isOccupied: false,
+    packageCount: 0,
+  };
+
+  store.storageCells.push(newCell);
+  store.saveToFile();
+  return { success: true, cell: newCell };
+});
+
 fastify.delete<{ Params: { slug: string; id: string; cellId: string } }>('/api/o/:slug/branches/:id/cells/:cellId', async (request, reply) => {
   const { slug, id, cellId } = request.params;
   const tenant = store.tenants.find((t) => t.slug === slug);
