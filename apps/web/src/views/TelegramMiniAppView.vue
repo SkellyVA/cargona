@@ -1,7 +1,7 @@
 <template>
   <div class="min-h-screen bg-[#0B0C10] text-white p-4 max-w-md mx-auto flex flex-col justify-between select-none">
     <!-- ПЛАШКА: ЕСЛИ СЕРВИС / ПВЗ / СКЛАДЫ ЕЩЕ НЕ НАСТРОЕНЫ АДМИНИСТРАТОРОМ -->
-    <div v-if="!isServiceConfigured" class="min-h-[80vh] flex flex-col items-center justify-center text-center p-4 space-y-6 my-auto">
+    <div v-if="isInitialLoaded && !isServiceConfigured" class="min-h-[80vh] flex flex-col items-center justify-center text-center p-4 space-y-6 my-auto">
       <div class="w-20 h-20 rounded-3xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-center text-amber-400 p-4 shadow-lg shadow-amber-500/10">
         <AlertTriangle class="w-10 h-10" />
       </div>
@@ -1278,6 +1278,8 @@ const route = useRoute();
 const store = useCargoStore();
 const { t } = useI18n();
 
+const isInitialLoaded = ref(false);
+
 const isServiceConfigured = computed(() => {
   const hasBranches = Array.isArray(store.branches) && store.branches.length > 0;
   const hasWarehouse =
@@ -1913,14 +1915,23 @@ async function fetchTenantInfo(slug: string) {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   // 1. Sync tenant slug and referral code from URL
   const slugParam = (route.params.slug as string) || store.activeTenantSlug || store.tenant?.slug || store.tenants[0]?.slug || 'test';
   if (slugParam) {
     store.setTenantSlug(slugParam);
-    fetchTenantInfo(slugParam);
-    store.loadLoyaltySettingsFromBackend?.();
+    try {
+      await Promise.allSettled([
+        fetchTenantInfo(slugParam),
+        store.syncTenantData(slugParam, true),
+        store.loadLoyaltySettingsFromBackend?.()
+      ]);
+    } catch (e) {
+      console.warn('MiniApp init error:', e);
+    }
   }
+
+  isInitialLoaded.value = true;
 
   if (route.query.ref && typeof route.query.ref === 'string') {
     referredByCode.value = route.query.ref.trim();

@@ -1,0 +1,13 @@
+# CargonaOS Development Rules
+
+1. **NO FLICKERING PLACEHOLDERS OR DUMMY TEXT**:
+   - Never insert temporary fallback text, mock data, or dummy banners that flash on screen while waiting for an API response.
+   - Initial loading states must cleanly wait for data resolution before rendering missing/unconfigured states.
+
+2. **NO EMOJIS IN UI**:
+   - Do NOT use emojis (e.g. ⚠️, 📦, 🚚, 💵) as UI components, buttons, badges, or icons.
+   - Always use clean Lucide SVG icons and modern typography.
+
+3. **STRICT STATE PERSISTENCE**:
+   - Every user change (code prefixes, channel IDs, contact usernames, warehouse addresses, bot tokens) must be saved to the backend database immediately.
+   - The frontend store must never overwrite existing non-empty user configurations with empty strings received from partial API responses.
