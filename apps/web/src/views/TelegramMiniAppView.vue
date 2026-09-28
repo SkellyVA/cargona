@@ -1,7 +1,13 @@
 <template>
   <div class="min-h-screen bg-[#0B0C10] text-white p-4 max-w-md mx-auto flex flex-col justify-between select-none">
-    <!-- ПЛАШКА: ЕСЛИ СЕРВИС / ПВЗ / СКЛАДЫ ЕЩЕ НЕ НАСТРОЕНЫ АДМИНИСТРАТОРОМ -->
-    <div v-if="isInitialLoaded && !isServiceConfigured" class="min-h-[80vh] flex flex-col items-center justify-center text-center p-4 space-y-6 my-auto">
+    <!-- 0. ИНДИКАТОР ЗАГРУЗКИ: ПОКА ДАННЫЕ ТЕНАНТА ЗАГРУЖАЮТСЯ С СЕРВЕРА -->
+    <div v-if="!isInitialLoaded" class="min-h-[80vh] flex flex-col items-center justify-center text-center p-4 my-auto space-y-4">
+      <div class="w-10 h-10 border-2 border-accent-cyan/20 border-t-accent-cyan rounded-full animate-spin"></div>
+      <p class="text-xs text-text-tertiary">Загрузка сервиса...</p>
+    </div>
+
+    <!-- 1. ПЛАШКА: ЕСЛИ СЕРВИС / ПВЗ / СКЛАДЫ ЕЩЕ НЕ НАСТРОЕНЫ АДМИНИСТРАТОРОМ -->
+    <div v-else-if="!isServiceConfigured" class="min-h-[80vh] flex flex-col items-center justify-center text-center p-4 space-y-6 my-auto">
       <div class="w-20 h-20 rounded-3xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-center text-amber-400 p-4 shadow-lg shadow-amber-500/10">
         <AlertTriangle class="w-10 h-10" />
       </div>
@@ -44,7 +50,7 @@
       </div>
     </div>
 
-    <!-- ОСНОВНОЙ ИНТЕРФЕЙС WEBAPP (Когда сервис настроен) -->
+    <!-- 2. ОСНОВНОЙ ИНТЕРФЕЙС WEBAPP (Когда сервис настроен) -->
     <template v-else>
       <!-- ЭКРАН 1: АВТОРИЗАЦИЯ / РЕГИСТРАЦИЯ (Если не вошел) -->
       <div v-if="!isRegistered" class="space-y-5 pt-4 flex-1">
