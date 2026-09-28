@@ -10,7 +10,7 @@ export interface Employee {
   fullName: string;
   email: string;
   password?: string;
-  role: 'OPERATOR' | 'CASHIER' | 'SORTER' | 'MANAGER';
+  role: 'OWNER' | 'ADMIN' | 'OPERATOR' | 'CASHIER' | 'SORTER' | 'MANAGER';
   phone: string;
   branchId: string;
   branchName: string;
@@ -2031,6 +2031,37 @@ export const useCargoStore = defineStore('cargo', () => {
     } catch {}
   }
 
+  // Обновление данных сотрудника / профиля владельца
+  function updateEmployee(id: string, data: Partial<Employee>) {
+    const emp = rawStaff.value.find((e) => e.id === id);
+    if (emp) {
+      Object.assign(emp, data);
+    }
+    // Если редактируется текущий пользователь — обновляем состояние сессии currentUser
+    if (currentUser.value && (currentUser.value.id === id || currentUser.value.email.toLowerCase() === emp?.email?.toLowerCase() || currentUser.value.email.toLowerCase() === data.email?.toLowerCase())) {
+      if (data.fullName) currentUser.value.name = data.fullName;
+      if (data.email) currentUser.value.email = data.email;
+      if (typeof window !== 'undefined') {
+        safeStorageSet('cargona_auth_user', currentUser.value);
+      }
+    }
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('cargona_staff', JSON.stringify(rawStaff.value));
+    }
+    addAudit('UPDATE', 'Обновление профиля/сотрудника', data.fullName || emp?.fullName || id, `Обновлены данные учетной записи`);
+
+    try {
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        fetch(`/api/o/${slug}/staff/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+      }
+    } catch {}
+  }
+
   // Удаление сотрудника
   function deleteEmployee(id: string) {
     const idx = rawStaff.value.findIndex((e) => e.id === id);
@@ -3188,6 +3219,7 @@ export const useCargoStore = defineStore('cargo', () => {
     addWarehouseCell,
     deleteWarehouseCell,
     addEmployee,
+    updateEmployee,
     deleteEmployee,
     toggleEmployeeStatus,
     addCustomer,

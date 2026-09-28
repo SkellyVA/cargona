@@ -811,13 +811,27 @@ fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/s
   const tenant = store.tenants.find((t) => t.slug === slug);
   if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
 
-  const user = store.users.find((u) => u.id === id && u.tenantId === tenant.id);
-  if (!user) return reply.status(404).send({ error: 'Staff member not found' });
+  let user = store.users.find((u) => u.id === id && u.tenantId === tenant.id);
+  if (!user) {
+    // If not found by ID, look up by email (e.g. owner)
+    user = store.users.find((u) => u.tenantId === tenant.id && u.email.toLowerCase() === (tenant as any).ownerEmail?.toLowerCase());
+  }
 
-  Object.assign(user, request.body);
-  user.updatedAt = new Date().toISOString();
+  if (user) {
+    Object.assign(user, request.body);
+    user.updatedAt = new Date().toISOString();
+    if (user.role === 'TENANT_OWNER' || user.role === 'OWNER' || user.email.toLowerCase() === (tenant as any).ownerEmail?.toLowerCase()) {
+      if (request.body.email) (tenant as any).ownerEmail = request.body.email.toLowerCase().trim();
+      if (request.body.password) (tenant as any).ownerPassword = request.body.password;
+    }
+  } else {
+    // If owner didn't have user entry yet, create one
+    if (request.body.email) (tenant as any).ownerEmail = request.body.email.toLowerCase().trim();
+    if (request.body.password) (tenant as any).ownerPassword = request.body.password;
+  }
+
   store.saveToFile();
-  return { success: true, employee: user };
+  return { success: true, employee: user || request.body };
 });
 
 fastify.delete<{ Params: { slug: string; id: string } }>('/api/o/:slug/staff/:id', async (request, reply) => {

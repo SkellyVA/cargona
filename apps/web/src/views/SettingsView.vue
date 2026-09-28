@@ -75,6 +75,83 @@
       </div>
     </div>
 
+    <!-- Секция 0.5: Мой профиль и учетная запись (Владелец) -->
+    <div class="bg-surface border border-surface-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-card space-y-4">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/[0.06] pb-3">
+        <div class="flex items-center gap-2.5">
+          <ShieldCheck class="w-5 h-5 text-accent-cyan shrink-0" />
+          <div>
+            <h3 class="text-sm sm:text-base font-bold text-white">Мой профиль и учетная запись (Владелец)</h3>
+            <p class="text-[11px] text-text-secondary mt-0.5">Личные данные владельца, номер телефона и пароль для входа в панель управления</p>
+          </div>
+        </div>
+        <span class="text-xs font-mono px-3 py-1 rounded-lg bg-accent-blue/15 text-accent-cyan border border-accent-blue/30 self-start sm:self-auto flex items-center gap-1.5">
+          <UserCheck class="w-3.5 h-3.5" />
+          <span>{{ store.currentUser?.role || 'OWNER' }}</span>
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+        <div>
+          <label class="text-text-secondary mb-1.5 block">ФИО владельца</label>
+          <input
+            v-model="myProfileForm.fullName"
+            placeholder="Рустам Каримов"
+            class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-medium"
+          />
+        </div>
+
+        <div>
+          <label class="text-text-secondary mb-1.5 block">Контактный телефон</label>
+          <input
+            v-model="myProfileForm.phone"
+            placeholder="+992 90 000 0000"
+            class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono"
+          />
+        </div>
+
+        <div>
+          <label class="text-text-secondary mb-1.5 block">Email (Логин для входа)</label>
+          <input
+            v-model="myProfileForm.email"
+            type="email"
+            placeholder="owner@cargona.io"
+            class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono"
+          />
+        </div>
+
+        <div>
+          <label class="text-text-secondary mb-1.5 block">Новый пароль (если меняете)</label>
+          <div class="relative">
+            <input
+              v-model="myProfileForm.password"
+              :type="showMyPassword ? 'text' : 'password'"
+              placeholder="••••••••"
+              class="w-full h-10 pl-3 pr-10 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono"
+            />
+            <button
+              type="button"
+              @click="showMyPassword = !showMyPassword"
+              class="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-white transition cursor-pointer"
+            >
+              <Eye v-if="!showMyPassword" class="w-4 h-4" />
+              <EyeOff v-else class="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex justify-end pt-1">
+        <button
+          @click="saveMyProfile"
+          class="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-accent-blue hover:bg-accent-blue/90 text-white font-bold text-xs shadow-glow-blue transition cursor-pointer"
+        >
+          <Check class="w-3.5 h-3.5" />
+          <span>Сохранить мой профиль</span>
+        </button>
+      </div>
+    </div>
+
     <!-- Секция 1: Управление сотрудниками (Штат карго) -->
     <div class="bg-surface border border-surface-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-card space-y-4">
       <div class="flex items-center justify-between border-b border-white/[0.06] pb-3">
@@ -122,14 +199,23 @@
                 />
               </td>
               <td v-if="store.isOwner" class="py-3.5 px-3 text-right whitespace-nowrap">
-                <button
-                  v-if="emp.role !== 'OWNER'"
-                  @click="promptDeleteStaff(emp)"
-                  title="Удалить сотрудника"
-                  class="p-1.5 rounded-lg text-text-tertiary hover:text-accent-coral hover:bg-accent-coral/10 transition cursor-pointer"
-                >
-                  <Trash2 class="w-4 h-4" />
-                </button>
+                <div class="flex items-center justify-end gap-1">
+                  <button
+                    @click="openEditStaffModal(emp)"
+                    title="Редактировать данные и пароль"
+                    class="p-1.5 rounded-lg text-text-tertiary hover:text-accent-cyan hover:bg-accent-cyan/10 transition cursor-pointer"
+                  >
+                    <Pencil class="w-4 h-4" />
+                  </button>
+                  <button
+                    v-if="emp.role !== 'OWNER'"
+                    @click="promptDeleteStaff(emp)"
+                    title="Удалить сотрудника"
+                    class="p-1.5 rounded-lg text-text-tertiary hover:text-accent-coral hover:bg-accent-coral/10 transition cursor-pointer"
+                  >
+                    <Trash2 class="w-4 h-4" />
+                  </button>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -148,7 +234,14 @@
               <div class="font-bold text-white text-sm">{{ emp.fullName }}</div>
               <div class="text-[11px] text-text-tertiary font-mono">{{ emp.email }}</div>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-1.5">
+              <button
+                @click="openEditStaffModal(emp)"
+                title="Редактировать"
+                class="p-1.5 rounded-lg text-text-tertiary hover:text-accent-cyan hover:bg-accent-cyan/10 transition cursor-pointer"
+              >
+                <Pencil class="w-3.5 h-3.5" />
+              </button>
               <button
                 v-if="store.isOwner && emp.role !== 'OWNER'"
                 @click="promptDeleteStaff(emp)"
@@ -936,6 +1029,96 @@
       </template>
     </AppModal>
 
+    <!-- Модальное окно: Редактировать сотрудника -->
+    <AppModal v-model="showEditStaffModal" title="Редактировать сотрудника">
+      <div class="space-y-3.5 text-xs">
+        <div>
+          <label class="text-text-secondary mb-1 block">ФИО сотрудника</label>
+          <input
+            v-model="editingEmployee.fullName"
+            required
+            placeholder="Рустам Каримов"
+            class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none"
+          />
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="text-text-secondary mb-1 block">Email (Логин доступа)</label>
+            <input
+              v-model="editingEmployee.email"
+              type="email"
+              required
+              placeholder="operator@cargo.com"
+              class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono"
+            />
+          </div>
+
+          <div>
+            <label class="text-text-secondary mb-1 block">Новый пароль (если меняете)</label>
+            <div class="relative">
+              <input
+                v-model="editingEmployee.password"
+                :type="showEditStaffPassword ? 'text' : 'password'"
+                placeholder="••••••••"
+                class="w-full h-10 pl-3 pr-10 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono"
+              />
+              <button
+                type="button"
+                @click="showEditStaffPassword = !showEditStaffPassword"
+                class="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-white transition cursor-pointer"
+              >
+                <Eye v-if="!showEditStaffPassword" class="w-4 h-4" />
+                <EyeOff v-else class="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label class="text-text-secondary mb-1 block">Телефон</label>
+          <input
+            v-model="editingEmployee.phone"
+            placeholder="+992 90 111 2233"
+            class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono"
+          />
+        </div>
+
+        <div>
+          <label class="text-text-secondary mb-1 block">Роль</label>
+          <AppDropdown
+            v-model="editingEmployee.role"
+            :options="roleOptions"
+            class="w-full"
+          />
+        </div>
+
+        <div>
+          <label class="text-text-secondary mb-1 block">Привязка к филиалу</label>
+          <AppDropdown
+            v-model="editingEmployee.branchId"
+            :options="branchOptions"
+            class="w-full"
+          />
+        </div>
+      </div>
+
+      <template #footer>
+        <button
+          @click="showEditStaffModal = false"
+          class="px-4 py-2 rounded-xl bg-white/[0.04] text-text-secondary hover:text-white font-medium text-xs transition"
+        >
+          Отмена
+        </button>
+        <button
+          @click="saveEditedStaff"
+          class="px-5 py-2 rounded-xl bg-accent-blue hover:bg-accent-blue/90 text-white font-bold text-xs shadow-glow-blue transition"
+        >
+          Сохранить изменения
+        </button>
+      </template>
+    </AppModal>
+
     <!-- Модальное окно: Добавить международный склад отправки -->
     <AppModal v-model="showAddWarehouseModal" title="Добавить склад отправления">
       <div class="space-y-3.5 text-xs">
@@ -1099,6 +1282,12 @@ import {
   Clock,
   CreditCard,
   Camera,
+  Pencil,
+  KeyRound,
+  ShieldCheck,
+  UserCheck,
+  Eye,
+  EyeOff,
 } from 'lucide-vue-next';
 import AppModal from '../components/ui/AppModal.vue';
 import AppDropdown from '../components/ui/AppDropdown.vue';
@@ -1481,6 +1670,108 @@ const newEmployee = ref({
   role: 'OPERATOR' as const,
   branchId: 'b-1',
 });
+
+// Профиль владельца (Мой профиль)
+const myProfileForm = ref({
+  fullName: '',
+  phone: '',
+  email: '',
+  password: '',
+});
+const showMyPassword = ref(false);
+
+function initMyProfile() {
+  const currentEmail = store.currentUser?.email?.toLowerCase() || '';
+  const foundEmp = store.staff.find((e) => (e.email && e.email.toLowerCase() === currentEmail) || e.role === 'OWNER');
+  
+  myProfileForm.value.fullName = store.currentUser?.name || foundEmp?.fullName || store.tenant?.name || 'Владелец Карго';
+  myProfileForm.value.email = store.currentUser?.email || foundEmp?.email || store.tenant?.ownerEmail || '';
+  myProfileForm.value.phone = foundEmp?.phone || '';
+  myProfileForm.value.password = '';
+}
+
+watch(
+  () => [store.currentUser, store.staff],
+  () => {
+    if (!myProfileForm.value.email) {
+      initMyProfile();
+    }
+  },
+  { immediate: true, deep: true }
+);
+
+function saveMyProfile() {
+  const currentEmail = store.currentUser?.email?.toLowerCase() || '';
+  const foundEmp = store.staff.find((e) => (e.email && e.email.toLowerCase() === currentEmail) || e.role === 'OWNER');
+  const empId = foundEmp?.id || store.currentUser?.id || 'owner';
+
+  const updateData: any = {
+    fullName: myProfileForm.value.fullName.trim(),
+    email: myProfileForm.value.email.trim(),
+    phone: myProfileForm.value.phone.trim(),
+  };
+  if (myProfileForm.value.password.trim()) {
+    updateData.password = myProfileForm.value.password.trim();
+  }
+
+  store.updateEmployee(empId, updateData);
+  if (store.currentUser) {
+    store.currentUser.name = updateData.fullName;
+    store.currentUser.email = updateData.email;
+  }
+  if (store.tenant) {
+    store.tenant.ownerEmail = updateData.email;
+    if (updateData.password) store.tenant.ownerPassword = updateData.password;
+  }
+  myProfileForm.value.password = '';
+  toastMessage.value = `Ваш профиль («${updateData.fullName}») успешно сохранен!`;
+}
+
+// Редактирование существующего сотрудника
+const showEditStaffModal = ref(false);
+const editingEmployee = ref({
+  id: '',
+  fullName: '',
+  email: '',
+  password: '',
+  phone: '',
+  role: 'OPERATOR' as any,
+  branchId: 'b-1',
+});
+const showEditStaffPassword = ref(false);
+
+function openEditStaffModal(emp: any) {
+  editingEmployee.value = {
+    id: emp.id,
+    fullName: emp.fullName || '',
+    email: emp.email || '',
+    password: '',
+    phone: emp.phone || '',
+    role: emp.role || 'OPERATOR',
+    branchId: emp.branchId || branchOptions.value[0]?.value || 'b-1',
+  };
+  showEditStaffPassword.value = false;
+  showEditStaffModal.value = true;
+}
+
+function saveEditedStaff() {
+  if (!editingEmployee.value.id || !editingEmployee.value.fullName) return;
+  const branch = branchOptions.value.find((b) => b.value === editingEmployee.value.branchId);
+  const payload: any = {
+    fullName: editingEmployee.value.fullName.trim(),
+    email: editingEmployee.value.email.trim(),
+    phone: editingEmployee.value.phone.trim(),
+    role: editingEmployee.value.role,
+    branchId: editingEmployee.value.branchId,
+    branchName: branch ? branch.label : 'Филиал',
+  };
+  if (editingEmployee.value.password.trim()) {
+    payload.password = editingEmployee.value.password.trim();
+  }
+  store.updateEmployee(editingEmployee.value.id, payload);
+  showEditStaffModal.value = false;
+  toastMessage.value = `Данные сотрудника «${payload.fullName}» успешно обновлены!`;
+}
 
 const roleOptions = [
   { value: 'OPERATOR', label: 'Оператор выдачи ПВЗ' },
