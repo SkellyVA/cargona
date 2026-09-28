@@ -1,7 +1,52 @@
 <template>
   <div class="min-h-screen bg-[#0B0C10] text-white p-4 max-w-md mx-auto flex flex-col justify-between select-none">
-    <!-- ЭКРАН 1: АВТОРИЗАЦИЯ / РЕГИСТРАЦИЯ (Если не вошел) -->
-    <div v-if="!isRegistered" class="space-y-5 pt-4 flex-1">
+    <!-- ПЛАШКА: ЕСЛИ СЕРВИС / ПВЗ / СКЛАДЫ ЕЩЕ НЕ НАСТРОЕНЫ АДМИНИСТРАТОРОМ -->
+    <div v-if="!isServiceConfigured" class="min-h-[80vh] flex flex-col items-center justify-center text-center p-4 space-y-6 my-auto">
+      <div class="w-20 h-20 rounded-3xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-center text-amber-400 p-4 shadow-lg shadow-amber-500/10">
+        <AlertTriangle class="w-10 h-10" />
+      </div>
+
+      <div class="space-y-2.5 max-w-sm">
+        <h2 class="text-xl font-black text-white tracking-tight">{{ tenantName || 'Сервис настраивается' }}</h2>
+        <div class="p-4 rounded-2xl bg-[#161922] border border-white/[0.08] text-xs text-text-secondary leading-relaxed space-y-2">
+          <p class="font-bold text-amber-400">
+            ⚠️ Сервис временно недоступен
+          </p>
+          <p>
+            На данный момент сервис еще настраивается администратором (не добавлены пункты выдачи ПВЗ или склады отправления) и им временно невозможно пользоваться.
+          </p>
+        </div>
+        <p class="text-[11px] text-text-tertiary">
+          Пожалуйста, зайдите позже или обратитесь к менеджеру компании.
+        </p>
+      </div>
+
+      <div class="w-full max-w-xs space-y-2 pt-2">
+        <a
+          v-if="managerContactLink"
+          :href="managerContactLink"
+          target="_blank"
+          class="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-accent-blue to-accent-cyan text-white font-bold text-xs flex items-center justify-center gap-2 shadow-glow-blue transition active:scale-95 cursor-pointer"
+        >
+          <Send class="w-4 h-4" />
+          <span>Написать менеджеру</span>
+        </a>
+        <a
+          v-if="store.settings.channelId"
+          :href="`https://t.me/${store.settings.channelId.replace('@', '')}`"
+          target="_blank"
+          class="w-full py-3 px-4 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] text-text-secondary hover:text-white font-semibold text-xs flex items-center justify-center gap-2 border border-white/[0.06] transition cursor-pointer"
+        >
+          <ExternalLink class="w-3.5 h-3.5" />
+          <span>Новости в канале</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- ОСНОВНОЙ ИНТЕРФЕЙС WEBAPP (Когда сервис настроен) -->
+    <template v-else>
+      <!-- ЭКРАН 1: АВТОРИЗАЦИЯ / РЕГИСТРАЦИЯ (Если не вошел) -->
+      <div v-if="!isRegistered" class="space-y-5 pt-4 flex-1">
       <div class="text-center space-y-2">
         <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-accent-blue/30 to-accent-cyan/20 border border-accent-cyan/40 p-2 shadow-glow-blue mb-1">
           <svg class="w-full h-full text-accent-cyan" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1167,6 +1212,7 @@
         </button>
       </template>
     </AppModal>
+    </template>
 
     <!-- Футер: Powered by Cargona -->
     <footer class="mt-8 mb-3 flex flex-col items-center justify-center opacity-70 hover:opacity-100 transition">
@@ -1211,6 +1257,7 @@ import {
   ShieldCheck,
   LogOut,
   AlertCircle,
+  AlertTriangle,
   Star,
   Bell,
   CreditCard,
@@ -1229,6 +1276,21 @@ import { useI18n } from '../locales';
 const route = useRoute();
 const store = useCargoStore();
 const { t } = useI18n();
+
+const isServiceConfigured = computed(() => {
+  const hasBranches = Array.isArray(store.branches) && store.branches.length > 0;
+  const hasWarehouse =
+    (Array.isArray(store.originWarehouses) && store.originWarehouses.some((w) => w.isActive)) ||
+    Boolean(store.settings.chinaWarehouseAddress);
+  return hasBranches && hasWarehouse;
+});
+
+const managerContactLink = computed(() => {
+  const username = store.settings.managerUsername || (store.tenant as any)?.managerUsername;
+  if (!username) return '';
+  const clean = username.replace('@', '').trim();
+  return clean ? `https://t.me/${clean}` : '';
+});
 
 const miniAppToast = ref('');
 const showReviewModal = ref(false);
