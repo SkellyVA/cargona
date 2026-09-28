@@ -883,9 +883,25 @@ export const useCargoStore = defineStore('cargo', () => {
   }
 
   function updateTenant(tenantIdOrSlug: string, data: Partial<Tenant>) {
-    const t = tenants.value.find((item) => item.id === tenantIdOrSlug || item.slug.toLowerCase() === tenantIdOrSlug.toLowerCase());
-    if (!t) return;
-    Object.assign(t, data);
+    let t = tenants.value.find((item) => item.id === tenantIdOrSlug || (item.slug && item.slug.toLowerCase() === tenantIdOrSlug.toLowerCase()));
+    if (!t) {
+      t = {
+        id: `tenant-${tenantIdOrSlug}`,
+        name: data.name || tenantIdOrSlug,
+        slug: tenantIdOrSlug,
+        codePrefix: data.codePrefix || 'CRG',
+        ownerEmail: data.ownerEmail || '',
+        ownerPassword: data.ownerPassword || '',
+        baseCurrency: data.baseCurrency || 'USD',
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        ...data,
+      };
+      tenants.value.push(t);
+    } else {
+      Object.assign(t, data);
+    }
+
     if (data.name) settings.value.companyName = data.name;
     if (data.codePrefix) settings.value.codePrefix = data.codePrefix;
     if (typeof window !== 'undefined') {
@@ -894,17 +910,28 @@ export const useCargoStore = defineStore('cargo', () => {
     }
     addAudit('UPDATE', 'Параметры карго', t.name, `Обновлены параметры компании ${t.name} (${t.codePrefix || ''})`);
 
+    const payload = {
+      name: data.name || t.name,
+      companyName: data.name || t.name,
+      codePrefix: data.codePrefix || t.codePrefix,
+      baseCurrency: data.baseCurrency || t.baseCurrency,
+      ownerEmail: data.ownerEmail,
+      ownerPassword: data.ownerPassword,
+      channelId: (data as any).channelId,
+      reviewsChannelId: (data as any).reviewsChannelId,
+      managerUsername: (data as any).managerUsername,
+    };
+
     try {
       fetch(`/api/o/${t.slug}/profile`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: data.name,
-          codePrefix: data.codePrefix,
-          baseCurrency: data.baseCurrency,
-          ownerEmail: data.ownerEmail,
-          ownerPassword: data.ownerPassword,
-        }),
+        body: JSON.stringify(payload),
+      });
+      fetch(`/api/o/${t.slug}/settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
     } catch {}
   }
