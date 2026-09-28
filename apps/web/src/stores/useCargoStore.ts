@@ -1171,6 +1171,29 @@ export const useCargoStore = defineStore('cargo', () => {
         rawOriginWarehouses.value = [...otherWh, ...tenantWarehouses];
         safeStorageSet('cargona_warehouses', rawOriginWarehouses.value);
       }
+
+      if (Array.isArray(data.auditLogs)) {
+        const tenantAudit: AuditEntry[] = data.auditLogs.map((a: any) => ({
+          id: a.id,
+          time: a.createdAt ? new Date(a.createdAt).toLocaleString('ru-RU') : (a.time || '01.01.2026'),
+          action: a.action || 'LOG',
+          actionLabel: a.actionLabel || a.action || 'Действие',
+          target: a.entityId || a.target || a.entityType || '',
+          user: a.userName || a.user || 'Система',
+          details: a.details || '',
+          branchId: a.branchId || 'b-1',
+          branchName: a.branchName || '',
+          tenantSlug: slug,
+        }));
+        const otherAudit = rawAuditLogs.value.filter((a) => a.tenantSlug && a.tenantSlug !== slug);
+        rawAuditLogs.value = [...tenantAudit, ...otherAudit];
+        triggerRef(rawAuditLogs);
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem('cargona_audit_logs', JSON.stringify(rawAuditLogs.value));
+          } catch (_) {}
+        }
+      }
     } catch {
       // Backend offline fallback
     } finally {
@@ -1539,7 +1562,7 @@ export const useCargoStore = defineStore('cargo', () => {
   const auditLogs = computed<AuditEntry[]>(() => {
     const slug = activeTenantSlug.value;
     if (!slug) return rawAuditLogs.value;
-    return rawAuditLogs.value.filter((a) => (a.tenantSlug ? a.tenantSlug === slug : false));
+    return rawAuditLogs.value.filter((a) => (!a.tenantSlug || a.tenantSlug === slug));
   });
 
   const cashAccounts = computed<CashAccount[]>(() => {
@@ -1699,7 +1722,7 @@ export const useCargoStore = defineStore('cargo', () => {
     const originWh = originWarehouses.value.find((w) => w.id === branchId || (w.id === 'wh-cn' && branchId === 'b-origin'));
     const resolvedBranchName = branchName || (branch ? branch.name : originWh ? `Склад ${originWh.city} (${originWh.country})` : branchId === 'b-origin' ? 'Склад Иу (Китай)' : 'ПВЗ Душанбе Центр');
 
-    rawAuditLogs.value.unshift({
+    const newLog: AuditEntry = {
       id: nextSeqId('log', rawAuditLogs.value),
       time: timeStr,
       action,
@@ -1710,7 +1733,14 @@ export const useCargoStore = defineStore('cargo', () => {
       branchId,
       branchName: resolvedBranchName,
       tenantSlug: activeTenantSlug.value,
-    });
+    };
+    rawAuditLogs.value.unshift(newLog);
+    triggerRef(rawAuditLogs);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('cargona_audit_logs', JSON.stringify(rawAuditLogs.value));
+      } catch (_) {}
+    }
   }
 
   // --- ACTIONS ---

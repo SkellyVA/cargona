@@ -1567,14 +1567,18 @@ function saveCompanyProfile() {
     t.name = name;
     t.codePrefix = prefix;
   }
-  store.updateTenant(slug, { name, codePrefix: prefix });
+  store.updateTenant(slug, {
+    name,
+    codePrefix: prefix,
+    channelId: store.settings.channelId,
+    reviewsChannelId: store.settings.reviewsChannelId,
+    managerUsername: store.settings.managerUsername,
+  } as any);
   localStorage.setItem(`cargona_settings_${slug}`, JSON.stringify(store.settings));
   toastMessage.value = `Профиль компании обновлен: «${name}» (${prefix})`;
 
-  // If bot token is set, sync with server immediately
-  if (store.settings.botToken) {
-    saveBotSettings();
-  }
+  // Save bot & channel settings to server immediately
+  saveBotSettings();
 }
 
 async function loadBotSettings() {
@@ -1586,8 +1590,9 @@ async function loadBotSettings() {
       const data = text ? JSON.parse(text) : {};
       if (data.botToken) store.settings.botToken = data.botToken;
       if (data.botUsername) store.settings.botUsername = data.botUsername;
-      if (data.channelId) store.settings.channelId = data.channelId;
-      if (data.reviewsChannelId) store.settings.reviewsChannelId = data.reviewsChannelId;
+      if (data.channelId !== undefined) store.settings.channelId = data.channelId;
+      if (data.reviewsChannelId !== undefined) store.settings.reviewsChannelId = data.reviewsChannelId;
+      if (data.managerUsername !== undefined) store.settings.managerUsername = data.managerUsername;
     }
   } catch (e) {
     // Local fallback

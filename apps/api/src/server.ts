@@ -328,6 +328,9 @@ fastify.put<{
     baseCurrency?: string;
     ownerEmail?: string;
     ownerPassword?: string;
+    channelId?: string;
+    reviewsChannelId?: string;
+    managerUsername?: string;
   };
 }>('/api/o/:slug/profile', async (request, reply) => {
   const { slug } = request.params;
@@ -339,7 +342,18 @@ fastify.put<{
   if (request.body.baseCurrency) tenant.baseCurrency = request.body.baseCurrency;
   if (request.body.ownerEmail) (tenant as any).ownerEmail = request.body.ownerEmail.toLowerCase().trim();
   if (request.body.ownerPassword) (tenant as any).ownerPassword = request.body.ownerPassword.trim();
+  if (request.body.channelId !== undefined) (tenant as any).channelId = request.body.channelId;
+  if (request.body.reviewsChannelId !== undefined) (tenant as any).reviewsChannelId = request.body.reviewsChannelId;
+  if (request.body.managerUsername !== undefined) (tenant as any).managerUsername = request.body.managerUsername;
   tenant.updatedAt = new Date().toISOString();
+
+  // Also sync bot config channel/manager fields
+  let botConfig = store.botConfigs.find((b) => b.tenantId === tenant.id);
+  if (botConfig) {
+    if (request.body.channelId !== undefined) botConfig.channelIdForPosting = request.body.channelId || null;
+    if (request.body.reviewsChannelId !== undefined) (botConfig as any).reviewsChannelId = request.body.reviewsChannelId || null;
+    if (request.body.managerUsername !== undefined) (botConfig as any).managerUsername = request.body.managerUsername || null;
+  }
 
   // Also update owner user record if exists
   const ownerUser = store.users.find((u) => u.tenantId === tenant.id && u.role === 'OWNER');
@@ -1885,6 +1899,7 @@ fastify.get<{ Params: { slug: string } }>('/api/o/:slug/bot-settings', async (re
       welcomeMessage: '',
       appUrl: `https://${APP_DOMAIN}/o/${slug}/app`,
       reviewsChannelId: '',
+      managerUsername: '',
     };
   }
 
@@ -1893,8 +1908,9 @@ fastify.get<{ Params: { slug: string } }>('/api/o/:slug/bot-settings', async (re
     botToken: botConfig?.botToken || '',
     botUsername: botConfig?.botUsername || '',
     isActive: botConfig?.isActive || false,
-    channelId: botConfig?.channelIdForPosting || '',
+    channelId: botConfig?.channelIdForPosting || (tenant as any)?.channelId || '',
     reviewsChannelId: (botConfig as any)?.reviewsChannelId || (tenant as any)?.reviewsChannelId || '',
+    managerUsername: (botConfig as any)?.managerUsername || (tenant as any)?.managerUsername || '',
     welcomeMessage: botConfig?.welcomeMessage || '',
     appUrl: `https://${APP_DOMAIN}/o/${tenant.slug}/app`,
   };
@@ -1943,17 +1959,37 @@ fastify.post<{
     }
   }
 
-  (tenant as any).reviewsChannelId = reviewsChannelId || (tenant as any).reviewsChannelId || null;
+  if (channelId !== undefined) (tenant as any).channelId = channelId || null;
+  if (reviewsChannelId !== undefined) (tenant as any).reviewsChannelId = reviewsChannelId || null;
+  if (managerUsername !== undefined) (tenant as any).managerUsername = managerUsername || null;
 
   if (!botToken || !botToken.trim()) {
-    // Disable bot for tenant
-    const existing = store.botConfigs.find((b) => b.tenantId === tenant.id);
-    if (existing) {
+    // Save channel and manager settings even if bot token is not provided
+    let existing = store.botConfigs.find((b) => b.tenantId === tenant.id);
+    if (!existing) {
+      existing = {
+        id: store.nextId('bot', store.botConfigs),
+        tenantId: tenant.id,
+        botToken: '',
+        botUsername: '',
+        welcomeMessage: welcomeMessage || `Добро пожаловать в ${tenant.name}!`,
+        channelIdForPosting: channelId || null,
+        reviewsChannelId: reviewsChannelId || null,
+        managerUsername: managerUsername || null,
+        isActive: false,
+        webhookSecret: `sec_${Date.now()}`,
+        updatedAt: new Date().toISOString(),
+      };
+      store.botConfigs.push(existing);
+    } else {
       existing.isActive = false;
-      (existing as any).reviewsChannelId = reviewsChannelId || (existing as any).reviewsChannelId || null;
-      store.saveToFile();
+      if (channelId !== undefined) existing.channelIdForPosting = channelId || null;
+      if (reviewsChannelId !== undefined) (existing as any).reviewsChannelId = reviewsChannelId || null;
+      if (managerUsername !== undefined) (existing as any).managerUsername = managerUsername || null;
+      existing.updatedAt = new Date().toISOString();
     }
-    return { success: true, message: 'Бот отключен' };
+    store.saveToFile();
+    return { success: true, message: 'Настройки каналов и контактов сохранены' };
   }
 
   // Deactivate this token from any other tenant config so there's no ghost webhook
@@ -1977,6 +2013,7 @@ fastify.post<{
         welcomeMessage: welcomeMessage || `Добро пожаловать в ${tenant.name}!`,
         channelIdForPosting: channelId || null,
         reviewsChannelId: reviewsChannelId || null,
+        managerUsername: managerUsername || null,
         isActive: true,
         webhookSecret: `sec_${Date.now()}`,
         updatedAt: new Date().toISOString(),
@@ -1985,8 +2022,9 @@ fastify.post<{
     } else {
       botConfig.botToken = botToken.trim();
       botConfig.botUsername = botInfo.username;
-      botConfig.channelIdForPosting = channelId || botConfig.channelIdForPosting;
-      (botConfig as any).reviewsChannelId = reviewsChannelId !== undefined ? reviewsChannelId : (botConfig as any).reviewsChannelId;
+      botConfig.channelIdForPosting = channelId !== undefined ? (channelId || null) : botConfig.channelIdForPosting;
+      (botConfig as any).reviewsChannelId = reviewsChannelId !== undefined ? (reviewsChannelId || null) : (botConfig as any).reviewsChannelId;
+      (botConfig as any).managerUsername = managerUsername !== undefined ? (managerUsername || null) : (botConfig as any).managerUsername;
       botConfig.welcomeMessage = welcomeMessage || botConfig.welcomeMessage;
       botConfig.isActive = true;
       botConfig.updatedAt = new Date().toISOString();
