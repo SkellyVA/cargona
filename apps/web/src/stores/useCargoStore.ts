@@ -1020,15 +1020,6 @@ export const useCargoStore = defineStore('cargo', () => {
       if (found.codePrefix) settings.value.codePrefix = found.codePrefix;
       if (found.ownerEmail) settings.value.ownerEmail = found.ownerEmail;
       settings.value.baseCurrency = found.baseCurrency || 'USD';
-      if (!settings.value.chinaWarehouseAddress) {
-        settings.value.chinaWarehouseAddress = `浙江省金华市义乌市国际商贸区4区12号门 (${found.name})`;
-      }
-      if (!settings.value.chinaContactName) {
-        settings.value.chinaContactName = `${found.codePrefix} Warehouse Yiwu`;
-      }
-      if (!settings.value.channelId) {
-        settings.value.channelId = `@${found.slug}_news`;
-      }
     }
     syncTenantData(slug);
   }
@@ -1058,7 +1049,16 @@ export const useCargoStore = defineStore('cargo', () => {
         if (data.tenant.codePrefix) settings.value.codePrefix = data.tenant.codePrefix;
       }
       if (data.settings) {
-        settings.value = { ...settings.value, ...data.settings };
+        Object.entries(data.settings).forEach(([k, v]) => {
+          if (v !== undefined && v !== null && v !== '') {
+            (settings.value as any)[k] = v;
+          }
+        });
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem(`cargona_settings_${slug}`, JSON.stringify(settings.value));
+          } catch (_) {}
+        }
       }
       if (Array.isArray(data.branches)) {
         const tenantBranches: Branch[] = data.branches.map((b: any) => ({

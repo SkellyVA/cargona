@@ -411,11 +411,19 @@ fastify.get<{ Params: { slug: string } }>('/api/o/:slug/all', async (request, re
   const tenantPackages = (store.packages || []).filter((p) => p.tenantId === tenant.id);
   const tenantAuditLogs = (store.auditLogs || []).filter((a) => a.tenantId === tenant.id);
   const tenantWarehouses = (store.originWarehouses || []).filter((w: any) => w.tenantId === tenant.id);
-  const settings = (store.tenantSettings && store.tenantSettings[tenant.id]) || {
+  const botConfig = (store.botConfigs || []).find((b) => b.tenantId === tenant.id);
+  const rawTenantSettings = (store.tenantSettings && store.tenantSettings[tenant.id]) || {};
+  const settings = {
     companyName: tenant.name,
     codePrefix: tenant.codePrefix,
     ownerEmail: (tenant as any).ownerEmail,
     baseCurrency: tenant.baseCurrency || 'USD',
+    ...rawTenantSettings,
+    channelId: rawTenantSettings.channelId || botConfig?.channelIdForPosting || (tenant as any).channelId || '',
+    reviewsChannelId: rawTenantSettings.reviewsChannelId || (botConfig as any)?.reviewsChannelId || (tenant as any).reviewsChannelId || '',
+    managerUsername: rawTenantSettings.managerUsername || (botConfig as any)?.managerUsername || (tenant as any).managerUsername || '',
+    botToken: rawTenantSettings.botToken || botConfig?.botToken || '',
+    botUsername: rawTenantSettings.botUsername || botConfig?.botUsername || '',
   };
 
   const tenantCashAccounts = (store.cashAccounts || []).filter((a) => a.tenantId === tenant.id);

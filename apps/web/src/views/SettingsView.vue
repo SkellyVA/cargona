@@ -1590,9 +1590,9 @@ async function loadBotSettings() {
       const data = text ? JSON.parse(text) : {};
       if (data.botToken) store.settings.botToken = data.botToken;
       if (data.botUsername) store.settings.botUsername = data.botUsername;
-      if (data.channelId !== undefined) store.settings.channelId = data.channelId;
-      if (data.reviewsChannelId !== undefined) store.settings.reviewsChannelId = data.reviewsChannelId;
-      if (data.managerUsername !== undefined) store.settings.managerUsername = data.managerUsername;
+      if (data.channelId !== undefined && data.channelId !== '') store.settings.channelId = data.channelId;
+      if (data.reviewsChannelId !== undefined && data.reviewsChannelId !== '') store.settings.reviewsChannelId = data.reviewsChannelId;
+      if (data.managerUsername !== undefined && data.managerUsername !== '') store.settings.managerUsername = data.managerUsername;
     }
   } catch (e) {
     // Local fallback
@@ -1608,13 +1608,13 @@ onMounted(() => {
 });
 
 watch(
-  () => [route.params.slug, store.activeTenantSlug],
-  ([newSlug]) => {
-    if (newSlug && typeof newSlug === 'string') {
+  () => route.params.slug,
+  (newSlug) => {
+    if (newSlug && typeof newSlug === 'string' && newSlug !== store.activeTenantSlug) {
       store.setTenantSlug(newSlug);
+      loadBotSettings();
+      store.loadLoyaltySettingsFromBackend?.();
     }
-    loadBotSettings();
-    store.loadLoyaltySettingsFromBackend?.();
   }
 );
 
