@@ -756,7 +756,8 @@ export const useCargoStore = defineStore('cargo', () => {
   }
 
   function nextCargoCode(customPrefix?: string): string {
-    const p = (customPrefix || tenant.value?.codePrefix || settings.value.codePrefix || activeTenantSlug.value.substring(0, 3) || 'CRG').toUpperCase().trim();
+    const rawP = (customPrefix || tenant.value?.codePrefix || settings.value.codePrefix || (activeTenantSlug.value ? activeTenantSlug.value.substring(0, 3) : 'CRG')).trim();
+    const p = rawP.toUpperCase();
     let max = 0;
     for (const c of rawCustomers.value) {
       if (!c.cargoCode) continue;
@@ -765,6 +766,15 @@ export const useCargoStore = defineStore('cargo', () => {
         max = Math.max(max, parseInt(match[1], 10));
       }
     }
+    // If the configured prefix ends with a separator like / or - or _ or :
+    if (/[/\-_:]$/.test(p)) {
+      return `${p}${max + 1}`;
+    }
+    // If the prefix has a slash or colon inside (e.g. NOOR/S -> NOOR/S106)
+    if (p.includes('/') || p.includes(':')) {
+      return `${p}${max + 1}`;
+    }
+    // Otherwise standard prefix with hyphen, e.g. PR-001, CARGO-001
     return `${p}-${String(max + 1).padStart(3, '0')}`;
   }
 

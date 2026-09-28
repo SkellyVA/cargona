@@ -58,9 +58,10 @@
           <label class="text-text-secondary mb-1.5 block">Префикс карго-кода клиентов</label>
           <input
             v-model="store.settings.codePrefix"
-            placeholder="HAS / CRG / NOOR"
+            placeholder="Например: NOOR/S или CARGO- или MIR- или CAR/"
             class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none uppercase font-mono font-bold"
           />
+          <p class="text-[10px] text-text-tertiary mt-1">Любой формат: <span class="text-accent-cyan font-mono">NOOR/S</span> → NOOR/S105, <span class="text-accent-cyan font-mono">CARGO-</span> → CARGO-105, <span class="text-accent-cyan font-mono">CAR/</span> → CAR/105</p>
         </div>
       </div>
 
