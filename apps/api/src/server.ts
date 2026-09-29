@@ -2599,12 +2599,44 @@ fastify.get<{ Params: { slug: string }; Querystring: { tgUserId?: string; cargoC
 
     const customerPackages = store.packages.filter((p) => p.customerId === customer.id || p.customerCargoCode === customer.cargoCode);
 
-    const qrPayload = `cargona://pickup?t=${tenant.slug}&c=${customer.cargoCode}&token=sec_${Date.now()}`;
-    const originWarehouse = store.branches.find((b) => b.tenantId === tenant.id && b.type === 'ORIGIN_HUB')
+    const originWarehouse = tenantOriginWarehouses[0]
+      || store.branches.find((b) => b.tenantId === tenant.id && b.type === 'ORIGIN_HUB')
       || store.branches.find((b) => b.type === 'ORIGIN_HUB')
-      || { address: 'Yiwu International Trade City', phone: '+86 138 0000 0000' };
+      || { address: '浙江省金华市义乌市 Yiwu International Trade City {code}', phone: '+86 138 0000 0000', receiverName: '{name} ({code})' };
 
-    const warehouseAddressFor1688 = `收件人: ${customer.fullName} (${customer.cargoCode})\n电话: ${originHubPhone(originWarehouse.phone)}\n地址: 浙江省金华市义乌市 ${originWarehouse.address} (${customer.cargoCode})`;
+    const customerBranch = store.branches.find((b) => b.id === (customer as any).preferredBranchId && b.tenantId === tenant.id)
+      || store.branches.find((b) => b.tenantId === tenant.id && b.type !== 'ORIGIN_HUB')
+      || store.branches[0];
+
+    const branchCity = customerBranch?.city?.trim() || '';
+    const branchName = customerBranch?.name?.trim() || '';
+
+    const formatWhTpl = (tpl: string) => {
+      if (!tpl) return '';
+      const code = customer.cargoCode || `${tenant.codePrefix || 'CRG'}-001`;
+      const codeNumMatch = code.match(/\d+/);
+      const id = codeNumMatch ? codeNumMatch[0] : (customer.id ? String(customer.id).replace(/\D+/g, '') : code);
+      return tpl
+        .replace(/\{code\}/gi, code)
+        .replace(/\{user_?id\}/gi, id)
+        .replace(/\{id\}/gi, id)
+        .replace(/\{name\}/gi, customer.fullName || '')
+        .replace(/\{phone\}/gi, customer.phone || '')
+        .replace(/\{city\}/gi, branchCity)
+        .replace(/\{branch_?city\}/gi, branchCity)
+        .replace(/\{pvz_?city\}/gi, branchCity)
+        .replace(/\{branch_?name\}/gi, branchName)
+        .replace(/\{branch\}/gi, branchName)
+        .replace(/\{pvz\}/gi, branchName);
+    };
+
+    const rawWhAddr = (originWarehouse as any).address || '';
+    const rawWhReceiver = (originWarehouse as any).receiverName || `${customer.fullName} (${customer.cargoCode})`;
+    const resolvedAddress = formatWhTpl(rawWhAddr);
+    const resolvedReceiver = formatWhTpl(rawWhReceiver);
+    const resolvedPhone = (originWarehouse as any).phone || originHubPhone('');
+
+    const warehouseAddressFor1688 = `收件人: ${resolvedReceiver}\n电话: ${resolvedPhone}\n地址: ${resolvedAddress}`;
 
     return {
       tenant: {

@@ -1534,12 +1534,23 @@ function fillWarehouseTemplate(templateStr: string, customer: any, tenant: any):
   const codeNumMatch = code.match(/\d+/);
   const id = codeNumMatch ? codeNumMatch[0] : (customer?.id ? String(customer.id).replace(/\D+/g, '') : code);
 
+  const branchId = customer?.preferredBranchId || regForm.value?.branchId || store.branches[0]?.id || '';
+  const branch = store.branches.find((b) => b.id === branchId) || store.branches[0];
+  const branchCity = branch?.city?.trim() || '';
+  const branchName = branch?.name?.trim() || '';
+
   return templateStr
     .replace(/\{code\}/gi, code)
     .replace(/\{user_?id\}/gi, id)
     .replace(/\{id\}/gi, id)
     .replace(/\{name\}/gi, name)
-    .replace(/\{phone\}/gi, phone);
+    .replace(/\{phone\}/gi, phone)
+    .replace(/\{city\}/gi, branchCity)
+    .replace(/\{branch_?city\}/gi, branchCity)
+    .replace(/\{pvz_?city\}/gi, branchCity)
+    .replace(/\{branch_?name\}/gi, branchName)
+    .replace(/\{branch\}/gi, branchName)
+    .replace(/\{pvz\}/gi, branchName);
 }
 
 function formatWarehouseAddress(wh: any) {

@@ -472,7 +472,7 @@
             class="w-full h-10 px-3.5 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono text-xs"
           />
           <div class="text-[10px] text-text-tertiary font-mono mt-1">
-            Теги подстановки: <span class="text-accent-cyan">{code}</span> — код карго, <span class="text-accent-cyan">{id}</span> — ID клиента, <span class="text-accent-cyan">{name}</span> — имя, <span class="text-accent-cyan">{phone}</span> — телефон
+            Теги подстановки: <span class="text-accent-cyan">{code}</span> — код карго, <span class="text-accent-cyan">{city}</span> — город ПВЗ клиента, <span class="text-accent-cyan">{branch}</span> — название ПВЗ, <span class="text-accent-cyan">{name}</span> — имя, <span class="text-accent-cyan">{phone}</span> — телефон, <span class="text-accent-cyan">{id}</span> — ID
           </div>
         </div>
 
@@ -608,7 +608,7 @@
             class="w-full h-10 px-3.5 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono text-xs"
           />
           <div class="text-[10px] text-text-tertiary font-mono mt-1">
-            Теги подстановки: <span class="text-accent-cyan">{code}</span> — код карго, <span class="text-accent-cyan">{id}</span> — ID клиента, <span class="text-accent-cyan">{name}</span> — имя, <span class="text-accent-cyan">{phone}</span> — телефон
+            Теги подстановки: <span class="text-accent-cyan">{code}</span> — код карго, <span class="text-accent-cyan">{city}</span> — город ПВЗ клиента, <span class="text-accent-cyan">{branch}</span> — название ПВЗ, <span class="text-accent-cyan">{name}</span> — имя, <span class="text-accent-cyan">{phone}</span> — телефон, <span class="text-accent-cyan">{id}</span> — ID
           </div>
         </div>
 
