@@ -2524,10 +2524,12 @@ fastify.post<{
   }
 
   // Record payment
+  const activeTenantId = tenant?.id || customer?.tenantId || store.tenants[0]?.id || 'tenant-noor';
+  const activeBranchId = branch?.id || branchId || store.branches[0]?.id || 'branch-main';
   const payment = {
     id: store.nextId('pay', store.payments),
-    tenantId: tenant?.id || customer?.tenantId || 'tenant-cargona-001',
-    branchId: branch?.id || branchId || 'b-1',
+    tenantId: activeTenantId,
+    branchId: activeBranchId,
     customerId: customer?.id || customerId || 'cust-direct',
     cashierUserId: 'user-cashier-001',
     amount: amountPaid || 0,
@@ -2541,8 +2543,8 @@ fastify.post<{
   // Add audit log
   store.auditLogs.push({
     id: store.nextId('audit', store.auditLogs),
-    tenantId: tenant?.id || customer?.tenantId || 'tenant-cargona-001',
-    branchId: branch?.id || branchId || 'b-1',
+    tenantId: activeTenantId,
+    branchId: activeBranchId,
     userId: 'user-cashier-001',
     userName: 'Кассир ПВЗ',
     userRole: 'PVZ_OPERATOR',

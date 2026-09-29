@@ -116,7 +116,7 @@
               <td class="py-3.5 px-3 whitespace-nowrap">
                 <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white font-medium text-xs">
                   <MapPin class="w-3.5 h-3.5 text-accent-cyan shrink-0" />
-                  <span>{{ log.branchName || 'ПВЗ Душанбе Центр' }}</span>
+                  <span>{{ formatBranchName(log) }}</span>
                 </span>
               </td>
 
@@ -126,22 +126,22 @@
                   class="px-2.5 py-1 rounded-lg font-semibold text-[11px] border inline-block"
                   :class="getBadgeClass(log.action)"
                 >
-                  {{ log.actionLabel }}
+                  {{ formatActionLabel(log) }}
                 </span>
               </td>
 
               <!-- Объект -->
               <td class="py-3.5 px-3 font-mono font-bold text-white whitespace-nowrap">
-                {{ log.target }}
+                {{ formatTarget(log.target) }}
               </td>
 
               <!-- Оператор -->
               <td class="py-3.5 px-3 whitespace-nowrap">
                 <div class="flex items-center gap-2">
                   <div class="w-5 h-5 rounded-full bg-white/[0.08] flex items-center justify-center text-[10px] text-white">
-                    {{ log.user.charAt(0).toUpperCase() }}
+                    {{ (log.user || 'А').charAt(0).toUpperCase() }}
                   </div>
-                  <span class="text-text-secondary">{{ log.user }}</span>
+                  <span class="text-text-secondary">{{ log.user || 'Администратор' }}</span>
                 </div>
               </td>
 
@@ -167,17 +167,17 @@
               class="px-2 py-0.5 rounded-lg font-semibold text-[10px] border"
               :class="getBadgeClass(log.action)"
             >
-              {{ log.actionLabel }}
+              {{ formatActionLabel(log) }}
             </span>
           </div>
 
           <div class="flex items-center justify-between gap-2">
             <div class="font-mono font-bold text-white text-sm tracking-wide">
-              {{ log.target }}
+              {{ formatTarget(log.target) }}
             </div>
             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white text-[11px]">
               <MapPin class="w-3 h-3 text-accent-cyan shrink-0" />
-              <span class="truncate max-w-[130px]">{{ log.branchName || 'ПВЗ Душанбе Центр' }}</span>
+              <span class="truncate max-w-[130px]">{{ formatBranchName(log) }}</span>
             </span>
           </div>
 
@@ -189,9 +189,9 @@
             <span class="text-[10px] uppercase tracking-wider">Оператор</span>
             <div class="flex items-center gap-1.5 font-medium text-white">
               <div class="w-4 h-4 rounded-full bg-white/[0.08] flex items-center justify-center text-[9px]">
-                {{ log.user.charAt(0).toUpperCase() }}
+                {{ (log.user || 'А').charAt(0).toUpperCase() }}
               </div>
-              <span>{{ log.user }}</span>
+              <span>{{ log.user || 'Администратор' }}</span>
             </div>
           </div>
         </div>
@@ -227,7 +227,7 @@ const selectedBranchFilter = ref<string>('ALL');
 const branchFilterOptions = computed<DropdownOption[]>(() => [
   { value: 'ALL', label: 'Все филиалы и склад' },
   ...store.branches.map((b) => ({ value: b.id, label: b.name })),
-  { value: 'b-origin', label: 'Склад Иу (Китай)' },
+  ...store.originWarehouses.map((w) => ({ value: w.id, label: `Склад ${w.city} (${w.country})` })),
 ]);
 
 const actionFilterOptions: DropdownOption[] = [
@@ -236,6 +236,7 @@ const actionFilterOptions: DropdownOption[] = [
   { value: 'INTAKE', label: 'Приемка на склад' },
   { value: 'CELL_ASSIGN', label: 'Назначение полки' },
   { value: 'CASH_COLLECT', label: 'Инкассация' },
+  { value: 'UPDATE', label: 'Настройки и бот' },
   { value: 'STATUS_CHANGE', label: 'Смена статуса' },
 ];
 
@@ -266,19 +267,63 @@ const countCellAssigns = computed(() => {
 });
 
 const countCashCollects = computed(() => {
-  return filteredLogs.value.filter((l) => l.action === 'CASH_COLLECT').length;
+  return filteredLogs.value.filter((l) => l.action === 'CASH_COLLECT' || l.action === 'CASH_COLLECTION').length;
 });
+
+function formatBranchName(log: any) {
+  if (log.branchName && !log.branchName.includes('Душанбе Центр')) {
+    return log.branchName;
+  }
+  if (log.branchId) {
+    const b = store.branches.find((br) => br.id === log.branchId);
+    if (b) return b.name;
+    const wh = store.originWarehouses.find((w) => w.id === log.branchId || (w.id === 'wh-cn' && log.branchId === 'b-origin'));
+    if (wh) return `Склад ${wh.city} (${wh.country})`;
+  }
+  if (log.target && (log.target.startsWith('tenant-') || log.target.startsWith('bot-') || log.action === 'UPDATE')) {
+    return 'Главный офис';
+  }
+  return store.branches[0]?.name || 'Главный офис';
+}
+
+function formatTarget(target: string) {
+  if (!target) return '—';
+  if (target.startsWith('tenant-') || target === 'cargona' || target === 'noor') {
+    return store.tenant?.name || store.settings.companyName || 'Организация';
+  }
+  if (target.startsWith('bot-')) {
+    return 'Telegram-бот';
+  }
+  return target;
+}
+
+function formatActionLabel(log: any) {
+  if (log.actionLabel && log.actionLabel !== 'LOG' && log.actionLabel !== 'UPDATE' && log.actionLabel !== 'Действие') {
+    return log.actionLabel;
+  }
+  if (log.action === 'UPDATE') return 'Обновление';
+  if (log.action === 'CREATE') return 'Создание';
+  if (log.action === 'HANDOVER') return 'Выдача';
+  if (log.action === 'INTAKE') return 'Приемка';
+  if (log.action === 'CELL_ASSIGN') return 'Полка';
+  if (log.action === 'CASH_COLLECT' || log.action === 'CASH_COLLECTION') return 'Инкассация';
+  return log.actionLabel || log.action || 'Действие';
+}
 
 function getBadgeClass(action: string) {
   switch (action) {
     case 'HANDOVER':
-      return 'bg-accent-emerald/10 text-accent-emerald border-accent-emerald/20';
+      return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
     case 'CELL_ASSIGN':
       return 'bg-accent-blue/10 text-accent-cyan border-accent-cyan/20';
     case 'INTAKE':
+    case 'CREATE':
       return 'bg-accent-indigo/10 text-accent-indigo border-accent-indigo/20';
     case 'CASH_COLLECT':
+    case 'CASH_COLLECTION':
       return 'bg-accent-amber/10 text-accent-amber border-accent-amber/20';
+    case 'UPDATE':
+      return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
     default:
       return 'bg-white/[0.05] text-text-secondary border-white/[0.08]';
   }

@@ -1755,7 +1755,7 @@ export const useCargoStore = defineStore('cargo', () => {
     const timeStr = `${now.getDate().toString().padStart(2, '0')}.${(now.getMonth() + 1).toString().padStart(2, '0')} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
     const branch = branches.value.find((b) => b.id === branchId);
     const originWh = originWarehouses.value.find((w) => w.id === branchId || (w.id === 'wh-cn' && branchId === 'b-origin'));
-    const resolvedBranchName = branchName || (branch ? branch.name : originWh ? `Склад ${originWh.city} (${originWh.country})` : branchId === 'b-origin' ? 'Склад Иу (Китай)' : 'ПВЗ Душанбе Центр');
+    const resolvedBranchName = branchName || (branch ? branch.name : originWh ? `Склад ${originWh.city} (${originWh.country})` : branchId === 'b-origin' ? 'Склад (Китай)' : branches.value[0]?.name || 'Главный офис');
 
     const newLog: AuditEntry = {
       id: nextSeqId('log', rawAuditLogs.value),
@@ -2024,7 +2024,7 @@ export const useCargoStore = defineStore('cargo', () => {
     pkg.shelfLocation = shelf;
     pkg.branchId = branchId;
     const branch = rawBranches.value.find((b) => b.id === branchId);
-    const branchName = branch ? branch.name : 'ПВЗ Душанбе Центр';
+    const branchName = branch ? branch.name : rawBranches.value[0]?.name || 'Основной филиал';
     addAudit('CELL_ASSIGN', 'Назначение полки', pkg.trackingNumber, `Привязана ${shelf} (${branchName})`, currentUser.value?.name || 'operator', branchId, branchName);
 
     try {
@@ -2562,8 +2562,8 @@ export const useCargoStore = defineStore('cargo', () => {
       : null;
     const branch = !isOrigin ? rawBranches.value.find((b) => b.id === (requestedBranchId || 'b-1')) : null;
 
-    const targetBranchId = originWh ? (requestedBranchId === 'b-origin' ? 'b-origin' : originWh.id) : branch?.id || 'b-1';
-    const targetBranchName = originWh ? `Склад ${originWh.city} (${originWh.country})` : branch?.name || 'ПВЗ Душанбе Центр';
+    const targetBranchId = originWh ? (requestedBranchId === 'b-origin' ? 'b-origin' : originWh.id) : branch?.id || rawBranches.value[0]?.id || 'b-1';
+    const targetBranchName = originWh ? `Склад ${originWh.city} (${originWh.country})` : branch?.name || rawBranches.value[0]?.name || 'Основной филиал';
     const targetStatus = data.status || (originWh ? 'RECEIVED_AT_ORIGIN' : data.shelfLocation ? 'READY_FOR_PICKUP' : 'RECEIVED_AT_ORIGIN');
     const auditActionLabel = originWh ? 'Приемка на складе' : 'Приемка в ПВЗ';
     const operatorUser = currentUser.value?.name || (originWh ? 'farhod_china' : 'operator');
