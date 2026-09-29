@@ -72,7 +72,7 @@
       <div class="flex items-center p-1 rounded-2xl bg-[#161922] border border-white/[0.08] shadow-inner">
         <button
           type="button"
-          @click="switchAuthTab('register')"
+          @click.prevent.stop="switchAuthTab('register')"
           class="flex-1 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
           :class="authTab === 'register' ? 'bg-gradient-to-r from-accent-blue to-accent-cyan text-white shadow-md' : 'text-text-tertiary hover:text-white'"
         >
@@ -81,7 +81,7 @@
         </button>
         <button
           type="button"
-          @click="switchAuthTab('login')"
+          @click.prevent.stop="switchAuthTab('login')"
           class="flex-1 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
           :class="authTab === 'login' ? 'bg-gradient-to-r from-accent-blue to-accent-cyan text-white shadow-md' : 'text-text-tertiary hover:text-white'"
         >
@@ -1397,9 +1397,7 @@ const clientReferralUrl = computed(() => {
 function copyReferralLink() {
   navigator.clipboard.writeText(clientReferralUrl.value);
   miniAppToast.value = 'Реферальная ссылка скопирована!';
-  if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.HapticFeedback) {
-    (window as any).Telegram.WebApp.HapticFeedback.notificationOccurred('success');
-  }
+  safeHaptic('notification', 'success');
 }
 
 function shareReferralToTelegram() {
@@ -1658,9 +1656,22 @@ function selectCountry(country: CountryDial) {
   selectedCountry.value = country;
   showCountryModal.value = false;
   countrySearch.value = '';
-  if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.HapticFeedback) {
-    (window as any).Telegram.WebApp.HapticFeedback.selectionChanged();
-  }
+  safeHaptic('selection');
+}
+
+function safeHaptic(type: 'selection' | 'impact' | 'notification', style: string = 'light') {
+  try {
+    if (typeof window === 'undefined') return;
+    const haptic = (window as any).Telegram?.WebApp?.HapticFeedback;
+    if (!haptic) return;
+    if (type === 'selection' && typeof haptic.selectionChanged === 'function') {
+      haptic.selectionChanged();
+    } else if (type === 'impact' && typeof haptic.impactOccurred === 'function') {
+      haptic.impactOccurred(style);
+    } else if (type === 'notification' && typeof haptic.notificationOccurred === 'function') {
+      haptic.notificationOccurred(style);
+    }
+  } catch (_) {}
 }
 
 // === АВТОРИЗАЦИЯ И РЕГИСТРАЦИЯ ===
@@ -1670,9 +1681,7 @@ const isRegistered = ref(false);
 function switchAuthTab(tab: 'register' | 'login') {
   authTab.value = tab;
   loginError.value = '';
-  if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.HapticFeedback) {
-    (window as any).Telegram.WebApp.HapticFeedback.selectionChanged();
-  }
+  safeHaptic('selection');
 }
 
 // Вход по Cargo ID
@@ -1726,18 +1735,14 @@ async function handleCheckCargoId() {
 
     if (!found) {
       loginError.value = `Карго ID «${rawInput}» не найден. Проверьте правильность или зарегистрируйтесь.`;
-      if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.HapticFeedback) {
-        (window as any).Telegram.WebApp.HapticFeedback.notificationOccurred('error');
-      }
+      safeHaptic('notification', 'error');
       return;
     }
 
     matchedLoginCustomer.value = found;
     loginStep.value = 'phone';
     loginPhoneLast4.value = '';
-    if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.HapticFeedback) {
-      (window as any).Telegram.WebApp.HapticFeedback.impactOccurred('medium');
-    }
+    safeHaptic('impact', 'medium');
   } finally {
     isCheckingCargoId.value = false;
   }
@@ -1758,9 +1763,7 @@ function handleLoginSubmit() {
 
   if (custLast4 !== inputDigits) {
     loginError.value = 'Неверные 4 цифры номера телефона. Попробуйте снова.';
-    if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.HapticFeedback) {
-      (window as any).Telegram.WebApp.HapticFeedback.notificationOccurred('error');
-    }
+    safeHaptic('notification', 'error');
     return;
   }
 
@@ -1772,9 +1775,7 @@ function handleLoginSubmit() {
     localStorage.setItem(`cargona_client_cargo_code_${slugParam}`, matchedLoginCustomer.value.cargoCode);
   }
 
-  if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.HapticFeedback) {
-    (window as any).Telegram.WebApp.HapticFeedback.notificationOccurred('success');
-  }
+  safeHaptic('notification', 'success');
 }
 
 function resetLogin() {
@@ -2094,10 +2095,7 @@ function handleRegister() {
   }
 
   isRegistered.value = true;
-
-  if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.HapticFeedback) {
-    (window as any).Telegram.WebApp.HapticFeedback.notificationOccurred('success');
-  }
+  safeHaptic('notification', 'success');
 }
 
 function copyAddress() {
@@ -2105,10 +2103,7 @@ function copyAddress() {
   const addressString = formatWarehouseAddress(currentWarehouse.value);
   navigator.clipboard.writeText(addressString);
   copyStatusOverride.value = `Адрес (${currentWarehouse.value.country}) скопирован!`;
-
-  if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.HapticFeedback) {
-    (window as any).Telegram.WebApp.HapticFeedback.impactOccurred('light');
-  }
+  safeHaptic('impact', 'light');
 
   setTimeout(() => {
     copyStatusOverride.value = null;
@@ -2129,9 +2124,6 @@ function addTrack() {
     status: 'RECEIVED_AT_ORIGIN',
   });
   newTrack.value = '';
-
-  if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.HapticFeedback) {
-    (window as any).Telegram.WebApp.HapticFeedback.notificationOccurred('success');
-  }
+  safeHaptic('notification', 'success');
 }
 </script>
