@@ -1900,9 +1900,12 @@ fastify.post<{
 // ==========================================
 
 // Helper: Setup Webhook with Telegram API
-async function setupTelegramBotWebhook(token: string, tenantSlug: string, tenantName: string) {
+async function setupTelegramBotWebhook(token: string, tenantSlug: string, tenantName: string, hostHeader?: string) {
   const cleanToken = token.trim().replace(/^bot/i, '');
-  const domain = APP_DOMAIN.replace(/^https?:\/\//, '').replace(/\/+$/, '').trim();
+  let domain = (hostHeader || APP_DOMAIN || '').replace(/^https?:\/\//, '').replace(/\/+$/, '').trim();
+  if (!domain || domain.includes('localhost') || domain.includes('127.0.0.1')) {
+    domain = 'noor.akii.world';
+  }
   const webhookUrl = `https://${domain}/api/bot/webhook/${tenantSlug}`;
   const appUrl = `https://${domain}/o/${tenantSlug}/app`;
 
@@ -1955,9 +1958,10 @@ async function setupTelegramBotWebhook(token: string, tenantSlug: string, tenant
     const hookData = (await hookRes.json().catch(() => ({}))) as any;
     if (!hookData.ok) {
       console.warn(`[Bot Webhook] Warning for ${botUsername}:`, hookData);
+      throw new Error(`Telegram API Error: ${hookData.description || 'Не удалось установить вебхук'}`);
     }
-  } catch (e) {
-    console.warn(`[Bot Webhook] Failed setting webhook for ${botUsername}:`, e);
+  } catch (e: any) {
+    console.warn(`[Bot Webhook] Failed setting webhook for ${botUsername}:`, e.message);
   }
 
   // 4. Set Default Chat Menu Button (Persistent WebApp button)
@@ -2111,7 +2115,8 @@ fastify.post<{
   }
 
   try {
-    const botInfo = await setupTelegramBotWebhook(botToken, tenant.slug, tenant.name);
+    const host = (request.headers['x-forwarded-host'] as string) || request.headers.host || APP_DOMAIN;
+    const botInfo = await setupTelegramBotWebhook(botToken, tenant.slug, tenant.name, host);
 
     let botConfig = store.botConfigs.find((b) => b.tenantId === tenant.id);
     if (!botConfig) {
@@ -2272,29 +2277,27 @@ fastify.post<{
   const { slug } = request.params;
   const update = request.body;
 
-  let tenant = store.tenants.find((t) => t.slug === slug);
+  let tenant = store.tenants.find((t) => (t.slug || '').toLowerCase() === (slug || '').toLowerCase());
+  if (!tenant && store.tenants.length > 0) {
+    tenant = store.tenants[0];
+  }
   if (!tenant) {
     console.warn(`[Bot Webhook] Received update for unknown tenant slug: ${slug}`);
     return reply.send({ ok: true });
   }
 
-  let botConfig = store.botConfigs.find((b) => b.tenantId === tenant!.id && b.isActive);
-  if (!botConfig || !botConfig.botToken) {
-    const anyActiveConfig = store.botConfigs.find((b) => b.isActive && b.botToken);
-    if (anyActiveConfig) {
-      const activeTenant = store.tenants.find((t) => t.id === anyActiveConfig.tenantId);
-      if (activeTenant) {
-        tenant = activeTenant;
-        botConfig = anyActiveConfig;
-      }
-    }
+  let botConfig = store.botConfigs.find((b) => b.tenantId === tenant!.id && b.isActive && b.botToken);
+  if (!botConfig) {
+    botConfig = store.botConfigs.find((b) => b.isActive && b.botToken) || store.botConfigs[0];
   }
 
-  if (!botConfig || !botConfig.botToken) {
+  const envToken = process.env.TELEGRAM_BOT_TOKEN?.trim();
+  const token = botConfig?.botToken || (envToken && !envToken.startsWith('MOCK_') ? envToken : '');
+
+  if (!token) {
     return reply.send({ ok: true });
   }
 
-  const token = botConfig.botToken;
   const message = update?.message || update?.edited_message;
   if (!message || !message.chat) {
     return reply.send({ ok: true });
@@ -2304,15 +2307,23 @@ fastify.post<{
   const text = (message.text || '').trim();
   const fromUser = message.from;
   const userName = fromUser?.first_name || fromUser?.username || 'клиент';
-  const domain = APP_DOMAIN.replace(/^https?:\/\//, '');
-  const appUrl = `https://${domain}/o/${tenant.slug}/app`;
+  const domain = ((request.headers['x-forwarded-host'] as string) || request.headers.host || APP_DOMAIN || 'noor.akii.world')
+    .replace(/^https?:\/\//, '').replace(/\/+$/, '').trim();
+  const baseAppUrl = `https://${domain}/o/${tenant.slug}/app`;
+
+  // Check if start command has referral param: /start ref_NOOR-001 or /start 001
+  let appUrl = baseAppUrl;
+  const startMatch = text.match(/^\/start\s+(?:ref_)?(.+)$/i);
+  if (startMatch && startMatch[1]) {
+    appUrl = `${baseAppUrl}?ref=${encodeURIComponent(startMatch[1].trim())}`;
+  }
 
   try {
     // 1. Search track number if user sends a digits/track string (length >= 6 and not a command)
     if (text.length >= 6 && !text.startsWith('/')) {
       const foundPkg = store.packages.find(
         (p) =>
-          p.tenantId === tenant.id &&
+          p.tenantId === tenant!.id &&
           (p.trackingNumber.toLowerCase() === text.toLowerCase() ||
             p.internalBarcode.toLowerCase() === text.toLowerCase())
       );
@@ -2369,7 +2380,7 @@ fastify.post<{
       [{ text: '📦 Открыть личный кабинет', web_app: { url: appUrl } }],
     ];
 
-    if (botConfig.channelIdForPosting) {
+    if (botConfig?.channelIdForPosting) {
       const channelLink = `https://t.me/${botConfig.channelIdForPosting.replace('@', '')}`;
       inlineKeyboard.push([{ text: '📢 Наш Telegram-канал', url: channelLink }]);
     }
@@ -2855,9 +2866,34 @@ fastify.post<{
 
 // Auto-check bot webhooks on startup
 async function initBotWebhooksOnStartup() {
+  const envToken = process.env.TELEGRAM_BOT_TOKEN?.trim();
+  if (envToken && !envToken.startsWith('MOCK_')) {
+    const primaryTenant = store.tenants[0] || { id: 'tenant-noor', name: 'NOOR CARGO', slug: 'noor' };
+    let botCfg = store.botConfigs.find((b) => b.tenantId === primaryTenant.id);
+    if (!botCfg) {
+      botCfg = {
+        id: store.nextId('bot', store.botConfigs),
+        tenantId: primaryTenant.id,
+        botToken: envToken,
+        botUsername: '',
+        welcomeMessage: `Добро пожаловать в ${primaryTenant.name}!`,
+        channelIdForPosting: null,
+        reviewsChannelId: null,
+        managerUsername: null,
+        isActive: true,
+        webhookSecret: `sec_${Date.now()}`,
+        updatedAt: new Date().toISOString(),
+      };
+      store.botConfigs.push(botCfg);
+    } else {
+      botCfg.botToken = envToken;
+      botCfg.isActive = true;
+    }
+  }
+
   for (const botCfg of store.botConfigs) {
     if (botCfg.isActive && botCfg.botToken && !botCfg.botToken.startsWith('MOCK_')) {
-      const tenant = store.tenants.find((t) => t.id === botCfg.tenantId);
+      const tenant = store.tenants.find((t) => t.id === botCfg.tenantId) || store.tenants[0];
       if (tenant) {
         try {
           await setupTelegramBotWebhook(botCfg.botToken, tenant.slug, tenant.name);
