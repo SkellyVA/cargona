@@ -71,6 +71,13 @@
 
     <!-- Список рейсов -->
     <div class="space-y-4">
+      <!-- ИНДИКАТОР ЗАГРУЗКИ РЕЙСОВ -->
+      <div v-if="store.isDataLoading" class="py-20 flex flex-col items-center justify-center space-y-3">
+        <div class="w-8 h-8 border-2 border-accent-cyan/20 border-t-accent-cyan rounded-full animate-spin"></div>
+        <p class="text-xs text-text-tertiary">Загрузка рейсов...</p>
+      </div>
+
+      <template v-else>
       <div v-if="store.trips.length === 0" class="bg-surface border border-surface-border rounded-2xl sm:rounded-3xl p-8 sm:p-12 text-center space-y-4 shadow-card">
         <div class="w-16 h-16 rounded-3xl bg-accent-blue/15 border border-accent-blue/30 text-accent-cyan flex items-center justify-center mx-auto">
           <Truck class="w-8 h-8" />
@@ -189,6 +196,7 @@
           </div>
         </div>
       </div>
+      </template>
     </div>
 
     <!-- Модальное окно: Создать рейс -->

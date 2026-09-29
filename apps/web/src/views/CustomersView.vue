@@ -101,6 +101,13 @@
         </div>
       </div>
 
+      <!-- ИНДИКАТОР ЗАГРУЗКИ КЛИЕНТОВ -->
+      <div v-if="store.isDataLoading" class="py-20 flex flex-col items-center justify-center space-y-3">
+        <div class="w-8 h-8 border-2 border-accent-cyan/20 border-t-accent-cyan rounded-full animate-spin"></div>
+        <p class="text-xs text-text-tertiary">Загрузка и парсинг клиентов...</p>
+      </div>
+
+      <template v-else>
       <!-- 1. МОБИЛЬНЫЙ ВИД: Карточки клиентов -->
       <div class="md:hidden space-y-3">
         <div
@@ -283,6 +290,7 @@
       <div v-if="filteredCustomers.length === 0" class="py-12 text-center text-text-tertiary">
         Клиентов не найдено
       </div>
+      </template>
     </div>
 
     <!-- Модальное окно: Новый клиент -->

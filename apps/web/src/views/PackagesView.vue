@@ -57,6 +57,13 @@
         </div>
       </div>
 
+      <!-- ИНДИКАТОР ЗАГРУЗКИ ПОСЫЛОК -->
+      <div v-if="store.isDataLoading" class="py-20 flex flex-col items-center justify-center space-y-3">
+        <div class="w-8 h-8 border-2 border-accent-cyan/20 border-t-accent-cyan rounded-full animate-spin"></div>
+        <p class="text-xs text-text-tertiary">Загрузка и парсинг посылок...</p>
+      </div>
+
+      <template v-else>
       <!-- 1. МОБИЛЬНЫЙ ВИД: Карточки посылок (для смартфонов) -->
       <div class="md:hidden space-y-3">
         <div
@@ -281,6 +288,7 @@
           </button>
         </div>
       </div>
+      </template>
     </div>
 
     <!-- Модальное окно добавления посылки -->

@@ -22,11 +22,16 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     (async () => {
       try {
-        return await fetch(event.request);
+        const response = await fetch(event.request);
+        return response;
       } catch (err) {
         const cached = await caches.match(event.request);
         if (cached) return cached;
-        throw err;
+        if (event.request.mode === 'navigate') {
+          const indexCached = await caches.match('/index.html');
+          if (indexCached) return indexCached;
+        }
+        return new Response('', { status: 408, statusText: 'Offline or network error' });
       }
     })()
   );

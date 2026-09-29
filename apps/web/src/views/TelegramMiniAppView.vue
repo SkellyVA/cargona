@@ -1921,23 +1921,22 @@ async function fetchTenantInfo(slug: string) {
   }
 }
 
-onMounted(async () => {
-  // 1. Sync tenant slug and referral code from URL
+onMounted(() => {
+  // 1. Telegram WebApp Integration - CALL READY IMMEDIATELY TO PREVENT WHITE SCREEN
+  if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp) {
+    const tg = (window as any).Telegram.WebApp;
+    try {
+      tg.ready();
+      tg.expand();
+      if (tg.setHeaderColor) tg.setHeaderColor('#0B0C10');
+      if (tg.setBackgroundColor) tg.setBackgroundColor('#0B0C10');
+    } catch (e) {}
+  }
+
   const slugParam = (route.params.slug as string) || store.activeTenantSlug || store.tenant?.slug || store.tenants[0]?.slug || 'test';
   if (slugParam) {
     store.setTenantSlug(slugParam);
-    try {
-      await Promise.allSettled([
-        fetchTenantInfo(slugParam),
-        store.syncTenantData(slugParam, true),
-        store.loadLoyaltySettingsFromBackend?.()
-      ]);
-    } catch (e) {
-      console.warn('MiniApp init error:', e);
-    }
   }
-
-  isInitialLoaded.value = true;
 
   if (route.query.ref && typeof route.query.ref === 'string') {
     referredByCode.value = route.query.ref.trim();
@@ -1955,46 +1954,66 @@ onMounted(async () => {
     }
   }
 
-  // 2. Telegram WebApp Integration
-  if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp) {
-    const tg = (window as any).Telegram.WebApp;
-    try {
-      tg.ready();
-      tg.expand();
-      if (tg.setHeaderColor) tg.setHeaderColor('#0B0C10');
-      if (tg.setBackgroundColor) tg.setBackgroundColor('#0B0C10');
-    } catch (e) {}
+  const checkTelegramUser = () => {
+    if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp) {
+      const tg = (window as any).Telegram.WebApp;
+      const startParam = tg.initDataUnsafe?.start_param;
+      if (startParam && typeof startParam === 'string') {
+        const match = startParam.match(/^ref_(.+)$/);
+        if (match) {
+          referredByCode.value = match[1].trim();
+        }
+      }
 
-    const tgUser = tg.initDataUnsafe?.user;
-    const startParam = tg.initDataUnsafe?.start_param;
-    if (startParam && typeof startParam === 'string') {
-      const match = startParam.match(/^ref_(.+)$/);
-      if (match) {
-        referredByCode.value = match[1].trim();
+      const tgUser = tg.initDataUnsafe?.user;
+      if (tgUser) {
+        // Look up customer by telegram user ID or username
+        const existing = store.customers.find((c) =>
+          (c.telegramUserId && String(c.telegramUserId) === String(tgUser.id)) ||
+          (c.telegramUsername && tgUser.username && c.telegramUsername.toLowerCase().replace('@', '') === tgUser.username.toLowerCase())
+        );
+
+        if (existing) {
+          activeCustomer.value = existing;
+          isRegistered.value = true;
+          if (slugParam) localStorage.setItem(`cargona_client_cargo_code_${slugParam}`, existing.cargoCode);
+        } else if (!isRegistered.value) {
+          // Prepare registration form for new client
+          const fullName = `${tgUser.first_name || ''} ${tgUser.last_name || ''}`.trim();
+          regForm.value.fullName = fullName || '';
+          regForm.value.telegramUsername = tgUser.username ? `@${tgUser.username}` : '';
+          regForm.value.telegramUserId = tgUser.id;
+          regForm.value.branchId = store.branches[0]?.id || '';
+          isRegistered.value = false;
+        }
       }
     }
+  };
 
-    if (tgUser) {
-      // Look up customer by telegram user ID or username
-      const existing = store.customers.find((c) =>
-        (c.telegramUserId && c.telegramUserId === tgUser.id) ||
-        (c.telegramUsername && tgUser.username && c.telegramUsername.toLowerCase().replace('@', '') === tgUser.username.toLowerCase())
-      );
+  checkTelegramUser();
 
-      if (existing) {
-        activeCustomer.value = existing;
-        isRegistered.value = true;
-        if (slugParam) localStorage.setItem(`cargona_client_cargo_code_${slugParam}`, existing.cargoCode);
-      } else if (!isRegistered.value) {
-        // Prepare registration form for new client
-        const fullName = `${tgUser.first_name || ''} ${tgUser.last_name || ''}`.trim();
-        regForm.value.fullName = fullName || '';
-        regForm.value.telegramUsername = tgUser.username ? `@${tgUser.username}` : '';
-        regForm.value.telegramUserId = tgUser.id;
-        regForm.value.branchId = store.branches[0]?.id || '';
-        isRegistered.value = false;
-      }
-    }
+  // If already configured in memory/cache, don't show full-screen spinner
+  if (store.branches.length > 0) {
+    isInitialLoaded.value = true;
+  }
+
+  // Background sync with fast fallback
+  if (slugParam) {
+    Promise.allSettled([
+      fetchTenantInfo(slugParam),
+      store.syncTenantData(slugParam, true),
+      store.loadLoyaltySettingsFromBackend?.()
+    ]).finally(() => {
+      checkTelegramUser();
+      isInitialLoaded.value = true;
+    });
+
+    // Safety timeout so user is never stuck on spinner
+    setTimeout(() => {
+      isInitialLoaded.value = true;
+    }, 1200);
+  } else {
+    isInitialLoaded.value = true;
   }
 });
 

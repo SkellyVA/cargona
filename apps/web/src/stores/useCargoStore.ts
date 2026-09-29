@@ -1025,6 +1025,8 @@ export const useCargoStore = defineStore('cargo', () => {
   }
 
   let isSyncing = false;
+  const isSyncingRef = ref(false);
+  const isDataLoading = ref(false);
   let lastSyncTime = 0;
   let lastSyncedSlug = '';
 
@@ -1034,6 +1036,10 @@ export const useCargoStore = defineStore('cargo', () => {
     if (!force && isSyncing) return;
     if (!force && lastSyncedSlug === slug && now - lastSyncTime < 8000 && rawCustomers.value.length > 0) return;
     isSyncing = true;
+    isSyncingRef.value = true;
+    if (rawCustomers.value.length === 0 && rawPackages.value.length === 0) {
+      isDataLoading.value = true;
+    }
     try {
       const res = await fetch(`/api/o/${slug}/all`);
       if (!res.ok) return;
@@ -1225,6 +1231,8 @@ export const useCargoStore = defineStore('cargo', () => {
       // Backend offline fallback
     } finally {
       isSyncing = false;
+      isSyncingRef.value = false;
+      isDataLoading.value = false;
     }
   }
 
@@ -3381,6 +3389,8 @@ export const useCargoStore = defineStore('cargo', () => {
     addTripExpense,
     exportFinancialReportToCsv,
     syncTenantData,
+    isDataLoading,
+    isSyncing: isSyncingRef,
     nextSeqId,
   };
 });

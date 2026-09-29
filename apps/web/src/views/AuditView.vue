@@ -81,6 +81,13 @@
 
     <!-- Таблица записей аудита с колонкой ПВЗ -->
     <div class="bg-surface border border-surface-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-card space-y-4">
+      <!-- ИНДИКАТОР ЗАГРУЗКИ АУДИТА -->
+      <div v-if="store.isDataLoading" class="py-20 flex flex-col items-center justify-center space-y-3">
+        <div class="w-8 h-8 border-2 border-accent-cyan/20 border-t-accent-cyan rounded-full animate-spin"></div>
+        <p class="text-xs text-text-tertiary">Загрузка журнала аудита...</p>
+      </div>
+
+      <template v-else>
       <!-- Десктопная таблица -->
       <div class="hidden md:block overflow-x-auto">
         <table class="w-full text-left text-xs">
@@ -199,6 +206,7 @@
           Все операции сотрудников (приемка грузов, выдача клиентам, инкассация кассы) будут логироваться здесь автоматически.
         </p>
       </div>
+      </template>
     </div>
   </div>
 </template>
