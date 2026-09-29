@@ -92,6 +92,20 @@
 
       <!-- ФОРМА 1: РЕГИСТРАЦИЯ НОВОГО КЛИЕНТА -->
       <form v-if="authTab === 'register'" @submit.prevent="handleRegister" class="bg-surface border border-surface-border rounded-3xl p-5 sm:p-6 shadow-card space-y-4">
+        <!-- Инвайт баннер при переходе по реферальной ссылке -->
+        <div v-if="referredByCode" class="p-3 rounded-2xl bg-accent-cyan/10 border border-accent-cyan/25 flex items-center gap-3">
+          <div class="w-8 h-8 rounded-xl bg-accent-cyan/20 text-accent-cyan flex items-center justify-center shrink-0 border border-accent-cyan/30">
+            <Gift class="w-4 h-4" />
+          </div>
+          <div class="min-w-0 flex-1 text-left">
+            <div class="text-xs text-white font-medium flex items-center gap-1.5 flex-wrap">
+              <span>Приглашение по коду:</span>
+              <span class="text-accent-cyan font-mono font-bold">{{ referredByCode }}</span>
+            </div>
+            <p class="text-[10px] text-text-tertiary mt-0.5">Вам и пригласившему клиенту будут начислены бонусы клуба</p>
+          </div>
+        </div>
+
         <div>
           <label class="text-[11px] font-semibold text-text-tertiary uppercase block mb-1.5">Ваше имя и фамилия</label>
           <div class="relative">
@@ -1271,6 +1285,7 @@ import {
   Clock,
   Camera,
   Award,
+  Gift,
   X,
   Share2,
 } from 'lucide-vue-next';

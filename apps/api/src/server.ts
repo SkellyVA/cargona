@@ -1020,7 +1020,19 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/customers', 
   const tenant = store.tenants.find((t) => t.slug === slug);
   if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
 
-  const { cargoCode, fullName, phone, telegramUsername, balanceUSD, preferredBranchId, notes } = request.body;
+  const {
+    cargoCode,
+    fullName,
+    phone,
+    telegramUsername,
+    telegramUserId,
+    balanceUSD,
+    preferredBranchId,
+    invitedByCustomerId,
+    referralCode,
+    notes,
+  } = request.body;
+
   const code = (cargoCode || store.nextCargoCode(tenant)).toUpperCase().trim();
 
   const newCustomer = {
@@ -1029,16 +1041,68 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/customers', 
     cargoCode: code,
     fullName: fullName ? fullName.trim() : `Клиент ${code}`,
     phone: phone ? phone.trim() : '+992 90 000 0000',
-    telegramUsername: telegramUsername || null,
+    telegramUsername: telegramUsername ? telegramUsername.replace('@', '').trim() : null,
+    telegramUserId: telegramUserId ? Number(telegramUserId) : null,
     balance: balanceUSD || 0,
     currency: tenant.baseCurrency || 'USD',
     isBlocked: false,
     notes: notes || null,
     preferredBranchId: preferredBranchId || null,
+    invitedByCustomerId: invitedByCustomerId || null,
+    referralCode: referralCode || code,
+    bonusBalance: 0,
     createdAt: new Date().toISOString(),
   };
 
   store.customers.push(newCustomer);
+
+  // If invited by another customer, award bonus and send Telegram notification to inviter
+  if (invitedByCustomerId) {
+    const inviterQuery = String(invitedByCustomerId).toUpperCase().trim();
+    const inviter = store.customers.find(
+      (c) =>
+        (c.tenantId === tenant.id || !c.tenantId) &&
+        (c.id === invitedByCustomerId ||
+          (c.cargoCode || '').toUpperCase() === inviterQuery ||
+          (c.cargoCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '') === inviterQuery.replace(/[^A-Z0-9]/g, '') ||
+          ((c as any).referralCode && (c as any).referralCode.toUpperCase() === inviterQuery))
+    );
+
+    if (inviter) {
+      const rawSettings = store.tenantSettings[tenant.id] || {};
+      const loyalty = rawSettings.loyaltySettings || {};
+      const bonusPerReferral = Number(loyalty.bonusPerNextReferral || 50);
+      (inviter as any).bonusBalance = ((inviter as any).bonusBalance || 0) + bonusPerReferral;
+
+      const botConfig = store.botConfigs.find((b) => b.tenantId === tenant.id && b.isActive && b.botToken);
+      const envToken = process.env.TELEGRAM_BOT_TOKEN?.trim();
+      const token = botConfig?.botToken || (envToken && !envToken.startsWith('MOCK_') ? envToken : '');
+
+      const inviterTgId = (inviter as any).telegramUserId;
+      if (token && inviterTgId) {
+        const clubName = loyalty.clubName || `${tenant.name} CLUB`;
+        const notificationText =
+          `🎉 <b>У вас новый реферал!</b>\n\n` +
+          `По вашей пригласительной ссылке зарегистрировался клиент:\n` +
+          `👤 <b>${newCustomer.fullName}</b>\n` +
+          `🏷 Код клиента: <code>${newCustomer.cargoCode}</code>\n\n` +
+          `🎁 Вам начислено <b>+${bonusPerReferral} баллов</b> в программе <b>${clubName}</b>!`;
+
+        fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: inviterTgId,
+            text: notificationText,
+            parse_mode: 'HTML',
+          }),
+        }).catch((err) => {
+          console.error('Failed to send telegram referral notification:', err);
+        });
+      }
+    }
+  }
+
   store.saveToFile();
   return { success: true, customer: newCustomer };
 });
@@ -2306,9 +2370,57 @@ fastify.post<{
 
   // Check if start command has referral param: /start ref_NOOR-001 or /start 001
   let appUrl = baseAppUrl;
+  let inviterInfoText = '';
   const startMatch = text.match(/^\/start\s+(?:ref_)?(.+)$/i);
   if (startMatch && startMatch[1]) {
-    appUrl = `${baseAppUrl}?ref=${encodeURIComponent(startMatch[1].trim())}`;
+    const rawRef = startMatch[1].trim();
+    appUrl = `${baseAppUrl}?ref=${encodeURIComponent(rawRef)}`;
+
+    const inviterQuery = rawRef.toUpperCase();
+    const inviter = store.customers.find(
+      (c) =>
+        (c.tenantId === tenant!.id || !c.tenantId) &&
+        (c.id === rawRef ||
+          (c.cargoCode || '').toUpperCase() === inviterQuery ||
+          (c.cargoCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '') === inviterQuery.replace(/[^A-Z0-9]/g, '') ||
+          ((c as any).referralCode && (c as any).referralCode.toUpperCase() === inviterQuery))
+    );
+
+    if (inviter) {
+      inviterInfoText = `🤝 <i>Вы перешли по приглашению: <b>${inviter.fullName} (${inviter.cargoCode})</b></i>\n\n`;
+
+      // Notify inviter about the referral click
+      if ((inviter as any).telegramUserId && String((inviter as any).telegramUserId) !== String(fromUser?.id)) {
+        const inviterNotice =
+          `👀 <b>Переход по вашей реферальной ссылке!</b>\n\n` +
+          `Пользователь <b>${userName}</b> (${fromUser?.username ? `@${fromUser.username}` : 'клиент'}) открыл бота по вашей ссылке-приглашению.\n\n` +
+          `⏳ Как только он завершит регистрацию в личном кабинете, вам автоматически начислятся бонусные баллы!`;
+
+        fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: (inviter as any).telegramUserId,
+            text: inviterNotice,
+            parse_mode: 'HTML',
+          }),
+        }).catch(() => {});
+      }
+    }
+  }
+
+  // Persist Telegram User ID to matching customer if known
+  if (fromUser?.id) {
+    const matchCust = store.customers.find(
+      (c) =>
+        (c.tenantId === tenant!.id || !c.tenantId) &&
+        (((c as any).telegramUserId && String((c as any).telegramUserId) === String(fromUser.id)) ||
+          (fromUser.username && c.telegramUsername && c.telegramUsername.replace('@', '').toLowerCase() === fromUser.username.toLowerCase()))
+    );
+    if (matchCust && !(matchCust as any).telegramUserId) {
+      (matchCust as any).telegramUserId = Number(fromUser.id);
+      store.saveToFile();
+    }
   }
 
   try {
@@ -2361,6 +2473,7 @@ fastify.post<{
     // 2. Default /start or welcome message (Only /start command active)
     const welcomeText =
       `👋 <b>Здравствуйте, ${userName}!</b>\n\n` +
+      (inviterInfoText ? `${inviterInfoText}` : '') +
       `Вас приветствует официальный бот карго-компании <b>«${tenant.name}»</b>.\n\n` +
       `📱 <b>В нашем личном кабинете вы можете:</b>\n` +
       `• 📦 Отслеживать трек-номера и статус доставки\n` +
@@ -2583,6 +2696,10 @@ fastify.get<{ Params: { slug: string }; Querystring: { tgUserId?: string; cargoC
     if (!customer && tgUserId) {
       customer = store.customers.find((c) => (c.tenantId === tenant.id || !c.tenantId) && (c as any).telegramUserId && String((c as any).telegramUserId) === String(tgUserId));
     }
+    if (customer && tgUserId && !(customer as any).telegramUserId) {
+      (customer as any).telegramUserId = Number(tgUserId);
+      store.saveToFile();
+    }
     if (!customer) {
       customer = store.customers.find((c) => c.tenantId === tenant.id) || {
         id: store.nextId('cust', store.customers),
@@ -2685,6 +2802,8 @@ fastify.get<{ Params: { slug: string }; Querystring: { tgUserId?: string; cargoC
         bonusBalance: (customer as any).bonusBalance || 0,
         balance: customer.balance || 0,
         currency: customer.currency || tenant.baseCurrency || 'USD',
+        invitedByCustomerId: (customer as any).invitedByCustomerId || null,
+        referralCode: (customer as any).referralCode || customer.cargoCode,
       },
       pickupQr: qrPayload,
       warehouseAddressFor1688,
