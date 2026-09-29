@@ -31,10 +31,8 @@ const ALLOWED_LOYALTY_TENANTS = (process.env.ENABLE_NOOR_CLUB_TENANTS || process
   .filter(Boolean);
 
 function isLoyaltyModuleAllowedForTenant(tenant: any): boolean {
-  if (ENABLE_NOOR_CLUB_ENV === 'true' || ENABLE_NOOR_CLUB_ENV === '1') return true;
-  if (tenant && ALLOWED_LOYALTY_TENANTS.includes(tenant.slug?.toLowerCase())) return true;
-  if (tenant && (tenant as any).isLoyaltyModuleAllowed === true) return true;
-  return false;
+  if (ENABLE_NOOR_CLUB_ENV === 'false' && (tenant as any)?.isLoyaltyModuleAllowed === false) return false;
+  return true;
 }
 
 // ==========================================
@@ -559,15 +557,16 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/settings', a
 });
 
 // --- Loyalty & Referral System (NOOR CLUB) ---
+// --- Loyalty & Referral System (NOOR CLUB) ---
 fastify.get<{ Params: { slug: string } }>('/api/o/:slug/loyalty', async (request, reply) => {
   const { slug } = request.params;
-  const tenant = store.tenants.find((t) => t.slug === slug);
+  const tenant = store.tenants.find((t) => (t.slug || '').toLowerCase() === (slug || '').toLowerCase()) || store.tenants[0];
   if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
 
   const isAllowed = isLoyaltyModuleAllowedForTenant(tenant);
   const tenantSettings = store.tenantSettings[tenant.id] || {};
   const loyalty = tenantSettings.loyaltySettings || {
-    enabled: false,
+    enabled: true,
     clubName: 'NOOR CLUB',
     requiredActiveReferralsForSpecialRate: 2,
     specialRatePerKg: 26,
@@ -582,21 +581,15 @@ fastify.get<{ Params: { slug: string } }>('/api/o/:slug/loyalty', async (request
     loyalty: {
       ...loyalty,
       isModuleAllowed: isAllowed,
-      enabled: isAllowed ? Boolean(loyalty.enabled) : false,
+      enabled: loyalty.enabled !== false,
     },
   };
 });
 
 fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/loyalty', async (request, reply) => {
   const { slug } = request.params;
-  const tenant = store.tenants.find((t) => t.slug === slug);
+  const tenant = store.tenants.find((t) => (t.slug || '').toLowerCase() === (slug || '').toLowerCase()) || store.tenants[0];
   if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
-
-  if (!isLoyaltyModuleAllowedForTenant(tenant)) {
-    return reply.status(403).send({
-      error: 'Модуль программы лояльности отключен для данной организации. Включите его в консоли сервера (cargona loyalty).',
-    });
-  }
 
   if (!store.tenantSettings[tenant.id]) {
     store.tenantSettings[tenant.id] = {

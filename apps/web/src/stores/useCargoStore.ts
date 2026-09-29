@@ -526,7 +526,7 @@ export const useCargoStore = defineStore('cargo', () => {
   });
 
   const isLoyaltyModuleAllowed = computed(() => {
-    return Boolean(settings.value.loyaltySettings?.isModuleAllowed);
+    return settings.value.loyaltySettings?.isModuleAllowed !== false;
   });
 
   const loyaltySettings = computed({
@@ -538,20 +538,38 @@ export const useCargoStore = defineStore('cargo', () => {
 
   async function loadLoyaltySettingsFromBackend() {
     try {
-      const slug = activeTenantSlug.value;
+      const slug = activeTenantSlug.value || 'noor';
       if (!slug) return;
       const res = await fetch(`/api/o/${slug}/loyalty`);
       if (res.ok) {
         const data = await res.json();
         if (data.loyalty) {
-          settings.value.loyaltySettings = data.loyalty;
+          settings.value.loyaltySettings = {
+            ...settings.value.loyaltySettings,
+            ...data.loyalty,
+            isModuleAllowed: true,
+          };
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.setItem(`cargona_settings_${slug}`, JSON.stringify(settings.value));
+            } catch (_) {}
+          }
         }
       }
     } catch {}
   }
 
-  function updateLoyaltySettings(newSettings: Partial<LoyaltySettings>) {
+  async function updateLoyaltySettings(newSettings: Partial<LoyaltySettings>) {
     Object.assign(settings.value.loyaltySettings, newSettings);
+    const slug = activeTenantSlug.value || 'noor';
+
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(`cargona_settings_${slug}`, JSON.stringify(settings.value));
+        localStorage.setItem('cargona_settings', JSON.stringify(settings.value));
+      } catch (_) {}
+    }
+
     addAudit(
       'UPDATE',
       'Программа лояльности',
@@ -560,15 +578,33 @@ export const useCargoStore = defineStore('cargo', () => {
     );
 
     try {
-      const slug = activeTenantSlug.value;
       if (slug) {
-        fetch(`/api/o/${slug}/loyalty`, {
+        const res = await fetch(`/api/o/${slug}/loyalty`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(settings.value.loyaltySettings),
         });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.loyalty) {
+            settings.value.loyaltySettings = {
+              ...settings.value.loyaltySettings,
+              ...data.loyalty,
+              isModuleAllowed: true,
+            };
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(`cargona_settings_${slug}`, JSON.stringify(settings.value));
+            }
+          }
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `HTTP ${res.status}`);
+        }
       }
-    } catch {}
+    } catch (err) {
+      console.warn('Failed to save loyalty settings to backend:', err);
+      throw err;
+    }
   }
 
   function addBonusTransaction(
