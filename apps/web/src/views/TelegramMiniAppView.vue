@@ -1922,6 +1922,12 @@ async function fetchTenantInfo(slug: string) {
         serverTenant.value = data.tenant;
         store.settings.companyName = data.tenant.name;
         store.settings.codePrefix = data.tenant.codePrefix;
+        if (data.tenant.managerUsername) store.settings.managerUsername = data.tenant.managerUsername;
+        if (data.tenant.botUsername) store.settings.botUsername = data.tenant.botUsername;
+        if (data.tenant.channelId) store.settings.channelId = data.tenant.channelId;
+        if (data.tenant.chinaWarehouseAddress) store.settings.chinaWarehouseAddress = data.tenant.chinaWarehouseAddress;
+        if (data.tenant.chinaContactPhone) store.settings.chinaContactPhone = data.tenant.chinaContactPhone;
+        if (data.tenant.chinaContactName) store.settings.chinaContactName = data.tenant.chinaContactName;
         
         let existingTenant = store.tenants.find((t) => t.slug.toLowerCase() === data.tenant.slug.toLowerCase());
         if (!existingTenant) {
@@ -1942,6 +1948,16 @@ async function fetchTenantInfo(slug: string) {
           existingTenant.codePrefix = data.tenant.codePrefix;
         }
         store.setTenantSlug(data.tenant.slug);
+      }
+
+      if (Array.isArray(data.branches) && data.branches.length > 0) {
+        store.branches = data.branches;
+      }
+      if (Array.isArray(data.originWarehouses) && data.originWarehouses.length > 0) {
+        store.originWarehouses = data.originWarehouses;
+      }
+      if (data.loyalty && store.loyaltySettings) {
+        store.loyaltySettings = { ...store.loyaltySettings, ...data.loyalty };
       }
     }
   } catch (e) {
@@ -1978,6 +1994,23 @@ onMounted(() => {
       if (found) {
         activeCustomer.value = found;
         isRegistered.value = true;
+      } else {
+        // Look up by saved code on backend
+        fetch(`/api/app/${slugParam}/auth/lookup?code=${encodeURIComponent(savedCode)}`)
+          .then((res) => res.json())
+          .then((d) => {
+            if (d.customer) {
+              activeCustomer.value = d.customer;
+              isRegistered.value = true;
+              if (Array.isArray(d.packages) && d.packages.length > 0) {
+                for (const pkg of d.packages) {
+                  const exists = store.packages.some((p) => p.id === pkg.id || p.trackingNumber === pkg.trackingNumber);
+                  if (!exists) store.packages.push(pkg);
+                }
+              }
+            }
+          })
+          .catch(() => {});
       }
     }
   }
@@ -2012,7 +2045,6 @@ onMounted(() => {
           regForm.value.telegramUsername = tgUser.username ? `@${tgUser.username}` : '';
           regForm.value.telegramUserId = tgUser.id;
           regForm.value.branchId = store.branches[0]?.id || '';
-          isRegistered.value = false;
         }
       }
     }
@@ -2020,26 +2052,20 @@ onMounted(() => {
 
   checkTelegramUser();
 
-  // If already configured in memory/cache, don't show full-screen spinner
-  if (store.branches.length > 0) {
-    isInitialLoaded.value = true;
-  }
-
-  // Background sync with fast fallback
+  // Fast boot: fetch lightweight tenant info and display UI instantly
   if (slugParam) {
-    Promise.allSettled([
-      fetchTenantInfo(slugParam),
-      store.syncTenantData(slugParam, true),
-      store.loadLoyaltySettingsFromBackend?.()
-    ]).finally(() => {
-      checkTelegramUser();
-      isInitialLoaded.value = true;
-    });
+    fetchTenantInfo(slugParam)
+      .then(() => {
+        checkTelegramUser();
+        isInitialLoaded.value = true;
+      })
+      .catch(() => {
+        isInitialLoaded.value = true;
+      });
 
-    // Safety timeout so user is never stuck on spinner
-    setTimeout(() => {
-      isInitialLoaded.value = true;
-    }, 1200);
+    // Background sync in parallel without blocking UI
+    store.syncTenantData(slugParam, false).catch(() => {});
+    store.loadLoyaltySettingsFromBackend?.();
   } else {
     isInitialLoaded.value = true;
   }

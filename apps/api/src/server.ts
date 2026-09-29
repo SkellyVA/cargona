@@ -2555,29 +2555,43 @@ fastify.post<{
 // ==========================================
 // 6. Client Telegram Mini App Endpoints (/app/:slug)
 // ==========================================
-fastify.get<{ Params: { slug: string }; Querystring: { tgUserId?: string } }>(
+fastify.get<{ Params: { slug: string }; Querystring: { tgUserId?: string; cargoCode?: string } }>(
   '/api/app/:slug/me',
   async (request, reply) => {
     const { slug } = request.params;
+    const { tgUserId, cargoCode } = request.query;
     let tenant = store.tenants.find((t) => t.slug.toLowerCase() === (slug || '').toLowerCase());
     if (!tenant && store.tenants.length > 0) {
       tenant = store.tenants[0];
     }
     if (!tenant) return reply.status(404).send({ error: 'Cargo not found' });
 
-    const customer = store.customers.find((c) => c.tenantId === tenant.id) || {
-      id: store.nextId('cust', store.customers),
-      tenantId: tenant.id,
-      cargoCode: store.nextCargoCode(tenant),
-      fullName: 'Клиент Карго',
-      phone: '+992 90 000 0000',
-      balance: 0,
-      currency: tenant.baseCurrency || 'USD',
-      isBlocked: false,
-      createdAt: new Date().toISOString(),
-    };
+    const tenantSettings = store.tenantSettings[tenant.id] || {};
+    const tenantBranches = store.branches.filter((b) => b.tenantId === tenant.id);
+    const tenantOriginWarehouses = store.originWarehouses.filter((w: any) => w.tenantId === tenant.id);
 
-    const customerPackages = store.packages.filter((p) => p.customerId === customer.id || p.tenantId === tenant.id);
+    let customer = null;
+    if (cargoCode) {
+      customer = store.customers.find((c) => (c.tenantId === tenant.id || !c.tenantId) && (c.cargoCode || '').toUpperCase() === cargoCode.toUpperCase());
+    }
+    if (!customer && tgUserId) {
+      customer = store.customers.find((c) => (c.tenantId === tenant.id || !c.tenantId) && (c as any).telegramUserId && String((c as any).telegramUserId) === String(tgUserId));
+    }
+    if (!customer) {
+      customer = store.customers.find((c) => c.tenantId === tenant.id) || {
+        id: store.nextId('cust', store.customers),
+        tenantId: tenant.id,
+        cargoCode: store.nextCargoCode(tenant),
+        fullName: 'Клиент Карго',
+        phone: '+992 90 000 0000',
+        balance: 0,
+        currency: tenant.baseCurrency || 'USD',
+        isBlocked: false,
+        createdAt: new Date().toISOString(),
+      };
+    }
+
+    const customerPackages = store.packages.filter((p) => p.customerId === customer.id || p.customerCargoCode === customer.cargoCode);
 
     const qrPayload = `cargona://pickup?t=${tenant.slug}&c=${customer.cargoCode}&token=sec_${Date.now()}`;
     const originWarehouse = store.branches.find((b) => b.tenantId === tenant.id && b.type === 'ORIGIN_HUB')
@@ -2588,15 +2602,51 @@ fastify.get<{ Params: { slug: string }; Querystring: { tgUserId?: string } }>(
 
     return {
       tenant: {
+        id: tenant.id,
         name: tenant.name,
         slug: tenant.slug,
         codePrefix: tenant.codePrefix,
+        baseCurrency: tenant.baseCurrency || 'USD',
+        managerUsername: (tenant as any).managerUsername || tenantSettings.managerUsername || '',
+        botUsername: (tenant as any).botUsername || tenantSettings.botUsername || '',
+        channelId: (tenant as any).channelId || tenantSettings.channelId || '',
+        chinaWarehouseAddress: (tenant as any).chinaWarehouseAddress || tenantSettings.chinaWarehouseAddress || '',
+        chinaContactPhone: (tenant as any).chinaContactPhone || tenantSettings.chinaContactPhone || '',
+        chinaContactName: (tenant as any).chinaContactName || tenantSettings.chinaContactName || '',
       },
+      branches: tenantBranches.map((b) => ({
+        id: b.id,
+        name: b.name,
+        city: b.city,
+        address: b.address,
+        phone: b.phone,
+        type: b.type,
+        isPickupPoint: (b as any).isPickupPoint !== false,
+        isActive: (b as any).isActive !== false,
+      })),
+      originWarehouses: tenantOriginWarehouses.map((w: any) => ({
+        id: w.id,
+        name: w.name,
+        country: w.country || 'Китай',
+        countryCode: w.countryCode || 'CN',
+        city: w.city || 'Иу',
+        address: w.address,
+        phone: w.phone,
+        contactName: w.contactName,
+        isActive: w.isActive !== false,
+      })),
+      loyalty: tenantSettings.loyaltySettings || null,
       customer: {
+        id: customer.id,
         cargoCode: customer.cargoCode,
         fullName: customer.fullName,
-        balance: customer.balance,
-        currency: customer.currency,
+        phone: customer.phone,
+        telegramUsername: (customer as any).telegramUsername || '',
+        telegramUserId: (customer as any).telegramUserId || null,
+        preferredBranchId: (customer as any).preferredBranchId || tenantBranches[0]?.id || 'b-001',
+        bonusBalance: (customer as any).bonusBalance || 0,
+        balance: customer.balance || 0,
+        currency: customer.currency || tenant.baseCurrency || 'USD',
       },
       pickupQr: qrPayload,
       warehouseAddressFor1688,
@@ -2614,6 +2664,7 @@ fastify.get<{ Params: { slug: string }; Querystring: { tgUserId?: string } }>(
         currency: p.currency,
         photos: p.photos,
         description: p.description,
+        shelfLocation: (p as any).shelfLocation || '',
         createdAt: p.createdAt,
       })),
     };
@@ -2633,11 +2684,13 @@ fastify.get<{ Params: { slug: string }; Querystring: { code: string } }>(
     if (!rawInput) return reply.status(400).send({ error: 'Code required' });
 
     const numPart = rawInput.replace(/\D+/g, '');
+    const cleanRaw = rawInput.replace(/[^A-Z0-9]/g, '');
+
     const found = store.customers.find((c) => {
-      if (c.tenantId !== tenant.id) return false;
+      if (c.tenantId && tenant.id && c.tenantId !== tenant.id) return false;
       const cCode = (c.cargoCode || '').toUpperCase();
       if (cCode === rawInput) return true;
-      if (cCode.replace(/[^A-Z0-9]/g, '') === rawInput.replace(/[^A-Z0-9]/g, '')) return true;
+      if (cCode.replace(/[^A-Z0-9]/g, '') === cleanRaw) return true;
       const cNum = cCode.replace(/\D+/g, '');
       if (numPart && cNum && (numPart === cNum || parseInt(numPart, 10) === parseInt(cNum, 10))) return true;
       return false;
@@ -2646,6 +2699,8 @@ fastify.get<{ Params: { slug: string }; Querystring: { code: string } }>(
     if (!found) {
       return reply.status(404).send({ error: 'Customer not found' });
     }
+
+    const customerPackages = store.packages.filter((p) => p.customerId === found.id || p.customerCargoCode === found.cargoCode);
 
     return {
       success: true,
@@ -2660,6 +2715,18 @@ fastify.get<{ Params: { slug: string }; Querystring: { code: string } }>(
         bonusBalance: (found as any).bonusBalance || 0,
         debtUSD: (found as any).debtUSD || 0,
       },
+      packages: customerPackages.map((p) => ({
+        id: p.id,
+        trackingNumber: p.trackingNumber,
+        status: p.status,
+        weightKg: p.weightKg,
+        cost: p.cost,
+        currency: p.currency,
+        photos: p.photos,
+        description: p.description,
+        shelfLocation: (p as any).shelfLocation || '',
+        createdAt: p.createdAt,
+      })),
     };
   }
 );
