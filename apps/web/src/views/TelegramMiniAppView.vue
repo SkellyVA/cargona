@@ -174,7 +174,7 @@
       </form>
 
       <!-- ФОРМА 2: ВХОД В АККАУНТ ПО CARGO ID И ПОСЛЕДНИМ 4 ЦИФРАМ НОМЕРА -->
-      <div v-else class="bg-surface border border-surface-border rounded-3xl p-5 sm:p-6 shadow-card space-y-4">
+      <form v-else @submit.prevent="loginStep === 'id' ? handleCheckCargoId() : handleLoginSubmit()" class="bg-surface border border-surface-border rounded-3xl p-5 sm:p-6 shadow-card space-y-4">
         <!-- Шаг 1: Ввод Карго ID -->
         <div>
           <label class="text-[11px] font-semibold text-text-tertiary uppercase block mb-1.5">Ваш Cargo ID / Код клиента</label>
@@ -182,8 +182,7 @@
             <KeyRound class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-tertiary" />
             <input
               v-model="loginCargoIdInput"
-              :disabled="loginStep === 'phone'"
-              @keyup.enter="loginStep === 'id' ? handleCheckCargoId() : handleLoginSubmit()"
+              :disabled="loginStep === 'phone' || isCheckingCargoId"
               placeholder="Например: CRG-001 или 001"
               class="w-full h-11 pl-10 pr-3.5 rounded-xl bg-[#181B23] border border-white/[0.08] text-white text-xs placeholder:text-text-tertiary font-mono font-bold uppercase focus:border-accent-cyan focus:outline-none transition disabled:opacity-60"
             />
@@ -224,7 +223,6 @@
                   inputmode="numeric"
                   maxlength="4"
                   autofocus
-                  @keyup.enter="handleLoginSubmit"
                   placeholder="••••"
                   class="w-full h-11 pl-10 pr-3.5 rounded-xl bg-[#181B23] border border-white/[0.08] text-white text-base tracking-widest font-mono font-bold placeholder:text-text-tertiary focus:border-accent-cyan focus:outline-none transition text-center"
                 />
@@ -243,12 +241,15 @@
         <div class="space-y-2 pt-1">
           <button
             v-if="loginStep === 'id'"
-            type="button"
-            @click="handleCheckCargoId"
-            class="w-full h-12 rounded-xl bg-gradient-to-r from-accent-blue to-accent-cyan hover:opacity-95 text-white font-bold text-xs shadow-glow-blue flex items-center justify-center gap-2 transition active:scale-[0.99] cursor-pointer"
+            type="submit"
+            :disabled="isCheckingCargoId"
+            class="w-full h-12 rounded-xl bg-gradient-to-r from-accent-blue to-accent-cyan hover:opacity-95 text-white font-bold text-xs shadow-glow-blue flex items-center justify-center gap-2 transition active:scale-[0.99] cursor-pointer disabled:opacity-50"
           >
-            <span>Продолжить</span>
-            <ChevronDown class="w-4 h-4 rotate-[-90deg]" />
+            <div v-if="isCheckingCargoId" class="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+            <template v-else>
+              <span>Продолжить</span>
+              <ChevronDown class="w-4 h-4 rotate-[-90deg]" />
+            </template>
           </button>
 
           <div v-else class="flex items-center gap-2">
@@ -260,8 +261,7 @@
               Назад
             </button>
             <button
-              type="button"
-              @click="handleLoginSubmit"
+              type="submit"
               class="flex-1 h-12 rounded-xl bg-gradient-to-r from-accent-blue to-accent-cyan hover:opacity-95 text-white font-bold text-xs shadow-glow-blue flex items-center justify-center gap-2 transition active:scale-[0.99] cursor-pointer"
             >
               <ShieldCheck class="w-4 h-4" />
@@ -269,7 +269,7 @@
             </button>
           </div>
         </div>
-      </div>
+      </form>
     </div>
 
     <!-- ЭКРАН 2: ЛИЧНЫЙ КАБИНЕТ ЗАРЕГИСТРИРОВАННОГО КЛИЕНТА -->
@@ -1681,8 +1681,9 @@ const loginPhoneLast4 = ref('');
 const loginStep = ref<'id' | 'phone'>('id');
 const loginError = ref('');
 const matchedLoginCustomer = ref<any>(null);
+const isCheckingCargoId = ref(false);
 
-function handleCheckCargoId() {
+async function handleCheckCargoId() {
   loginError.value = '';
   const rawInput = loginCargoIdInput.value.trim().toUpperCase();
   if (!rawInput) {
@@ -1690,29 +1691,55 @@ function handleCheckCargoId() {
     return;
   }
 
-  // Поиск клиента по карго-коду или порядковому номеру
-  const found = store.customers.find((c) => {
-    if (!c.cargoCode) return false;
-    const cCode = c.cargoCode.toUpperCase();
-    if (cCode === rawInput) return true;
-    const numPart = cCode.replace(/^\D+/, '');
-    const rawNumPart = rawInput.replace(/^\D+/, '');
-    return numPart && rawNumPart && (numPart === rawNumPart || parseInt(numPart, 10) === parseInt(rawNumPart, 10));
-  });
+  isCheckingCargoId.value = true;
+  try {
+    const rawClean = rawInput.replace(/[^A-Z0-9]/g, '');
+    const numPart = rawInput.replace(/\D+/g, '');
 
-  if (!found) {
-    loginError.value = `Карго ID «${rawInput}» не найден. Проверьте правильность или зарегистрируйтесь.`;
-    if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.HapticFeedback) {
-      (window as any).Telegram.WebApp.HapticFeedback.notificationOccurred('error');
+    // 1. Поиск клиента в локальном массиве клиентов
+    let found = store.customers.find((c) => {
+      if (!c.cargoCode) return false;
+      const cCode = c.cargoCode.toUpperCase();
+      if (cCode === rawInput) return true;
+      if (cCode.replace(/[^A-Z0-9]/g, '') === rawClean) return true;
+      const cNum = cCode.replace(/\D+/g, '');
+      return numPart && cNum && (numPart === cNum || parseInt(numPart, 10) === parseInt(cNum, 10));
+    });
+
+    // 2. Если не найден в кэше, запрашиваем бэкенд
+    if (!found) {
+      const slugParam = (route.params.slug as string) || store.activeTenantSlug || store.tenant?.slug || store.tenants[0]?.slug || '';
+      if (slugParam) {
+        try {
+          const res = await fetch(`/api/app/${slugParam}/auth/lookup?code=${encodeURIComponent(rawInput)}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.customer) {
+              found = data.customer;
+              const exists = store.customers.some((c) => c.id === data.customer.id || c.cargoCode === data.customer.cargoCode);
+              if (!exists) store.customers.push(data.customer);
+            }
+          }
+        } catch (_) {}
+      }
     }
-    return;
-  }
 
-  matchedLoginCustomer.value = found;
-  loginStep.value = 'phone';
-  loginPhoneLast4.value = '';
-  if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.HapticFeedback) {
-    (window as any).Telegram.WebApp.HapticFeedback.impactOccurred('medium');
+    if (!found) {
+      loginError.value = `Карго ID «${rawInput}» не найден. Проверьте правильность или зарегистрируйтесь.`;
+      if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.HapticFeedback) {
+        (window as any).Telegram.WebApp.HapticFeedback.notificationOccurred('error');
+      }
+      return;
+    }
+
+    matchedLoginCustomer.value = found;
+    loginStep.value = 'phone';
+    loginPhoneLast4.value = '';
+    if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.HapticFeedback) {
+      (window as any).Telegram.WebApp.HapticFeedback.impactOccurred('medium');
+    }
+  } finally {
+    isCheckingCargoId.value = false;
   }
 }
 

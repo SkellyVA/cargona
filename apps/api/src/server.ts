@@ -2620,6 +2620,50 @@ fastify.get<{ Params: { slug: string }; Querystring: { tgUserId?: string } }>(
   }
 );
 
+// Client MiniApp Auth Lookup by Cargo ID
+fastify.get<{ Params: { slug: string }; Querystring: { code: string } }>(
+  '/api/app/:slug/auth/lookup',
+  async (request, reply) => {
+    const { slug } = request.params;
+    const { code } = request.query;
+    const tenant = store.tenants.find((t) => t.slug.toLowerCase() === (slug || '').toLowerCase()) || store.tenants[0];
+    if (!tenant) return reply.status(404).send({ error: 'Cargo not found' });
+
+    const rawInput = (code || '').trim().toUpperCase();
+    if (!rawInput) return reply.status(400).send({ error: 'Code required' });
+
+    const numPart = rawInput.replace(/\D+/g, '');
+    const found = store.customers.find((c) => {
+      if (c.tenantId !== tenant.id) return false;
+      const cCode = (c.cargoCode || '').toUpperCase();
+      if (cCode === rawInput) return true;
+      if (cCode.replace(/[^A-Z0-9]/g, '') === rawInput.replace(/[^A-Z0-9]/g, '')) return true;
+      const cNum = cCode.replace(/\D+/g, '');
+      if (numPart && cNum && (numPart === cNum || parseInt(numPart, 10) === parseInt(cNum, 10))) return true;
+      return false;
+    });
+
+    if (!found) {
+      return reply.status(404).send({ error: 'Customer not found' });
+    }
+
+    return {
+      success: true,
+      customer: {
+        id: found.id,
+        cargoCode: found.cargoCode,
+        fullName: found.fullName,
+        phone: found.phone,
+        telegramUsername: found.telegramUsername,
+        telegramUserId: (found as any).telegramUserId || null,
+        preferredBranchId: found.preferredBranchId,
+        bonusBalance: (found as any).bonusBalance || 0,
+        debtUSD: (found as any).debtUSD || 0,
+      },
+    };
+  }
+);
+
 function originHubPhone(phone?: string | null) {
   return phone || '+86 138 0000 0000';
 }
