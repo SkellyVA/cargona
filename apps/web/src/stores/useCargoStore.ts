@@ -2294,32 +2294,45 @@ export const useCargoStore = defineStore('cargo', () => {
 
   // Привязка и смена предпочитаемого ПВЗ клиента
   function setCustomerPreferredBranch(cargoCode: string, branchId: string) {
-    const c = rawCustomers.value.find((cust) => cust.cargoCode.toUpperCase() === cargoCode.toUpperCase());
+    const cleanCode = (cargoCode || '').trim().toUpperCase();
+    const c = rawCustomers.value.find((cust) => (cust.cargoCode || '').toUpperCase() === cleanCode);
     if (c) {
       c.preferredBranchId = branchId;
-      rawPackages.value.forEach((p) => {
-        if (p.customerCargoCode.toUpperCase() === cargoCode.toUpperCase() && p.status !== 'RELEASED' && p.status !== 'RETURNED') {
-          p.branchId = branchId;
-        }
-      });
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('cargona_customers', JSON.stringify(rawCustomers.value));
-        localStorage.setItem('cargona_packages', JSON.stringify(rawPackages.value));
+    }
+    rawPackages.value.forEach((p) => {
+      if ((p.customerCargoCode || '').toUpperCase() === cleanCode && p.status !== 'RELEASED' && p.status !== 'RETURNED') {
+        p.branchId = branchId;
       }
-      const branch = rawBranches.value.find((b) => b.id === branchId);
-      addAudit('UPDATE', 'Смена ПВЗ клиента', cargoCode, `Назначен пункт выдачи: ${branch?.name || branchId}`);
+    });
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('cargona_customers', JSON.stringify(rawCustomers.value));
+      localStorage.setItem('cargona_packages', JSON.stringify(rawPackages.value));
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        localStorage.setItem(`cargona_client_branch_${slug}`, branchId);
+      }
+    }
+    const branch = rawBranches.value.find((b) => b.id === branchId);
+    addAudit('UPDATE', 'Смена ПВЗ клиента', cargoCode, `Назначен пункт выдачи: ${branch?.name || branchId}`);
 
-      try {
-        const slug = activeTenantSlug.value;
-        if (slug && c.id) {
+    try {
+      const slug = activeTenantSlug.value;
+      if (slug) {
+        fetch(`/api/app/${slug}/customer/branch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cargoCode, branchId, telegramUserId: c?.telegramUserId }),
+        }).catch(() => {});
+
+        if (c && c.id) {
           fetch(`/api/o/${slug}/customers/${c.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ preferredBranchId: branchId }),
-          });
+          }).catch(() => {});
         }
-      } catch {}
-    }
+      }
+    } catch {}
   }
 
   // Корректировка баланса клиента (пополнение или списание)

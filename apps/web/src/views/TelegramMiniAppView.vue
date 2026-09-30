@@ -1895,6 +1895,11 @@ const currentCustomerBranch = computed(() => {
 });
 
 function selectBranch(branchId: string) {
+  const slugParam = (route.params.slug as string) || store.activeTenantSlug || store.tenant?.slug || store.tenants[0]?.slug || 'test';
+  if (typeof window !== 'undefined' && slugParam) {
+    localStorage.setItem(`cargona_client_branch_${slugParam}`, branchId);
+  }
+
   if (!isRegistered.value) {
     regForm.value.branchId = branchId;
     showBranchModal.value = false;
@@ -1941,7 +1946,16 @@ async function fetchTenantInfo(slug: string) {
   const cleanSlug = (slug || '').trim();
   if (!cleanSlug || cleanSlug === 'app') return;
   try {
-    const res = await fetch(`/api/app/${cleanSlug}/me`);
+    const savedCode = typeof window !== 'undefined' ? (localStorage.getItem(`cargona_client_cargo_code_${cleanSlug}`) || '') : '';
+    const tg = typeof window !== 'undefined' ? (window as any).Telegram?.WebApp : null;
+    const tgUserId = tg?.initDataUnsafe?.user?.id;
+
+    const params = new URLSearchParams();
+    if (savedCode) params.append('cargoCode', savedCode);
+    if (tgUserId) params.append('tgUserId', String(tgUserId));
+    const queryParams = params.toString() ? `?${params.toString()}` : '';
+
+    const res = await fetch(`/api/app/${cleanSlug}/me${queryParams}`);
     if (res.ok) {
       const data = await res.json();
       if (data.tenant) {
@@ -1985,6 +1999,21 @@ async function fetchTenantInfo(slug: string) {
       if (data.loyalty && store.loyaltySettings) {
         store.loyaltySettings = { ...store.loyaltySettings, ...data.loyalty };
       }
+
+      // Sync customer if recognized by server
+      if (data.customer && (savedCode || tgUserId)) {
+        if (data.customer.preferredBranchId) {
+          activeCustomer.value.preferredBranchId = data.customer.preferredBranchId;
+          if (typeof window !== 'undefined') {
+            localStorage.setItem(`cargona_client_branch_${cleanSlug}`, data.customer.preferredBranchId);
+          }
+        }
+        activeCustomer.value = {
+          ...activeCustomer.value,
+          ...data.customer,
+        };
+        isRegistered.value = true;
+      }
     }
   } catch (e) {
     console.warn('MiniApp tenant fetch error:', e);
@@ -2012,13 +2041,24 @@ onMounted(() => {
     referredByCode.value = route.query.ref.trim();
   }
 
-  // Check saved customer in localStorage
+  // Check saved customer and branch in localStorage
   if (typeof window !== 'undefined' && slugParam) {
+    const savedBranch = localStorage.getItem(`cargona_client_branch_${slugParam}`);
+    if (savedBranch) {
+      if (activeCustomer.value) activeCustomer.value.preferredBranchId = savedBranch;
+      regForm.value.branchId = savedBranch;
+    }
+
     const savedCode = localStorage.getItem(`cargona_client_cargo_code_${slugParam}`);
     if (savedCode) {
       const found = store.customers.find((c) => c.cargoCode.toUpperCase() === savedCode.toUpperCase());
       if (found) {
         activeCustomer.value = found;
+        if (savedBranch && !found.preferredBranchId) {
+          activeCustomer.value.preferredBranchId = savedBranch;
+        } else if (found.preferredBranchId) {
+          localStorage.setItem(`cargona_client_branch_${slugParam}`, found.preferredBranchId);
+        }
         isRegistered.value = true;
       } else {
         // Look up by saved code on backend
@@ -2027,6 +2067,11 @@ onMounted(() => {
           .then((d) => {
             if (d.customer) {
               activeCustomer.value = d.customer;
+              if (d.customer.preferredBranchId) {
+                localStorage.setItem(`cargona_client_branch_${slugParam}`, d.customer.preferredBranchId);
+              } else if (savedBranch) {
+                activeCustomer.value.preferredBranchId = savedBranch;
+              }
               isRegistered.value = true;
               if (Array.isArray(d.packages) && d.packages.length > 0) {
                 for (const pkg of d.packages) {
@@ -2064,13 +2109,15 @@ onMounted(() => {
           activeCustomer.value = existing;
           isRegistered.value = true;
           if (slugParam) localStorage.setItem(`cargona_client_cargo_code_${slugParam}`, existing.cargoCode);
+          if (existing.preferredBranchId && slugParam) localStorage.setItem(`cargona_client_branch_${slugParam}`, existing.preferredBranchId);
         } else if (!isRegistered.value) {
           // Prepare registration form for new client
           const fullName = `${tgUser.first_name || ''} ${tgUser.last_name || ''}`.trim();
           regForm.value.fullName = fullName || '';
           regForm.value.telegramUsername = tgUser.username ? `@${tgUser.username}` : '';
           regForm.value.telegramUserId = tgUser.id;
-          regForm.value.branchId = store.branches[0]?.id || '';
+          const savedBranch = slugParam ? localStorage.getItem(`cargona_client_branch_${slugParam}`) : null;
+          regForm.value.branchId = savedBranch || store.branches[0]?.id || '';
         }
       }
     }
@@ -2115,13 +2162,15 @@ function handleRegister() {
   const prefix = store.tenant?.codePrefix || store.settings.codePrefix || (slugParam ? slugParam.substring(0, 3).toUpperCase() : 'CRG');
   const newCargoCode = store.nextCargoCode(prefix);
 
+  const chosenBranchId = regForm.value.branchId || store.branches[0]?.id || 'b-001';
+
   const newCust = {
     cargoCode: newCargoCode,
     fullName: regForm.value.fullName.trim(),
     phone: fullPhone,
     telegramUsername: regForm.value.telegramUsername.replace('@', '').trim(),
     telegramUserId: regForm.value.telegramUserId || null,
-    preferredBranchId: regForm.value.branchId || store.branches[0]?.id || 'b-001',
+    preferredBranchId: chosenBranchId,
     invitedByCustomerId: referredByCode.value || undefined,
     referralCode: newCargoCode,
     bonusBalance: 0,
@@ -2139,11 +2188,12 @@ function handleRegister() {
     phone: newCust.phone,
     debtUSD: 0,
     bonusBalance: 0,
-    preferredBranchId: newCust.preferredBranchId,
+    preferredBranchId: chosenBranchId,
   };
 
-  if (typeof window !== 'undefined') {
+  if (typeof window !== 'undefined' && slugParam) {
     localStorage.setItem(`cargona_client_cargo_code_${slugParam}`, newCargoCode);
+    localStorage.setItem(`cargona_client_branch_${slugParam}`, chosenBranchId);
   }
 
   isRegistered.value = true;

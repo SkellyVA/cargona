@@ -1112,7 +1112,12 @@ fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/c
   const tenant = store.tenants.find((t) => t.slug === slug);
   if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
 
-  const cust = store.customers.find((c) => (c.id === id || c.cargoCode === id) && c.tenantId === tenant.id);
+  const cleanId = (id || '').trim().toUpperCase();
+  const cust = store.customers.find(
+    (c) =>
+      (c.tenantId === tenant.id || !c.tenantId) &&
+      (c.id === id || (c.cargoCode || '').toUpperCase() === cleanId)
+  );
   if (!cust) return reply.status(404).send({ error: 'Customer not found' });
 
   if (request.body.fullName) cust.fullName = request.body.fullName.trim();
@@ -2887,6 +2892,45 @@ fastify.get<{ Params: { slug: string }; Querystring: { code: string } }>(
     };
   }
 );
+
+// Mini App endpoint to update customer's preferred branch (PVZ)
+fastify.post<{
+  Params: { slug: string };
+  Body: { cargoCode?: string; branchId: string; telegramUserId?: number | string };
+}>('/api/app/:slug/customer/branch', async (request, reply) => {
+  const { slug } = request.params;
+  const { cargoCode, branchId, telegramUserId } = request.body || {};
+  let tenant = store.tenants.find((t) => (t.slug || '').toLowerCase() === (slug || '').toLowerCase());
+  if (!tenant && store.tenants.length > 0) tenant = store.tenants[0];
+  if (!tenant) return reply.status(404).send({ error: 'Cargo not found' });
+
+  if (!branchId) return reply.status(400).send({ error: 'branchId is required' });
+
+  const cleanCode = (cargoCode || '').trim().toUpperCase();
+  const cust = store.customers.find(
+    (c) =>
+      (c.tenantId === tenant!.id || !c.tenantId) &&
+      (((c.cargoCode || '').toUpperCase() === cleanCode && cleanCode.length > 0) ||
+        (telegramUserId && (c as any).telegramUserId && String((c as any).telegramUserId) === String(telegramUserId)))
+  );
+
+  if (cust) {
+    cust.preferredBranchId = branchId;
+    store.packages.forEach((p) => {
+      if (
+        (p.tenantId === tenant!.id || !p.tenantId) &&
+        (p.customerId === cust.id || (p.customerCargoCode || '').toUpperCase() === (cust.cargoCode || '').toUpperCase()) &&
+        p.status !== 'RELEASED'
+      ) {
+        (p as any).branchId = branchId;
+      }
+    });
+    store.saveToFile();
+    return { success: true, preferredBranchId: branchId, customer: cust };
+  }
+
+  return reply.status(404).send({ error: 'Customer not found' });
+});
 
 function originHubPhone(phone?: string | null) {
   return phone || '+86 138 0000 0000';
