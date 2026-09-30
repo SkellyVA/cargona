@@ -466,11 +466,12 @@
 
         <div>
           <label class="text-text-secondary mb-1 block">Адрес склада (на языке страны)</label>
-          <input
+          <textarea
             v-model="newWarehouse.address"
-            placeholder="Адрес склада для маркетплейсов (1688, Taobao, Trendyol, Amazon...)"
-            class="w-full h-10 px-3.5 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono text-xs"
-          />
+            rows="4"
+            placeholder="Адрес склада для маркетплейсов (1688, Taobao, Trendyol, Amazon...). Можно писать в несколько строк"
+            class="w-full p-2.5 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono text-xs resize-y"
+          ></textarea>
           <div class="text-[10px] text-text-tertiary font-mono mt-1">
             Теги подстановки: <span class="text-accent-cyan">{code}</span> — код карго, <span class="text-accent-cyan">{city}</span> — город ПВЗ клиента, <span class="text-accent-cyan">{branch}</span> — название ПВЗ, <span class="text-accent-cyan">{name}</span> — имя, <span class="text-accent-cyan">{phone}</span> — телефон, <span class="text-accent-cyan">{id}</span> — ID
           </div>
@@ -602,11 +603,12 @@
 
         <div>
           <label class="text-text-secondary mb-1 block">Адрес склада</label>
-          <input
+          <textarea
             v-model="editingWarehouse.address"
-            placeholder="Адрес склада"
-            class="w-full h-10 px-3.5 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono text-xs"
-          />
+            rows="4"
+            placeholder="Адрес склада (можно в несколько строк)"
+            class="w-full p-2.5 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono text-xs resize-y"
+          ></textarea>
           <div class="text-[10px] text-text-tertiary font-mono mt-1">
             Теги подстановки: <span class="text-accent-cyan">{code}</span> — код карго, <span class="text-accent-cyan">{city}</span> — город ПВЗ клиента, <span class="text-accent-cyan">{branch}</span> — название ПВЗ, <span class="text-accent-cyan">{name}</span> — имя, <span class="text-accent-cyan">{phone}</span> — телефон, <span class="text-accent-cyan">{id}</span> — ID
           </div>

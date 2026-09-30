@@ -341,8 +341,9 @@
             </div>
             <textarea
               v-model="selectedWarehouse.address"
-              rows="2"
-              class="w-full p-2.5 rounded-xl bg-[#13151B] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono text-xs resize-none"
+              rows="4"
+              placeholder="Адрес склада (можно в несколько строк: 收件人, 电话, 地址...)"
+              class="w-full p-2.5 rounded-xl bg-[#13151B] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono text-xs resize-y"
             ></textarea>
             <p class="text-[10px] text-text-tertiary mt-0.5">Вставьте <code class="text-accent-cyan font-mono">{code}</code> или <code class="text-accent-cyan font-mono">{city}</code> (город ПВЗ клиента) в адрес или имя получателя — система автоматически подставит данные клиента при копировании.</p>
           </div>
@@ -1168,9 +1169,9 @@
           </div>
           <textarea
             v-model="newWh.address"
-            rows="2"
-            placeholder="Улица, номер дома, складской индекс, {code}, {city}..."
-            class="w-full p-2.5 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none text-xs font-mono resize-none"
+            rows="4"
+            placeholder="Улица, номер дома, складской индекс, {code}, {city}... Можно в несколько строк"
+            class="w-full p-2.5 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none text-xs font-mono resize-y"
           ></textarea>
           <p class="text-[10px] text-text-tertiary mt-0.5">Вставьте <code class="text-accent-cyan font-mono">{code}</code> или <code class="text-accent-cyan font-mono">{city}</code> — система автоматически подставит персональный код и город ПВЗ клиента при копировании.</p>
         </div>

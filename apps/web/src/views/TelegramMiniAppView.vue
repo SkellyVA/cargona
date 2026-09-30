@@ -411,18 +411,18 @@
           </div>
 
           <!-- Карточка активного склада -->
-          <div v-if="currentWarehouse" class="p-3 rounded-xl bg-black/20 border border-white/[0.06] text-left space-y-1.5">
-            <div class="flex items-center justify-between text-[11px]">
+          <div v-if="currentWarehouse" class="p-3.5 rounded-2xl bg-black/25 border border-white/[0.08] text-left space-y-2">
+            <div class="flex items-center justify-between text-xs pb-1.5 border-b border-white/[0.06]">
               <div class="flex items-center gap-1.5 font-bold text-white">
-                <AppleFlag :countryCode="currentWarehouse.countryCode" :size="15" />
+                <AppleFlag :countryCode="currentWarehouse.countryCode" :size="16" />
                 <span>{{ currentWarehouse.city }} ({{ currentWarehouse.country }})</span>
               </div>
-              <span v-if="currentWarehouse.phone" class="text-[10px] text-accent-cyan font-mono">{{ currentWarehouse.phone }}</span>
+              <span v-if="currentWarehouse.phone" class="text-[11px] text-accent-cyan font-mono font-medium">{{ currentWarehouse.phone }}</span>
             </div>
-            <div class="text-[10px] text-text-secondary font-mono leading-relaxed line-clamp-2">
+            <div class="text-xs text-text-secondary font-mono leading-relaxed whitespace-pre-wrap select-all break-words bg-[#13151B]/80 p-2.5 rounded-xl border border-white/[0.04]">
               {{ formatWarehouseAddress(currentWarehouse) }}
             </div>
-            <div v-if="currentWarehouse.instructions" class="text-[9px] text-text-tertiary">
+            <div v-if="currentWarehouse.instructions" class="text-[10px] text-text-tertiary whitespace-pre-wrap">
               {{ fillWarehouseTemplate(currentWarehouse.instructions, activeCustomer, store.tenant) }}
             </div>
           </div>
@@ -1416,7 +1416,7 @@ function copyReferralLink() {
 }
 
 function shareReferralToTelegram() {
-  const text = encodeURIComponent(`Привет! Заказывай доставку товаров из Китая и Турции через ${tenantName.value}. Мой персональный промокод: ${activeCustomer.value.cargoCode}`);
+  const text = encodeURIComponent(`Привет! Заказывай доставку товаров через ${tenantName.value}. Мой персональный код клиента: ${activeCustomer.value.cargoCode}`);
   const url = encodeURIComponent(clientReferralUrl.value);
   window.open(`https://t.me/share/url?url=${url}&text=${text}`, '_blank');
 }
