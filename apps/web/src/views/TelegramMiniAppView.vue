@@ -556,7 +556,7 @@
                 </span>
               </div>
               <div class="text-[11px] text-text-secondary mt-0.5">
-                {{ loyaltyInfo.isMember ? `Спец-тариф активен: ${loyaltyInfo.specialRatePerKg} ${store.activeCurrency}/кг` : `Пригласите ${loyaltyInfo.requiredForSpecialRate} друзей для спец-тарифа` }}
+                {{ loyaltyInfo.isMember ? `Спец-тариф активен: ${loyaltyInfo.specialRatePerKg} ${store.activeCurrency}/кг` : 'Клубный тариф за друзей с полученными посылками' }}
               </div>
             </div>
           </div>
@@ -572,7 +572,7 @@
         <!-- Прогресс-бар рефералов -->
         <div class="space-y-1.5 bg-[#181B23]/80 p-3 rounded-2xl border border-white/[0.06]">
           <div class="flex items-center justify-between text-[11px]">
-            <span class="text-text-secondary">Активных приглашенных друзей:</span>
+            <span class="text-text-secondary">Друзья, получившие посылки:</span>
             <span class="font-bold text-white font-mono">
               {{ loyaltyInfo.activeReferralsCount }} / {{ loyaltyInfo.requiredForSpecialRate }}
             </span>
@@ -585,8 +585,10 @@
             ></div>
           </div>
 
+          <p class="text-[10px] text-text-secondary leading-relaxed">{{ referralActivationText }} Одной регистрации недостаточно.</p>
+
           <div class="flex items-center justify-between text-[10px] text-text-tertiary pt-0.5">
-            <span>2 друга ➔ {{ loyaltyInfo.specialRatePerKg }} сом/кг</span>
+            <span>Цель: {{ loyaltyInfo.requiredForSpecialRate }} ➔ {{ loyaltyInfo.specialRatePerKg }} {{ store.activeCurrency }}/кг</span>
             <span>Далее ➔ +{{ store.settings.loyaltySettings?.bonusPerNextReferral || 10 }} сом/друг</span>
           </div>
         </div>
@@ -1064,7 +1066,7 @@
           <div class="space-y-1.5 text-[11px] text-text-secondary bg-[#181B23] p-3.5 rounded-2xl border border-white/[0.06]">
             <div class="flex items-start gap-2">
               <span class="w-1.5 h-1.5 rounded-full bg-accent-cyan mt-1.5 shrink-0"></span>
-              <span>После <b>{{ loyaltyInfo.requiredForSpecialRate }} активных приглашенных</b> фиксируется спец-тариф <b>{{ loyaltyInfo.specialRatePerKg }} {{ store.activeCurrency }}/кг</b>.</span>
+              <span>Для спец-тарифа <b>{{ loyaltyInfo.specialRatePerKg }} {{ store.activeCurrency }}/кг</b> нужно приглашённых друзей с полученными посылками: <b>{{ loyaltyInfo.requiredForSpecialRate }}</b>. {{ referralActivationText }} Одной регистрации недостаточно.</span>
             </div>
             <div class="flex items-start gap-2">
               <span class="w-1.5 h-1.5 rounded-full bg-accent-emerald mt-1.5 shrink-0"></span>
@@ -1386,6 +1388,12 @@ function openPhotoPreview(url: string) {
 // NOOR CLUB & Реферальная программа
 const showLoyaltyDetailsModal = ref(false);
 const referredByCode = ref('');
+const referralActivationText = computed(() => {
+  const minimum = store.settings.loyaltySettings?.activeReferralMinPackages || 1;
+  return minimum === 1
+    ? 'Друг засчитывается после получения первой посылки.'
+    : `Друг засчитывается после получения нужного количества посылок. Минимум выданных посылок у каждого друга: ${minimum}.`;
+});
 
 const loyaltyInfo = computed(() => {
   return store.getCustomerLoyaltyInfo(activeCustomer.value?.cargoCode || '');
