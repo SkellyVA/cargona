@@ -2420,6 +2420,11 @@ fastify.post<{
     }
   }
 
+  const appButton = (label: string) => ({
+    text: label,
+    ...(message.chat.type === 'private' ? { web_app: { url: appUrl } } : { url: appUrl }),
+  });
+
   // Persist Telegram User ID to matching customer if known
   if (fromUser?.id) {
     const matchCust = store.customers.find(
@@ -2470,7 +2475,7 @@ fastify.post<{
             text: pkgText,
             parse_mode: 'HTML',
             reply_markup: {
-              inline_keyboard: [[{ text: '📦 Открыть в приложении', web_app: { url: appUrl } }]],
+              inline_keyboard: [[appButton('📦 Открыть в приложении')]],
             },
         });
         request.log.info({ slug, messageId: sentMessage?.message_id, replyType: 'tracking' }, 'Telegram reply sent');
@@ -2491,7 +2496,7 @@ fastify.post<{
       `👇 <i>Нажмите кнопку ниже, чтобы открыть кабинет:</i>`;
 
     const inlineKeyboard: any[][] = [
-      [{ text: '📦 Открыть личный кабинет', web_app: { url: appUrl } }],
+      [appButton('📦 Открыть личный кабинет')],
     ];
 
     if (botConfig?.channelIdForPosting) {
@@ -2510,7 +2515,7 @@ fastify.post<{
     request.log.info({ slug, messageId: sentMessage?.message_id, replyType: 'welcome' }, 'Telegram reply sent');
 
     // Set persistent WebApp menu button for this user
-    await callTelegram(token, 'setChatMenuButton', {
+    if (message.chat.type === 'private') await callTelegram(token, 'setChatMenuButton', {
         chat_id: chatId,
         menu_button: {
           type: 'web_app',
