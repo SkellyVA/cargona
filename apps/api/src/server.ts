@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import compress from '@fastify/compress';
 import { store } from './store.js';
 import { runSmartMigration } from './importer/migrationEngine.js';
+import { callTelegram, escapeTelegramHtml, startReferral } from './telegram.js';
 
 const fastify = Fastify({
   logger: true,
@@ -2024,6 +2025,7 @@ async function setupTelegramBotWebhook(token: string, tenantSlug: string, tenant
     }
   } catch (e: any) {
     console.warn(`[Bot Webhook] Failed setting webhook for ${botUsername}:`, e.message);
+    throw e;
   }
 
   // 4. Set Default Chat Menu Button (Persistent WebApp button)
@@ -2376,9 +2378,8 @@ fastify.post<{
   // Check if start command has referral param: /start ref_NOOR-001 or /start 001
   let appUrl = baseAppUrl;
   let inviterInfoText = '';
-  const startMatch = text.match(/^\/start\s+(?:ref_)?(.+)$/i);
-  if (startMatch && startMatch[1]) {
-    const rawRef = startMatch[1].trim();
+  const rawRef = startReferral(text);
+  if (rawRef) {
     appUrl = `${baseAppUrl}?ref=${encodeURIComponent(rawRef)}`;
 
     const inviterQuery = rawRef.toUpperCase();
@@ -2392,13 +2393,13 @@ fastify.post<{
     );
 
     if (inviter) {
-      inviterInfoText = `🤝 <i>Вы перешли по приглашению: <b>${inviter.fullName} (${inviter.cargoCode})</b></i>\n\n`;
+      inviterInfoText = `🤝 <i>Вы перешли по приглашению: <b>${escapeTelegramHtml(inviter.fullName)} (${escapeTelegramHtml(inviter.cargoCode)})</b></i>\n\n`;
 
       // Notify inviter about the referral click
       if ((inviter as any).telegramUserId && String((inviter as any).telegramUserId) !== String(fromUser?.id)) {
         const inviterNotice =
           `👀 <b>Переход по вашей реферальной ссылке!</b>\n\n` +
-          `Пользователь <b>${userName}</b> (${fromUser?.username ? `@${fromUser.username}` : 'клиент'}) открыл бота по вашей ссылке-приглашению.\n\n` +
+          `Пользователь <b>${escapeTelegramHtml(userName)}</b> (${fromUser?.username ? `@${escapeTelegramHtml(fromUser.username)}` : 'клиент'}) открыл бота по вашей ссылке-приглашению.\n\n` +
           `⏳ Как только он завершит регистрацию в личном кабинете, вам автоматически начислятся бонусные баллы!`;
 
         fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -2477,9 +2478,9 @@ fastify.post<{
 
     // 2. Default /start or welcome message (Only /start command active)
     const welcomeText =
-      `👋 <b>Здравствуйте, ${userName}!</b>\n\n` +
+      `👋 <b>Здравствуйте, ${escapeTelegramHtml(userName)}!</b>\n\n` +
       (inviterInfoText ? `${inviterInfoText}` : '') +
-      `Вас приветствует официальный бот карго-компании <b>«${tenant.name}»</b>.\n\n` +
+      `Вас приветствует официальный бот карго-компании <b>«${escapeTelegramHtml(tenant.name)}»</b>.\n\n` +
       `📱 <b>В нашем личном кабинете вы можете:</b>\n` +
       `• 📦 Отслеживать трек-номера и статус доставки\n` +
       `• 🏷 Получить персональный QR-код для выдачи в ПВЗ\n` +
@@ -2496,17 +2497,13 @@ fastify.post<{
       inlineKeyboard.push([{ text: '📢 Наш Telegram-канал', url: channelLink }]);
     }
 
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: welcomeText,
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: inlineKeyboard,
-        },
-      }),
+    await callTelegram(token, 'sendMessage', {
+      chat_id: chatId,
+      text: welcomeText,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: inlineKeyboard,
+      },
     });
 
     // Set persistent WebApp menu button for this user
@@ -2524,6 +2521,7 @@ fastify.post<{
     }).catch(() => {});
   } catch (err) {
     console.error(`[Bot Webhook Handler Error for ${slug}]:`, err);
+    return reply.status(502).send({ ok: false });
   }
 
   return reply.send({ ok: true });

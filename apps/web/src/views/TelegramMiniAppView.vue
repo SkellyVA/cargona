@@ -593,6 +593,9 @@
 
         <!-- Реферальная ссылка и кнопка поделиться -->
         <div class="space-y-2">
+          <div v-if="store.settings.botUsername" class="grid grid-cols-2 gap-2" role="group" aria-label="Тип реферальной ссылки">
+            <button v-for="option in referralLinkOptions" :key="option.value" type="button" @click="referralLinkType = option.value" :aria-pressed="referralLinkType === option.value" class="px-3 py-2 rounded-xl border text-xs font-semibold transition" :class="referralLinkType === option.value ? 'bg-accent-blue/20 border-accent-cyan/30 text-accent-cyan' : 'bg-white/[0.04] border-white/[0.08] text-text-secondary hover:text-white'">{{ option.label }}</button>
+          </div>
           <div class="flex items-center gap-2">
             <div class="flex-1 h-10 px-3 rounded-xl bg-[#13151B] border border-white/[0.08] text-[11px] text-text-secondary font-mono flex items-center justify-between truncate">
               <span class="truncate">{{ clientReferralUrl }}</span>
@@ -1400,12 +1403,18 @@ const customerBonusHistory = computed(() => {
   );
 });
 
+const referralLinkType = ref('app');
+const referralLinkOptions = [
+  { value: 'app', label: 'Сразу в приложение' },
+  { value: 'bot', label: 'Через бота /start' },
+];
 const clientReferralUrl = computed(() => {
   const slug = (route.params.slug as string) || store.activeTenantSlug || 'app';
   const code = activeCustomer.value?.cargoCode || '';
   if (store.settings.botUsername) {
     const username = store.settings.botUsername.trim().replace(/^@/, '');
-    return `https://t.me/${username}?startapp=${referralStartParam(code)}`;
+    const parameter = referralLinkType.value === 'bot' ? 'start' : 'startapp';
+    return `https://t.me/${username}?${parameter}=${referralStartParam(code)}`;
   }
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://cargona.io';
   return `${origin}/o/${encodeURIComponent(slug)}/app?ref=${encodeURIComponent(code)}`;
