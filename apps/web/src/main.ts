@@ -12,7 +12,7 @@ app.mount('#app');
 // Register Service Worker for PWA Standalone Mode
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((err) => {
+    navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).catch((err) => {
       console.log('SW registration skipped:', err);
     });
   });

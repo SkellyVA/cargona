@@ -10,10 +10,11 @@
     </div>
     <div class="bg-surface border border-surface-border rounded-2xl p-4 space-y-4">
       <div class="flex flex-col sm:flex-row gap-3">
-        <input v-model="search" aria-label="Поиск приглашений" placeholder="Имя, код или телефон любого участника" class="flex-1 min-w-0 bg-[#181B23] border border-surface-border rounded-xl p-3 text-sm text-white" />
-        <select v-model="status" aria-label="Статус реферала" class="bg-[#181B23] border border-surface-border rounded-xl p-3 text-sm text-white">
-          <option value="all">Все статусы</option><option value="active">Активные</option><option value="inactive">Неактивные</option>
-        </select>
+        <div class="relative flex-1 min-w-0">
+          <Search class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none" />
+          <input v-model="search" type="search" aria-label="Поиск приглашений" placeholder="Имя, код или телефон любого участника" class="w-full h-10 pl-10 pr-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-xs text-white placeholder:text-text-tertiary focus:outline-none focus:border-accent-cyan transition" />
+        </div>
+        <AppDropdown v-model="status" :options="statusOptions" class="w-full sm:w-48" aria-label="Статус реферала" />
       </div>
       <p class="text-xs text-text-secondary">Активный реферал: выдано посылок не менее {{ minimumPackages }}.</p>
       <div class="overflow-x-auto">
@@ -39,10 +40,17 @@
 import { computed, ref } from 'vue';
 import { useCargoStore } from '../stores/useCargoStore';
 import { findInviter } from '../utils/referrals.mjs';
+import AppDropdown from '../components/ui/AppDropdown.vue';
+import { Search } from 'lucide-vue-next';
 
 const store = useCargoStore();
 const search = ref('');
-const status = ref('all');
+const status = ref<string | number>('all');
+const statusOptions = [
+  { value: 'all', label: 'Все статусы' },
+  { value: 'active', label: 'Активные' },
+  { value: 'inactive', label: 'Неактивные' },
+];
 const minimumPackages = computed(() => store.loyaltySettings?.activeReferralMinPackages || 1);
 const invitations = computed(() => {
   const delivered = new Map<string, number>();
