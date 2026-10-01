@@ -304,7 +304,6 @@
           <p class="text-text-tertiary mt-2">Строк: {{ bulkTrackList.length }}. Существующие треки и повторы будут пропущены.</p>
         </div>
         <div><label for="bulk-customer" class="block text-text-secondary mb-2">Карго-код клиента для всех посылок (необязательно)</label><input id="bulk-customer" v-model="bulkCustomerCode" :disabled="isBulkAdding" class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white font-mono uppercase focus:outline-none focus:border-accent-cyan" /></div>
-        <div><label class="block text-text-secondary mb-2">Филиал / ПВЗ для всех посылок</label><AppDropdown v-model="bulkBranchId" :options="branchOptions" class="w-full" /></div>
         <p class="text-text-secondary">Вес и стоимость — 0 до приёмки и расчёта.</p>
         <p v-if="bulkAddError" role="alert" class="text-accent-coral">{{ bulkAddError }}</p>
       </div>
@@ -705,7 +704,6 @@ const searchQuery = ref('');
 const showBulkAddModal = ref(false);
 const bulkTracksText = ref('');
 const bulkCustomerCode = ref('');
-const bulkBranchId = ref<string | number>(store.branches[0]?.id || '');
 const bulkTrackList = computed(() => parseTrackList(bulkTracksText.value));
 const isBulkAdding = ref(false);
 const bulkAddError = ref('');
@@ -715,7 +713,7 @@ async function submitBulkAdd() {
   isBulkAdding.value = true;
   bulkAddError.value = '';
   try {
-    const result = await store.addPackagesFromList({ trackingNumbers: bulkTrackList.value, customerCargoCode: bulkCustomerCode.value.trim(), targetBranchId: String(bulkBranchId.value), status: 'RECEIVED_AT_ORIGIN' });
+    const result = await store.addPackagesFromList({ trackingNumbers: bulkTrackList.value, customerCargoCode: bulkCustomerCode.value.trim(), status: 'RECEIVED_AT_ORIGIN' });
     toastMessage.value = `Добавлено: ${result.createdCount}. Пропущено повторов: ${result.skippedCount}.`;
     bulkSkippedTracks.value = result.skippedTrackingNumbers;
     bulkTracksText.value = '';
