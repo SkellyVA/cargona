@@ -1293,6 +1293,7 @@ import AppleFlag from '../components/ui/AppleFlag.vue';
 import LanguageSwitcher from '../components/ui/LanguageSwitcher.vue';
 import AppModal from '../components/ui/AppModal.vue';
 import { useCargoStore } from '../stores/useCargoStore';
+import { referralStartParam, parseReferralStartParam } from '../utils/referrals.mjs';
 import { useI18n } from '../locales';
 
 const route = useRoute();
@@ -1403,10 +1404,11 @@ const clientReferralUrl = computed(() => {
   const slug = (route.params.slug as string) || store.activeTenantSlug || 'app';
   const code = activeCustomer.value?.cargoCode || '';
   if (store.settings.botUsername) {
-    return `https://t.me/${store.settings.botUsername}?start=ref_${code}`;
+    const username = store.settings.botUsername.trim().replace(/^@/, '');
+    return `https://t.me/${username}?startapp=${referralStartParam(code)}`;
   }
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://cargona.io';
-  return `${origin}/o/${slug}/app?ref=${code}`;
+  return `${origin}/o/${encodeURIComponent(slug)}/app?ref=${encodeURIComponent(code)}`;
 });
 
 function copyReferralLink() {
@@ -2040,6 +2042,8 @@ onMounted(() => {
   if (route.query.ref && typeof route.query.ref === 'string') {
     referredByCode.value = route.query.ref.trim();
   }
+  const queryReferral = parseReferralStartParam(route.query.tgWebAppStartParam);
+  if (queryReferral) referredByCode.value = queryReferral;
 
   // Check saved customer and branch in localStorage
   if (typeof window !== 'undefined' && slugParam) {
@@ -2090,12 +2094,8 @@ onMounted(() => {
     if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp) {
       const tg = (window as any).Telegram.WebApp;
       const startParam = tg.initDataUnsafe?.start_param;
-      if (startParam && typeof startParam === 'string') {
-        const match = startParam.match(/^ref_(.+)$/);
-        if (match) {
-          referredByCode.value = match[1].trim();
-        }
-      }
+      const telegramReferral = parseReferralStartParam(startParam);
+      if (telegramReferral) referredByCode.value = telegramReferral;
 
       const tgUser = tg.initDataUnsafe?.user;
       if (tgUser) {
