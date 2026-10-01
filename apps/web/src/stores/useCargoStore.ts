@@ -2799,6 +2799,38 @@ export const useCargoStore = defineStore('cargo', () => {
   }
 
   // Добавление новой посылки (с автоматическим расчетом кубатуры, площади и плотности)
+  async function addPackagesFromList(data: {
+    trackingNumbers: string[];
+    customerCargoCode?: string;
+    targetBranchId?: string;
+    description?: string;
+    status?: 'PRE_REGISTERED' | 'RECEIVED_AT_ORIGIN';
+  }) {
+    const slug = activeTenantSlug.value;
+    if (!slug) throw new Error('Не выбрана компания');
+    const response = await fetch(`/api/o/${encodeURIComponent(slug)}/packages/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...data, weightKg: 0, skipExisting: true }),
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok || !result?.success) throw new Error(result?.error || 'Не удалось сохранить посылки. Повторите попытку.');
+    for (const pkg of result.packages || []) {
+      if (rawPackages.value.some(p => p.id === pkg.id && p.tenantSlug === slug)) continue;
+      rawPackages.value.unshift({
+        ...pkg,
+        tenantSlug: slug,
+        branchId: pkg.currentBranchId || '',
+        costUSD: pkg.cost || 0,
+        description: pkg.description || '',
+        shelfLocation: pkg.shelfLocation || '',
+      });
+    }
+    triggerRef(rawPackages);
+    safeStorageSet('cargona_packages', rawPackages.value);
+    return result as { createdCount: number; skippedCount: number; skippedTrackingNumbers: string[] };
+  }
+
   function addPackage(pkgData: Omit<PackageItem, 'id' | 'createdAt'>) {
     const id = nextSeqId('pkg', rawPackages.value);
     const now = new Date();
@@ -3402,6 +3434,7 @@ export const useCargoStore = defineStore('cargo', () => {
     adjustCustomerBalance,
     handoverClientPackages,
     bulkIntakePackages,
+    addPackagesFromList,
     submitPackageReview,
     toggleNotifyWhenReady,
     payPackageOnline,

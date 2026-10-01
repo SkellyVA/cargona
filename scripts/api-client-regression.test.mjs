@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { escapeTelegramHtml, startReferral } from '../apps/api/src/telegram.ts';
+import { parseTrackList } from '../apps/web/src/utils/trackList.mjs';
 
 const require = createRequire(new URL('../apps/api/package.json', import.meta.url));
 const app = require('fastify')();
@@ -17,13 +18,14 @@ const store = {
   botConfigs: [{ tenantId: 't', isActive: true, botToken: 'test-token' }],
   branches: [{ id: 'b', tenantId: 't', type: 'PVZ', name: 'Office' }],
   originWarehouses: [],
+  auditLogs: [],
   packages: [
     { id: 'incomplete', tenantId: 't' },
     { id: 'without-barcode', tenantId: 't', trackingNumber: 'OTHER' },
     { id: 'found', tenantId: 't', customerId: 'c', trackingNumber: 'TRACK123', status: 'IN_TRANSIT' },
   ],
   saveToFile() {},
-  nextId: () => `new-${store.customers.length}`,
+  nextId: (prefix, items) => `${prefix}-${items.length}`,
 };
 const context = {
   fastify: app, store, APP_DOMAIN: 'example.test', process: { env: {} },
@@ -35,6 +37,7 @@ const context = {
 };
 // Register the production handlers without starting the server or touching real data/Telegram.
 for (const [start, end] of [
+  ['// Bulk Package Intake', "fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/packages/:id'"],
   ['// Telegram Webhook Handler', '// 5. WMS Operations'],
   ["fastify.get<{ Params: { slug: string }; Querystring: { tgUserId?", '// Client MiniApp Auth Lookup'],
   ["fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/customers'", "fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/customers/:id'"],
@@ -46,6 +49,24 @@ for (const [start, end] of [
   vm.runInNewContext(ts.transpileModule(snippet, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
 }
 try {
+  assert.deepEqual(parseTrackList(' NEW1\r\n\n NEW2 \nnew1'), ['NEW1', 'NEW2', 'new1']);
+  const existing = JSON.stringify(store.packages.find(p => p.id === 'found'));
+  const bulkPayload = { trackingNumbers: ['NEW1', 'NEW2', 'new1', 'track123'], skipExisting: true, status: 'PRE_REGISTERED', customerCargoCode: 'NOOR/S2301' };
+  const bulk = await app.inject({ method: 'POST', url: '/api/o/noor/packages/bulk', payload: bulkPayload });
+  assert.equal(bulk.statusCode, 200, bulk.body);
+  assert.equal(bulk.json().createdCount, 2);
+  assert.equal(bulk.json().skippedCount, 2);
+  assert.equal(JSON.stringify(store.packages.find(p => p.id === 'found')), existing);
+  assert.equal(new Set(bulk.json().packages.map(p => p.id)).size, 2);
+  const repeat = await app.inject({ method: 'POST', url: '/api/o/noor/packages/bulk', payload: bulkPayload });
+  assert.equal(repeat.json().createdCount, 0);
+  assert.equal(repeat.json().skippedCount, 4);
+  const count = store.packages.length;
+  for (const trackingNumbers of [['GOOD', 123], ['GOOD', 'bad track'], Array(501).fill('TRACK'), []]) {
+    const invalid = await app.inject({ method: 'POST', url: '/api/o/noor/packages/bulk', payload: { trackingNumbers } });
+    assert.equal(invalid.statusCode, 400);
+    assert.equal(store.packages.length, count);
+  }
   for (const text of ['/start', '/start ref_NOOR/S2301', 'UNKNOWN123', 'track123']) {
     const response = await app.inject({
       method: 'POST', url: '/api/bot/webhook/noor', headers: { host: 'example.test' },
@@ -56,7 +77,8 @@ try {
   assert.deepEqual(errors, []);
   assert.ok(messages.some(({ body }) => body.text?.includes('A &amp; &lt;B&gt;')));
   assert.ok(messages.some(({ body }) => body.text?.includes('TRACK123')));
-  assert.ok(messages.some(({ body }) => body.reply_markup?.inline_keyboard[0][0].web_app));
+  assert.ok(messages.some(({ body }) => body.reply_markup?.inline_keyboard?.[0][0].web_app));
+  assert.ok(messages.some(({ body }) => body.reply_markup?.remove_keyboard === true));
   const beforeGroup = messages.length;
   for (const type of ['group', 'supergroup', 'channel']) {
     for (const text of ['/start ref_NOOR/S2301', 'TRACK123']) {

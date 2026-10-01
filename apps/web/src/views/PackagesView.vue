@@ -16,6 +16,9 @@
           />
         </div>
 
+        <button type="button" @click="showBulkAddModal = true" class="flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/[0.08] hover:bg-white/[0.1] text-white font-semibold text-xs transition cursor-pointer whitespace-nowrap">
+          <Plus class="w-4 h-4" /><span>Добавить списком</span>
+        </button>
         <button
           @click="showCreatePackageModal = true"
           class="flex items-center justify-center gap-2 px-3.5 py-2.5 sm:px-4 rounded-xl bg-accent-blue hover:bg-accent-blue/90 text-white font-semibold text-xs shadow-glow-blue transition shrink-0 cursor-pointer whitespace-nowrap"
@@ -37,6 +40,7 @@
       </button>
     </div>
 
+    <p v-if="bulkSkippedTracks.length" class="mb-4 max-h-24 overflow-auto break-words text-sm text-text-muted">Пропущены существующие треки и повторы: {{ bulkSkippedTracks.join(', ') }}</p>
     <!-- Табы статусов -->
     <div class="bg-surface border border-surface-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-card space-y-4 sm:space-y-5">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/[0.06] pb-3 sm:pb-4">
@@ -292,6 +296,20 @@
     </div>
 
     <!-- Модальное окно добавления посылки -->
+    <AppModal v-model="showBulkAddModal" title="Добавить посылки списком">
+      <div class="space-y-4 text-xs">
+        <div>
+          <label for="bulk-tracks" class="block text-text-secondary mb-2">Трек-коды — по одному на строку, до 500 за раз</label>
+          <textarea id="bulk-tracks" v-model="bulkTracksText" :disabled="isBulkAdding" rows="8" placeholder="TRACKCODE1&#10;TRACKCODE2&#10;TRACKCODE3" class="w-full px-3 py-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white font-mono placeholder:text-text-tertiary focus:outline-none focus:border-accent-cyan resize-y" />
+          <p class="text-text-tertiary mt-2">Строк: {{ bulkTrackList.length }}. Существующие треки и повторы будут пропущены.</p>
+        </div>
+        <div><label for="bulk-customer" class="block text-text-secondary mb-2">Карго-код клиента для всех посылок (необязательно)</label><input id="bulk-customer" v-model="bulkCustomerCode" :disabled="isBulkAdding" class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white font-mono uppercase focus:outline-none focus:border-accent-cyan" /></div>
+        <div><label class="block text-text-secondary mb-2">Филиал / ПВЗ для всех посылок</label><AppDropdown v-model="bulkBranchId" :options="branchOptions" class="w-full" /></div>
+        <p class="text-text-secondary">Вес и стоимость — 0 до приёмки и расчёта.</p>
+        <p v-if="bulkAddError" role="alert" class="text-accent-coral">{{ bulkAddError }}</p>
+      </div>
+      <template #footer><button type="button" @click="submitBulkAdd" :disabled="isBulkAdding || !bulkTrackList.length || bulkTrackList.length > 500" class="px-4 py-2.5 rounded-xl bg-accent-blue text-white text-xs font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">{{ isBulkAdding ? 'Сохранение…' : 'Добавить посылки' }}</button></template>
+    </AppModal>
     <AppModal v-model="showCreatePackageModal" title="Добавить посылку">
       <div class="space-y-3.5 text-xs">
         <div>
@@ -679,10 +697,33 @@ import AppDropdown from '../components/ui/AppDropdown.vue';
 import BarcodePrintModal from '../components/BarcodePrintModal.vue';
 import { useCargoStore } from '../stores/useCargoStore';
 import { useI18n } from '../locales';
+import { parseTrackList } from '../utils/trackList.mjs';
 
 const store = useCargoStore();
 const { t } = useI18n();
 const searchQuery = ref('');
+const showBulkAddModal = ref(false);
+const bulkTracksText = ref('');
+const bulkCustomerCode = ref('');
+const bulkBranchId = ref<string | number>(store.branches[0]?.id || '');
+const bulkTrackList = computed(() => parseTrackList(bulkTracksText.value));
+const isBulkAdding = ref(false);
+const bulkAddError = ref('');
+const bulkSkippedTracks = ref<string[]>([]);
+async function submitBulkAdd() {
+  if (isBulkAdding.value || !bulkTrackList.value.length) return;
+  isBulkAdding.value = true;
+  bulkAddError.value = '';
+  try {
+    const result = await store.addPackagesFromList({ trackingNumbers: bulkTrackList.value, customerCargoCode: bulkCustomerCode.value.trim(), targetBranchId: String(bulkBranchId.value), status: 'RECEIVED_AT_ORIGIN' });
+    toastMessage.value = `Добавлено: ${result.createdCount}. Пропущено повторов: ${result.skippedCount}.`;
+    bulkSkippedTracks.value = result.skippedTrackingNumbers;
+    bulkTracksText.value = '';
+    showBulkAddModal.value = false;
+  } catch (error) {
+    bulkAddError.value = error instanceof Error ? error.message : 'Не удалось сохранить посылки';
+  } finally { isBulkAdding.value = false; }
+}
 const activeTab = ref<'ALL' | 'RECEIVED_AT_ORIGIN' | 'IN_TRANSIT' | 'READY_FOR_PICKUP' | 'RELEASED' | 'RETURNED'>('ALL');
 const showCreatePackageModal = ref(false);
 const showShelfModal = ref(false);

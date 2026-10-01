@@ -40,7 +40,16 @@ try {
       warehouses, originWarehouses: warehouses,
       packages: [{ id: 'pkg', customerId: 'c', customerCargoCode: 'ACME/S123', trackingNumber: 'TRACK123', cost: 12, costUSD: 12, weightKg: 1, status: 'READY_FOR_PICKUP', createdAt: '2026-10-01T00:00:00Z' }],
     };
-    await page.route('**/api/**', route => route.fulfill({ json: data }));
+    let bulkRequest;
+    let failBulk = false;
+    await page.route('**/api/**', route => {
+      if (route.request().url().endsWith('/packages/bulk')) {
+        bulkRequest = route.request().postDataJSON();
+        if (failBulk) return route.fulfill({ status: 500, json: { error: 'Ошибка сохранения' } });
+        return route.fulfill({ json: { success: true, createdCount: 2, skippedCount: 1, skippedTrackingNumbers: ['BULK1'], packages: ['BULK1', 'BULK2'].map((trackingNumber, i) => ({ id: `bulk-${i}`, trackingNumber, customerCargoCode: customer.cargoCode, status: 'PRE_REGISTERED', weightKg: 0, cost: 0 })) } });
+      }
+      return route.fulfill({ json: data });
+    });
     await page.route('https://telegram.org/**', route => route.abort());
     await page.addInitScript(({ settings, customer }) => {
       localStorage.setItem('cargona_active_tenant_slug', 'acme');
@@ -80,6 +89,20 @@ try {
       assert.equal(await confirm.isDisabled(), true);
       assert.equal(await page.getByRole('button', { name: 'Копировать', exact: true }).last().isDisabled(), true);
     }
+    assert.deepEqual(pageErrors, []);
+    await page.keyboard.press('Escape');
+    await page.locator('#client-tracks').fill('BULK1\nBULK2\nBULK1');
+    await page.getByRole('button', { name: 'Добавить посылки (3)', exact: true }).click();
+    await page.getByText('Пропущены существующие треки и повторы: BULK1', { exact: true }).waitFor();
+    assert.deepEqual(bulkRequest.trackingNumbers, ['BULK1', 'BULK2', 'BULK1']);
+    assert.equal(bulkRequest.skipExisting, true);
+    assert.equal(bulkRequest.status, 'PRE_REGISTERED');
+    assert.equal(await page.locator('#client-tracks').inputValue(), '');
+    failBulk = true;
+    await page.locator('#client-tracks').fill('FAILTRACK');
+    await page.getByRole('button', { name: 'Добавить посылки (1)', exact: true }).click();
+    await page.getByRole('alert').getByText('Ошибка сохранения', { exact: true }).waitFor();
+    assert.equal(await page.locator('#client-tracks').inputValue(), 'FAILTRACK');
     assert.deepEqual(pageErrors, []);
     await page.close();
   }

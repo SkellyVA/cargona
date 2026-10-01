@@ -1228,26 +1228,42 @@ fastify.post<{
     status?: string;
     weightKg?: number;
     description?: string;
+    skipExisting?: boolean;
   };
 }>('/api/o/:slug/packages/bulk', async (request, reply) => {
   const { slug } = request.params;
   const tenant = store.tenants.find((t) => t.slug === slug);
   if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
 
-  const { trackingNumbers, targetBranchId, customerCargoCode, status = 'RECEIVED_AT_ORIGIN', weightKg = 0, description } = request.body;
+  const { trackingNumbers, targetBranchId, customerCargoCode, status = 'RECEIVED_AT_ORIGIN', weightKg = 0, description, skipExisting = false } = request.body;
   if (!Array.isArray(trackingNumbers) || trackingNumbers.length === 0) {
     return reply.status(400).send({ error: 'Список трек-номеров пуст' });
+  }
+  if (trackingNumbers.length > 500 || trackingNumbers.some(track => typeof track !== 'string' || !track.trim() || track.trim().length > 100 || /\s/.test(track.trim()))) {
+    return reply.status(400).send({ error: 'Укажите не более 500 трек-кодов, каждый без пробелов и не длиннее 100 символов.' });
   }
 
   const createdPackages: any[] = [];
   const updatedPackages: any[] = [];
+  const skippedTrackingNumbers: string[] = [];
+  const seen = new Set<string>();
 
   for (const rawTrack of trackingNumbers) {
     const track = (rawTrack || '').trim();
     if (!track) continue;
+    const key = track.toLowerCase();
+    if (seen.has(key)) {
+      skippedTrackingNumbers.push(track);
+      continue;
+    }
+    seen.add(key);
 
     let existing = store.packages.find((p) => p.tenantId === tenant.id && p.trackingNumber?.toLowerCase() === track.toLowerCase());
     if (existing) {
+      if (skipExisting) {
+        skippedTrackingNumbers.push(track);
+        continue;
+      }
       if (status) existing.status = status as any;
       if (targetBranchId) existing.currentBranchId = targetBranchId;
       if (customerCargoCode) existing.customerCargoCode = customerCargoCode.toUpperCase().trim();
@@ -1297,6 +1313,8 @@ fastify.post<{
     totalReceived: createdPackages.length + updatedPackages.length,
     createdCount: createdPackages.length,
     updatedCount: updatedPackages.length,
+    skippedCount: skippedTrackingNumbers.length,
+    skippedTrackingNumbers,
     packages: [...createdPackages, ...updatedPackages],
   };
 });
@@ -2445,6 +2463,13 @@ fastify.post<{
 
   try {
     // 1. Search track number if user sends a digits/track string (length >= 6 and not a command)
+    if (text.startsWith('/start')) {
+      await callTelegram(token, 'sendMessage', {
+        chat_id: chatId,
+        text: '📱 Теперь кабинет доступен в приложении — старое меню отключено.',
+        reply_markup: { remove_keyboard: true },
+      });
+    }
     if (text.length >= 6 && !text.startsWith('/')) {
       const foundPkg = store.packages.find(
         (p) =>

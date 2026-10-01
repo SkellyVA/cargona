@@ -634,18 +634,25 @@
       </div>
 
       <!-- МОИ ДОСТАВКИ (ФОРМА ДОБАВЛЕНИЯ ТРЕКА + СПИСОК ПОСЫЛОК) -->
-      <div class="bg-surface border border-surface-border rounded-3xl p-4 shadow-card flex items-center gap-2">
-        <input
+      <div class="bg-surface border border-surface-border rounded-3xl p-4 shadow-card space-y-3">
+        <label for="client-tracks" class="block text-xs text-text-secondary">Трек-коды — по одному на строку (до 500)</label>
+        <textarea
+          id="client-tracks"
           v-model="newTrack"
-          :placeholder="t('miniapp.addTrackPlaceholder')"
-          class="flex-1 h-11 px-3.5 rounded-xl bg-[#181B23] border border-white/[0.08] text-white text-xs placeholder:text-text-tertiary font-mono focus:border-accent-blue focus:outline-none"
+          :disabled="isAddingTracks"
+          rows="3"
+          placeholder="TRACKCODE1&#10;TRACKCODE2&#10;TRACKCODE3"
+          class="w-full px-3.5 py-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white text-xs placeholder:text-text-tertiary font-mono focus:border-accent-blue focus:outline-none resize-y"
         />
         <button
           @click="addTrack"
-          class="h-11 px-4 rounded-xl bg-accent-blue hover:bg-accent-blue/90 text-white font-bold text-xs shadow-glow-blue transition shrink-0 cursor-pointer"
+          :disabled="isAddingTracks || !parsedTracks.length || parsedTracks.length > 500"
+          class="w-full h-11 px-4 rounded-xl bg-accent-blue hover:bg-accent-blue/90 text-white font-bold text-xs shadow-glow-blue transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {{ t('miniapp.addTrackBtn') }}
+          {{ isAddingTracks ? 'Сохранение…' : `Добавить посылки (${parsedTracks.length})` }}
         </button>
+        <p v-if="addTracksError" role="alert" class="text-xs text-accent-coral">{{ addTracksError }}</p>
+        <p v-if="skippedTracks.length" class="max-h-24 overflow-auto break-words text-xs text-text-muted">Пропущены существующие треки и повторы: {{ skippedTracks.join(', ') }}</p>
       </div>
 
       <!-- Список посылок со статусами -->
@@ -1299,6 +1306,7 @@ import LanguageSwitcher from '../components/ui/LanguageSwitcher.vue';
 import AppModal from '../components/ui/AppModal.vue';
 import { useCargoStore } from '../stores/useCargoStore';
 import { referralStartParam, parseReferralStartParam } from '../utils/referrals.mjs';
+import { parseTrackList } from '../utils/trackList.mjs';
 import { useI18n } from '../locales';
 
 const route = useRoute();
@@ -1657,6 +1665,10 @@ const copyButtonText = computed(() => {
 const copyStatusOverride = ref<string | null>(null);
 
 const newTrack = ref('');
+const parsedTracks = computed(() => parseTrackList(newTrack.value));
+const isAddingTracks = ref(false);
+const addTracksError = ref('');
+const skippedTracks = ref<string[]>([]);
 const showQrModal = ref(false);
 const showBranchModal = ref(false);
 const qrModalCanvasRef = ref<HTMLCanvasElement | null>(null);
@@ -2247,20 +2259,25 @@ function copyAddress() {
   }, 2500);
 }
 
-function addTrack() {
-  if (!newTrack.value.trim()) return;
+async function addTrack() {
+  if (isAddingTracks.value || !parsedTracks.value.length) return;
   const originName = currentWarehouse.value?.country || 'склад';
-  store.addPackage({
-    trackingNumber: newTrack.value.trim(),
-    customerCargoCode: activeCustomer.value.cargoCode,
-    description: `Ожидается на складе (${originName})`,
-    weightKg: 0,
-    costUSD: 0,
-    shelfLocation: '',
-    branchId: currentBranchSelectedId.value,
-    status: 'RECEIVED_AT_ORIGIN',
-  });
-  newTrack.value = '';
-  safeHaptic('notification', 'success');
+  isAddingTracks.value = true;
+  addTracksError.value = '';
+  try {
+    const result = await store.addPackagesFromList({
+      trackingNumbers: parsedTracks.value,
+      customerCargoCode: activeCustomer.value.cargoCode,
+      description: `Ожидается на складе (${originName})`,
+      targetBranchId: currentBranchSelectedId.value,
+      status: 'PRE_REGISTERED',
+    });
+    skippedTracks.value = result.skippedTrackingNumbers;
+    newTrack.value = '';
+    miniAppToast.value = `Добавлено: ${result.createdCount}. Пропущено повторов: ${result.skippedCount}.`;
+    safeHaptic('notification', 'success');
+  } catch (error) {
+    addTracksError.value = error instanceof Error ? error.message : 'Не удалось сохранить посылки';
+  } finally { isAddingTracks.value = false; }
 }
 </script>
