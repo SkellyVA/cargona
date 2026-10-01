@@ -1181,7 +1181,7 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/packages', a
     return reply.status(400).send({ error: 'Tracking number required' });
   }
 
-  const existing = store.packages.find((p) => p.tenantId === tenant.id && p.trackingNumber.toLowerCase() === trackingNumber.toLowerCase().trim());
+  const existing = store.packages.find((p) => p.tenantId === tenant.id && p.trackingNumber?.toLowerCase() === trackingNumber.toLowerCase().trim());
   if (existing) {
     Object.assign(existing, request.body);
     existing.updatedAt = new Date().toISOString();
@@ -1246,7 +1246,7 @@ fastify.post<{
     const track = (rawTrack || '').trim();
     if (!track) continue;
 
-    let existing = store.packages.find((p) => p.tenantId === tenant.id && p.trackingNumber.toLowerCase() === track.toLowerCase());
+    let existing = store.packages.find((p) => p.tenantId === tenant.id && p.trackingNumber?.toLowerCase() === track.toLowerCase());
     if (existing) {
       if (status) existing.status = status as any;
       if (targetBranchId) existing.currentBranchId = targetBranchId;
@@ -2435,8 +2435,8 @@ fastify.post<{
       const foundPkg = store.packages.find(
         (p) =>
           p.tenantId === tenant!.id &&
-          (p.trackingNumber.toLowerCase() === text.toLowerCase() ||
-            p.internalBarcode.toLowerCase() === text.toLowerCase())
+          (p.trackingNumber?.toLowerCase() === text.toLowerCase() ||
+            p.internalBarcode?.toLowerCase() === text.toLowerCase())
       );
 
       if (foundPkg) {
@@ -2730,6 +2730,11 @@ fastify.get<{ Params: { slug: string }; Querystring: { tgUserId?: string; cargoC
 
     const branchCity = customerBranch?.city?.trim() || '';
     const branchName = customerBranch?.name?.trim() || '';
+    const qrPayload = `cargona://pickup?${new URLSearchParams({
+      t: tenant.slug,
+      c: customer.cargoCode,
+      b: customerBranch?.id || '',
+    }).toString()}`;
 
     const formatWhTpl = (tpl: string) => {
       if (!tpl) return '';
