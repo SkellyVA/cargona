@@ -1072,7 +1072,7 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/customers', 
     if (inviter) {
       const rawSettings = store.tenantSettings[tenant.id] || {};
       const loyalty = rawSettings.loyaltySettings || {};
-      const bonusPerReferral = Number(loyalty.bonusPerNextReferral || 50);
+      const bonusPerReferral = Number(loyalty.bonusPerNextReferral ?? 10);
       (inviter as any).bonusBalance = ((inviter as any).bonusBalance || 0) + bonusPerReferral;
 
       const botConfig = store.botConfigs.find((b) => b.tenantId === tenant.id && b.isActive && b.botToken);
@@ -2686,10 +2686,7 @@ fastify.get<{ Params: { slug: string }; Querystring: { tgUserId?: string; cargoC
   async (request, reply) => {
     const { slug } = request.params;
     const { tgUserId, cargoCode } = request.query;
-    let tenant = store.tenants.find((t) => t.slug.toLowerCase() === (slug || '').toLowerCase());
-    if (!tenant && store.tenants.length > 0) {
-      tenant = store.tenants[0];
-    }
+    const tenant = store.tenants.find((t) => (t.slug || '').toLowerCase() === (slug || '').toLowerCase());
     if (!tenant) return reply.status(404).send({ error: 'Cargo not found' });
 
     const tenantSettings = store.tenantSettings[tenant.id] || {};
@@ -2707,50 +2704,36 @@ fastify.get<{ Params: { slug: string }; Querystring: { tgUserId?: string; cargoC
       (customer as any).telegramUserId = Number(tgUserId);
       store.saveToFile();
     }
-    if (!customer) {
-      customer = store.customers.find((c) => c.tenantId === tenant.id) || {
-        id: store.nextId('cust', store.customers),
-        tenantId: tenant.id,
-        cargoCode: store.nextCargoCode(tenant),
-        fullName: 'Клиент Карго',
-        phone: '+992 90 000 0000',
-        balance: 0,
-        currency: tenant.baseCurrency || 'USD',
-        isBlocked: false,
-        createdAt: new Date().toISOString(),
-      };
-    }
-
-    const customerPackages = store.packages.filter((p) => p.customerId === customer.id || p.customerCargoCode === customer.cargoCode);
+    const customerPackages = customer
+      ? store.packages.filter((p) => p.tenantId === tenant.id && (p.customerId === customer.id || p.customerCargoCode === customer.cargoCode))
+      : [];
 
     const originWarehouse = tenantOriginWarehouses[0]
       || store.branches.find((b) => b.tenantId === tenant.id && b.type === 'ORIGIN_HUB')
-      || store.branches.find((b) => b.type === 'ORIGIN_HUB')
-      || { address: '浙江省金华市义乌市 Yiwu International Trade City {code}', phone: '+86 138 0000 0000', receiverName: '{name} ({code})' };
+      || { address: tenantSettings.chinaWarehouseAddress || '', phone: tenantSettings.chinaContactPhone || '', receiverName: tenantSettings.chinaContactName || '' };
 
-    const customerBranch = store.branches.find((b) => b.id === (customer as any).preferredBranchId && b.tenantId === tenant.id)
-      || store.branches.find((b) => b.tenantId === tenant.id && b.type !== 'ORIGIN_HUB')
-      || store.branches[0];
+    const customerBranch = store.branches.find((b) => b.id === (customer as any)?.preferredBranchId && b.tenantId === tenant.id)
+      || store.branches.find((b) => b.tenantId === tenant.id && b.type !== 'ORIGIN_HUB');
 
     const branchCity = customerBranch?.city?.trim() || '';
     const branchName = customerBranch?.name?.trim() || '';
-    const qrPayload = `cargona://pickup?${new URLSearchParams({
+    const qrPayload = customer ? `cargona://pickup?${new URLSearchParams({
       t: tenant.slug,
       c: customer.cargoCode,
       b: customerBranch?.id || '',
-    }).toString()}`;
+    }).toString()}` : null;
 
     const formatWhTpl = (tpl: string) => {
       if (!tpl) return '';
-      const code = customer.cargoCode || `${tenant.codePrefix || 'CRG'}-001`;
+      const code = customer?.cargoCode || '';
       const codeNumMatch = code.match(/\d+/);
-      const id = codeNumMatch ? codeNumMatch[0] : (customer.id ? String(customer.id).replace(/\D+/g, '') : code);
+      const id = codeNumMatch ? codeNumMatch[0] : (customer?.id ? String(customer.id).replace(/\D+/g, '') : code);
       return tpl
         .replace(/\{code\}/gi, code)
         .replace(/\{user_?id\}/gi, id)
         .replace(/\{id\}/gi, id)
-        .replace(/\{name\}/gi, customer.fullName || '')
-        .replace(/\{phone\}/gi, customer.phone || '')
+        .replace(/\{name\}/gi, customer?.fullName || '')
+        .replace(/\{phone\}/gi, customer?.phone || '')
         .replace(/\{city\}/gi, branchCity)
         .replace(/\{branch_?city\}/gi, branchCity)
         .replace(/\{pvz_?city\}/gi, branchCity)
@@ -2760,10 +2743,10 @@ fastify.get<{ Params: { slug: string }; Querystring: { tgUserId?: string; cargoC
     };
 
     const rawWhAddr = (originWarehouse as any).address || '';
-    const rawWhReceiver = (originWarehouse as any).receiverName || `${customer.fullName} (${customer.cargoCode})`;
+    const rawWhReceiver = (originWarehouse as any).receiverName || (customer ? `${customer.fullName} (${customer.cargoCode})` : '');
     const resolvedAddress = formatWhTpl(rawWhAddr);
     const resolvedReceiver = formatWhTpl(rawWhReceiver);
-    const resolvedPhone = (originWarehouse as any).phone || originHubPhone('');
+    const resolvedPhone = (originWarehouse as any).phone || '';
 
     const warehouseAddressFor1688 = `收件人: ${resolvedReceiver}\n电话: ${resolvedPhone}\n地址: ${resolvedAddress}`;
 
@@ -2794,29 +2777,29 @@ fastify.get<{ Params: { slug: string }; Querystring: { tgUserId?: string; cargoC
       originWarehouses: tenantOriginWarehouses.map((w: any) => ({
         id: w.id,
         name: w.name,
-        country: w.country || 'Китай',
-        countryCode: w.countryCode || 'CN',
-        city: w.city || 'Иу',
+        country: w.country || '',
+        countryCode: w.countryCode || '',
+        city: w.city || '',
         address: w.address,
         phone: w.phone,
         contactName: w.contactName,
         isActive: w.isActive !== false,
       })),
       loyalty: tenantSettings.loyaltySettings || null,
-      customer: {
+      customer: customer ? {
         id: customer.id,
         cargoCode: customer.cargoCode,
         fullName: customer.fullName,
         phone: customer.phone,
         telegramUsername: (customer as any).telegramUsername || '',
         telegramUserId: (customer as any).telegramUserId || null,
-        preferredBranchId: (customer as any).preferredBranchId || tenantBranches[0]?.id || 'b-001',
+        preferredBranchId: (customer as any).preferredBranchId || customerBranch?.id || null,
         bonusBalance: (customer as any).bonusBalance || 0,
         balance: customer.balance || 0,
         currency: customer.currency || tenant.baseCurrency || 'USD',
         invitedByCustomerId: (customer as any).invitedByCustomerId || null,
         referralCode: (customer as any).referralCode || customer.cargoCode,
-      },
+      } : null,
       pickupQr: qrPayload,
       warehouseAddressFor1688,
       packageCounts: {

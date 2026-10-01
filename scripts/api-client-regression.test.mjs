@@ -23,6 +23,7 @@ const store = {
     { id: 'found', tenantId: 't', customerId: 'c', trackingNumber: 'TRACK123', status: 'IN_TRANSIT' },
   ],
   saveToFile() {},
+  nextId: () => `new-${store.customers.length}`,
 };
 const context = {
   fastify: app, store, APP_DOMAIN: 'example.test', process: { env: {} },
@@ -36,6 +37,7 @@ const context = {
 for (const [start, end] of [
   ['// Telegram Webhook Handler', '// 5. WMS Operations'],
   ["fastify.get<{ Params: { slug: string }; Querystring: { tgUserId?", '// Client MiniApp Auth Lookup'],
+  ["fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/customers'", "fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/customers/:id'"],
 ]) {
   const startIndex = source.indexOf(start);
   const endIndex = source.indexOf(end, startIndex);
@@ -67,6 +69,23 @@ try {
   assert.equal(qr.searchParams.get('t'), 'noor');
   assert.equal(qr.searchParams.get('c'), 'NOOR/S2301');
   assert.equal(qr.searchParams.get('b'), 'b');
+  assert.ok(!response.json().warehouseAddressFor1688.includes('+86 138'));
+  assert.ok(!response.json().warehouseAddressFor1688.includes('Yiwu International'));
+  for (const url of ['/api/app/noor/me', '/api/app/noor/me?cargoCode=MISSING']) {
+    const guest = await app.inject(url);
+    assert.equal(guest.statusCode, 200);
+    assert.equal(guest.json().customer, null, 'Do not substitute the first customer or a demo profile');
+    assert.equal(guest.json().pickupQr, null);
+    assert.deepEqual(guest.json().packages, []);
+  }
+  assert.equal((await app.inject('/api/app/missing/me')).statusCode, 404);
+  customer.bonusBalance = 0;
+  for (const bonus of [0, 7]) {
+    store.tenantSettings.t = { loyaltySettings: { bonusPerNextReferral: bonus } };
+    const created = await app.inject({ method: 'POST', url: '/api/o/noor/customers', payload: { cargoCode: `REF-${bonus}`, fullName: 'Invited', phone: '123', invitedByCustomerId: 'c' } });
+    assert.equal(created.statusCode, 200, created.body);
+    assert.equal(customer.bonusBalance, bonus, 'Registration bonus must use tenant settings, including zero');
+  }
   const beforeIgnoredUpdate = messages.length;
   const ignored = await app.inject({ method: 'POST', url: '/api/bot/webhook/noor', payload: { callback_query: { id: 'test' } } });
   assert.equal(ignored.statusCode, 200);

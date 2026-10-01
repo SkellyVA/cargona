@@ -445,7 +445,7 @@ export const useCargoStore = defineStore('cargo', () => {
       autoRatePerKg: Math.round(settings.value.autoDeliveryRatePerKgUSD * rate * 100) / 100,
       airRatePerKg: Math.round(settings.value.airDeliveryRatePerKgUSD * rate * 100) / 100,
       minPackageCost: Math.round(settings.value.minPackageCostUSD * rate * 100) / 100,
-      freeStorageDays: settings.value.freeStorageDays || 3,
+      freeStorageDays: settings.value.freeStorageDays ?? 0,
       storageOverdueRatePerDay: Math.round((settings.value.storageOverdueRatePerDayUSD || 0.50) * rate * 100) / 100,
       formattedAuto: `${(settings.value.autoDeliveryRatePerKgUSD * rate).toFixed(2)} ${activeCurrency.value}/кг`,
       formattedAir: `${(settings.value.airDeliveryRatePerKgUSD * rate).toFixed(2)} ${activeCurrency.value}/кг`,
@@ -755,7 +755,7 @@ export const useCargoStore = defineStore('cargo', () => {
           `Клиент ${inviter.fullName} достиг ${loyalty.requiredActiveReferralsForSpecialRate} активных рефералов и получил спец-тариф ${loyalty.specialRatePerKg} ${activeCurrency.value}/кг!`
         );
       } else if (active.length > loyalty.requiredActiveReferralsForSpecialRate) {
-        const bonus = loyalty.bonusPerNextReferral || 10;
+        const bonus = loyalty.bonusPerNextReferral ?? 0;
         addBonusTransaction(
           inviter.cargoCode,
           bonus,
@@ -1158,7 +1158,7 @@ export const useCargoStore = defineStore('cargo', () => {
             branchId: p.currentBranchId || p.branchId || '',
             tripId: p.tripId || undefined,
             status: p.status || 'RECEIVED_AT_ORIGIN',
-            createdAt: p.createdAt ? new Date(p.createdAt).toLocaleDateString('ru-RU') : '01.01.2026',
+            createdAt: p.createdAt ? new Date(p.createdAt).toLocaleDateString('ru-RU') : '',
             reviewRating: p.reviewRating || undefined,
             reviewComment: p.reviewComment || undefined,
             reviewPhotos: p.reviewPhotos || undefined,
@@ -1200,7 +1200,7 @@ export const useCargoStore = defineStore('cargo', () => {
           id: t.id,
           tripCode: t.code || t.tripCode,
           type: t.transportType || t.type || 'AUTO',
-          route: t.route || 'Китай → Таджикистан',
+          route: t.route || 'Маршрут не указан',
           driverName: t.driverName || '',
           vehiclePlate: t.vehiclePlate || '',
           status: t.status || 'LOADING',
@@ -1222,7 +1222,7 @@ export const useCargoStore = defineStore('cargo', () => {
           id: w.id,
           name: w.name,
           country: w.country,
-          countryCode: w.countryCode || 'CN',
+          countryCode: w.countryCode || '',
           city: w.city,
           address: w.address,
           receiverName: w.receiverName,

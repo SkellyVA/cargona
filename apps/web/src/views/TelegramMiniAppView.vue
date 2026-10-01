@@ -102,7 +102,7 @@
               <span>Приглашение по коду:</span>
               <span class="text-accent-cyan font-mono font-bold">{{ referredByCode }}</span>
             </div>
-            <p class="text-[10px] text-text-tertiary mt-0.5">Вам и пригласившему клиенту будут начислены бонусы клуба</p>
+            <p class="text-[10px] text-text-tertiary mt-0.5">Приглашение будет учтено после регистрации. Условия бонусов — в правилах клуба.</p>
           </div>
         </div>
 
@@ -383,7 +383,7 @@
 
             <div class="text-right mt-0.5">
               <div class="text-[10px] text-text-tertiary">{{ t('miniapp.toPay') }}:</div>
-              <div class="text-base font-bold text-white font-mono">{{ store.formatMoney(activeCustomer.debtUSD || 0) }}</div>
+              <div class="text-base font-bold text-white font-mono">{{ store.formatMoney(customerDebtUSD) }}</div>
               <div class="text-[10px] text-accent-cyan">{{ clientPackages.length }} {{ t('miniapp.packagesCount') }}</div>
             </div>
           </div>
@@ -415,7 +415,7 @@
             <div class="flex items-center justify-between text-xs pb-1.5 border-b border-white/[0.06]">
               <div class="flex items-center gap-1.5 font-bold text-white">
                 <AppleFlag :countryCode="currentWarehouse.countryCode" :size="16" />
-                <span>{{ currentWarehouse.city }} ({{ currentWarehouse.country }})</span>
+                <span>{{ [currentWarehouse.city, currentWarehouse.country].filter(Boolean).join(' · ') }}</span>
               </div>
               <span v-if="currentWarehouse.phone" class="text-[11px] text-accent-cyan font-mono font-medium">{{ currentWarehouse.phone }}</span>
             </div>
@@ -509,7 +509,6 @@
                   <Truck class="w-3.5 h-3.5 text-accent-cyan shrink-0" />
                   <span>Авто</span>
                 </div>
-                <span class="text-[10px] text-text-tertiary font-mono">~10-14 дн</span>
               </div>
               <div class="text-sm font-bold text-accent-cyan font-mono">
                 {{ store.deliveryRates.formattedAuto }}
@@ -523,7 +522,6 @@
                   <Plane class="w-3.5 h-3.5 text-sky-400 shrink-0" />
                   <span>Авиа</span>
                 </div>
-                <span class="text-[10px] text-text-tertiary font-mono">~3-5 дн</span>
               </div>
               <div class="text-sm font-bold text-sky-300 font-mono">
                 {{ store.deliveryRates.formattedAir }}
@@ -589,7 +587,7 @@
 
           <div class="flex items-center justify-between text-[10px] text-text-tertiary pt-0.5">
             <span>Цель: {{ loyaltyInfo.requiredForSpecialRate }} ➔ {{ loyaltyInfo.specialRatePerKg }} {{ store.activeCurrency }}/кг</span>
-            <span>Далее ➔ +{{ store.settings.loyaltySettings?.bonusPerNextReferral || 10 }} сом/друг</span>
+            <span>Далее ➔ +{{ store.settings.loyaltySettings?.bonusPerNextReferral ?? 0 }} {{ store.activeCurrency }}/друг</span>
           </div>
         </div>
 
@@ -709,7 +707,7 @@
               </div>
               <div class="flex items-center gap-1 text-amber-300 font-medium">
                 <Clock class="w-3 h-3 text-amber-400" />
-                <span>Бесплатное хранение: {{ store.settings.freeStorageDays || 3 }} дн.</span>
+                <span>Бесплатное хранение: {{ store.settings.freeStorageDays ?? 0 }} дн.</span>
               </div>
             </div>
 
@@ -1070,7 +1068,7 @@
             </div>
             <div class="flex items-start gap-2">
               <span class="w-1.5 h-1.5 rounded-full bg-accent-emerald mt-1.5 shrink-0"></span>
-              <span>За каждого следующего друга начисляется <b>+{{ store.settings.loyaltySettings?.bonusPerNextReferral || 10 }} {{ store.activeCurrency }}</b> бонуса.</span>
+              <span>За каждого следующего друга начисляется <b>+{{ store.settings.loyaltySettings?.bonusPerNextReferral ?? 0 }} {{ store.activeCurrency }}</b> бонуса.</span>
             </div>
             <div class="flex items-start gap-2">
               <span class="w-1.5 h-1.5 rounded-full bg-accent-blue mt-1.5 shrink-0"></span>
@@ -1149,7 +1147,7 @@
                 <Check v-if="payMethod === 'CARD'" class="w-3.5 h-3.5 text-accent-emerald" />
               </div>
               <div class="font-bold text-xs text-white">Банковская карта</div>
-              <div class="text-[10px] text-text-tertiary">Корти Милли / Visa</div>
+              <div class="text-[10px] text-text-tertiary">{{ store.settings.paymentRequisites?.bankName || 'Перевод по реквизитам' }}</div>
             </div>
 
             <div
@@ -1180,12 +1178,13 @@
             <div class="text-[11px] text-text-secondary">Номер карты / счета для перевода:</div>
             <div class="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-black/40 border border-white/[0.08]">
               <span class="font-mono font-bold text-white text-sm tracking-wider">
-                {{ store.settings.paymentRequisites?.cardNumber || '9762 0000 0000 0000' }}
+                {{ paymentCardNumber || 'Реквизиты не указаны' }}
               </span>
               <button
                 type="button"
                 @click="copyCardNumber"
-                class="px-2.5 py-1 rounded-lg bg-accent-emerald/20 hover:bg-accent-emerald/30 text-accent-emerald text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
+                :disabled="!paymentCardNumber"
+                class="px-2.5 py-1 rounded-lg bg-accent-emerald/20 hover:bg-accent-emerald/30 text-accent-emerald text-[11px] font-bold transition flex items-center gap-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Copy class="w-3 h-3" />
                 <span>{{ isCardCopied ? 'Скопировано!' : 'Копировать' }}</span>
@@ -1213,7 +1212,8 @@
         </button>
         <button
           @click="confirmPaymentSubmit"
-          class="px-5 py-2.5 rounded-xl bg-accent-emerald hover:bg-accent-emerald/90 text-white font-bold text-xs shadow-glow-emerald transition cursor-pointer flex items-center gap-1.5"
+          :disabled="payMethod === 'CARD' && !paymentCardNumber"
+          class="px-5 py-2.5 rounded-xl bg-accent-emerald hover:bg-accent-emerald/90 text-white font-bold text-xs shadow-glow-emerald transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <CheckCircle2 class="w-4 h-4" />
           <span>Подтвердить оплату</span>
@@ -1417,14 +1417,15 @@ const referralLinkOptions = [
   { value: 'bot', label: 'Через бота /start' },
 ];
 const clientReferralUrl = computed(() => {
-  const slug = (route.params.slug as string) || store.activeTenantSlug || 'app';
+  const slug = (route.params.slug as string) || store.activeTenantSlug;
+  if (!slug) return '';
   const code = activeCustomer.value?.cargoCode || '';
   if (store.settings.botUsername) {
     const username = store.settings.botUsername.trim().replace(/^@/, '');
     const parameter = referralLinkType.value === 'bot' ? 'start' : 'startapp';
     return `https://t.me/${username}?${parameter}=${referralStartParam(code)}`;
   }
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://cargona.io';
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
   return `${origin}/o/${encodeURIComponent(slug)}/app?ref=${encodeURIComponent(code)}`;
 });
 
@@ -1457,8 +1458,10 @@ function openReviewModal(pkg: any) {
 }
 
 const isCardCopied = ref(false);
+const paymentCardNumber = computed(() => store.settings.paymentRequisites?.cardNumber?.trim() || '');
 function copyCardNumber() {
-  const card = store.settings.paymentRequisites?.cardNumber || '9762 0000 0000 0000';
+  const card = paymentCardNumber.value;
+  if (!card) return;
   navigator.clipboard.writeText(card.replace(/\s+/g, ''));
   isCardCopied.value = true;
   miniAppToast.value = 'Номер карты скопирован в буфер обмена!';
@@ -1469,7 +1472,8 @@ function copyCardNumber() {
 
 function submitReview() {
   if (!selectedReviewPkg.value) return;
-  const slugParam = (route.params.slug as string) || store.activeTenantSlug || 'cargona';
+  const slugParam = (route.params.slug as string) || store.activeTenantSlug;
+  if (!slugParam) return;
   store.submitPackageReview(
     selectedReviewPkg.value.id,
     reviewRating.value,
@@ -1493,6 +1497,10 @@ function openPaymentModal(pkg: any) {
 function confirmPaymentSubmit() {
   if (!selectedPaymentPkg.value) return;
   if (payMethod.value === 'CARD') {
+    if (!paymentCardNumber.value) {
+      miniAppToast.value = 'Реквизиты не указаны. Обратитесь к менеджеру или выберите оплату наличными.';
+      return;
+    }
     store.payPackageOnline(selectedPaymentPkg.value.id);
     miniAppToast.value = `Оплата ${selectedPaymentPkg.value.trackingNumber} успешно подтверждена! Ждем вас в ПВЗ.`;
   } else {
@@ -1539,12 +1547,11 @@ const activeWarehouses = computed(() => {
         name: 'Склад в Китае',
         country: 'Китай',
         countryCode: 'CN',
-        city: 'Иу (Yiwu)',
+        city: '',
         address: store.settings.chinaWarehouseAddress,
         phone: store.settings.chinaContactPhone || '',
         receiverName: store.settings.chinaContactName || '',
         isActive: true,
-        workingHours: '09:00 - 21:00',
         instructions: 'Указывайте ваш карго-код в адресе',
       },
     ];
@@ -1560,7 +1567,7 @@ const currentWarehouse = computed(() => {
 
 function fillWarehouseTemplate(templateStr: string, customer: any, tenant: any): string {
   if (!templateStr) return '';
-  const code = customer?.cargoCode || `${tenant?.codePrefix || store.settings.codePrefix || 'CRG'}-001`;
+  const code = customer?.cargoCode || '';
   const name = customer?.fullName || '';
   const phone = customer?.phone || '';
 
@@ -1589,7 +1596,6 @@ function fillWarehouseTemplate(templateStr: string, customer: any, tenant: any):
 
 function formatWarehouseAddress(wh: any) {
   if (!wh) return '';
-  const code = activeCustomer.value?.cargoCode || `${store.tenant?.codePrefix || store.settings.codePrefix || 'CRG'}-001`;
   const formattedAddress = fillWarehouseTemplate(wh.address || '', activeCustomer.value, store.tenant).trim();
   const formattedReceiver = wh.receiverName ? fillWarehouseTemplate(wh.receiverName, activeCustomer.value, store.tenant).trim() : '';
   const whPhone = (wh.phone || '').trim();
@@ -1631,7 +1637,7 @@ function formatWarehouseAddress(wh: any) {
   if (wh.countryCode === 'US') {
     if (formattedReceiver) lines.push(`Full Name: ${formattedReceiver}`);
     if (formattedAddress) lines.push(`Address: ${formattedAddress}`);
-    const cityStateZip = [wh.city, 'State: DE', wh.zipCode ? `ZIP: ${wh.zipCode}` : ''].filter(Boolean).join(', ');
+    const cityStateZip = [wh.city, wh.zipCode ? `ZIP: ${wh.zipCode}` : ''].filter(Boolean).join(', ');
     if (cityStateZip) lines.push(`City/State: ${cityStateZip}`);
     if (whPhone) lines.push(`Phone: ${whPhone}`);
     return lines.join('\n');
@@ -1874,12 +1880,16 @@ function getMaskedPhone(phone?: string): string {
 
 // Профиль клиента
 const activeCustomer = ref<any>({
-  id: 'c-temp',
-  cargoCode: `${store.tenant?.codePrefix || store.settings.codePrefix || 'CRG'}-001`,
-  fullName: 'Новый клиент',
-  phone: '+992 90 000 0000',
+  id: '',
+  cargoCode: '',
+  fullName: '',
+  phone: '',
   debtUSD: 0,
-  preferredBranchId: store.branches[0]?.id || 'b-001',
+  preferredBranchId: store.branches[0]?.id || '',
+});
+const customerDebtUSD = computed(() => {
+  const customer = store.customers.find(c => c.cargoCode === activeCustomer.value?.cargoCode);
+  return Math.max(0, -(customer?.balanceUSD ?? activeCustomer.value?.balanceUSD ?? 0));
 });
 
 // Форма регистрации нового пользователя
@@ -1892,29 +1902,29 @@ const regForm = ref({
 
 const selectedRegBranchName = computed(() => {
   const b = store.branches.find((item) => item.id === regForm.value.branchId) || store.branches[0];
-  return b ? `${b.city} — ${b.name} (${b.address})` : 'Главный офис (Душанбе)';
+  return b ? `${b.city} — ${b.name} (${b.address})` : 'Выберите пункт выдачи';
 });
 
 const currentBranchSelectedId = computed(() => {
   if (!isRegistered.value) {
-    return regForm.value.branchId || store.branches[0]?.id || 'b-001';
+    return regForm.value.branchId || store.branches[0]?.id || '';
   }
-  return activeCustomer.value?.preferredBranchId || store.branches[0]?.id || 'b-001';
+  return activeCustomer.value?.preferredBranchId || store.branches[0]?.id || '';
 });
 
 // Текущий выбранный ПВЗ клиента
 const currentCustomerBranch = computed(() => {
-  const branchId = activeCustomer.value?.preferredBranchId || store.branches[0]?.id || 'b-001';
+  const branchId = activeCustomer.value?.preferredBranchId || store.branches[0]?.id || '';
   return store.branches.find((b) => b.id === branchId) || store.branches[0] || {
-    id: 'b-default',
-    name: 'Главный пункт выдачи',
-    address: 'Уточняется',
-    city: 'Душанбе',
+    id: '',
+    name: 'Пункт выдачи не указан',
+    address: '',
+    city: '',
   };
 });
 
 function selectBranch(branchId: string) {
-  const slugParam = (route.params.slug as string) || store.activeTenantSlug || store.tenant?.slug || store.tenants[0]?.slug || 'test';
+  const slugParam = (route.params.slug as string) || store.activeTenantSlug || store.tenant?.slug || '';
   if (typeof window !== 'undefined' && slugParam) {
     localStorage.setItem(`cargona_client_branch_${slugParam}`, branchId);
   }
@@ -1947,9 +1957,13 @@ async function openQrModal() {
 async function drawModalQr() {
   await nextTick();
   if (qrModalCanvasRef.value && activeCustomer.value) {
-    const orgPrefix = (store.tenant?.codePrefix || store.settings.codePrefix || 'cargo').toLowerCase();
-    const branchId = activeCustomer.value.preferredBranchId || 'b-001';
-    const payload = `cargona://pickup?t=${orgPrefix}&c=${activeCustomer.value.cargoCode}&b=${branchId}&token=sec_${Date.now()}`;
+    const slug = (route.params.slug as string) || store.activeTenantSlug;
+    if (!slug || !activeCustomer.value.cargoCode) return;
+    const payload = `cargona://pickup?${new URLSearchParams({
+      t: slug,
+      c: activeCustomer.value.cargoCode,
+      b: currentBranchSelectedId.value,
+    }).toString()}`;
     await QRCode.toCanvas(qrModalCanvasRef.value, payload, {
       width: 192,
       margin: 1,
@@ -2051,7 +2065,7 @@ onMounted(() => {
     } catch (e) {}
   }
 
-  const slugParam = (route.params.slug as string) || store.activeTenantSlug || store.tenant?.slug || store.tenants[0]?.slug || 'test';
+  const slugParam = (route.params.slug as string) || store.activeTenantSlug || store.tenant?.slug || '';
   if (slugParam) {
     store.setTenantSlug(slugParam);
   }
@@ -2179,7 +2193,11 @@ function handleRegister() {
   const prefix = store.tenant?.codePrefix || store.settings.codePrefix || (slugParam ? slugParam.substring(0, 3).toUpperCase() : 'CRG');
   const newCargoCode = store.nextCargoCode(prefix);
 
-  const chosenBranchId = regForm.value.branchId || store.branches[0]?.id || 'b-001';
+  const chosenBranchId = regForm.value.branchId || store.branches[0]?.id;
+  if (!chosenBranchId) {
+    miniAppToast.value = 'Выберите пункт выдачи для регистрации.';
+    return;
+  }
 
   const newCust = {
     cargoCode: newCargoCode,
@@ -2199,7 +2217,7 @@ function handleRegister() {
   store.addCustomer(newCust);
 
   activeCustomer.value = {
-    id: store.nextSeqId('c', store.customers),
+    id: store.customers.find(c => c.cargoCode === newCargoCode)?.id || '',
     cargoCode: newCargoCode,
     fullName: newCust.fullName,
     phone: newCust.phone,
@@ -2239,7 +2257,7 @@ function addTrack() {
     weightKg: 0,
     costUSD: 0,
     shelfLocation: '',
-    branchId: activeCustomer.value.preferredBranchId || 'b-001',
+    branchId: currentBranchSelectedId.value,
     status: 'RECEIVED_AT_ORIGIN',
   });
   newTrack.value = '';
