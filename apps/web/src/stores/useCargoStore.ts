@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, shallowRef, triggerRef, computed, watch } from 'vue';
+import { findInviter } from '../utils/referrals.mjs';
 
 export interface CurrencyRate {
   [code: string]: number; // курс к USD (1 USD = rate units)
@@ -217,6 +218,7 @@ export interface Customer {
   preferredBranchId?: string;
   referralCode?: string;
   invitedByCustomerId?: string;
+  createdAt?: string;
   bonusBalance?: number;
   tenantSlug?: string;
 }
@@ -642,25 +644,17 @@ export const useCargoStore = defineStore('cargo', () => {
   }
 
   function getCustomerReferrals(customerIdOrCode: string) {
-    const cust = rawCustomers.value.find(
+    const cust = customers.value.find(
       (c) => c.id === customerIdOrCode || c.cargoCode.toUpperCase() === customerIdOrCode.toUpperCase()
     );
     if (!cust) return { total: [], active: [], inactive: [] };
 
-    const code = cust.cargoCode.toUpperCase();
-    const id = cust.id;
-
-    const invited = rawCustomers.value.filter(
-      (c) =>
-        c.id !== id &&
-        ((c.invitedByCustomerId && (c.invitedByCustomerId.toUpperCase() === code || c.invitedByCustomerId === id)) ||
-          (c.referralCode && (c.referralCode.toUpperCase() === code || c.referralCode === id)))
-    );
+    const invited = customers.value.filter((c) => findInviter(c, customers.value)?.id === cust.id);
 
     const minPackages = settings.value.loyaltySettings?.activeReferralMinPackages || 1;
 
     const active = invited.filter((refCust) => {
-      const deliveredCount = rawPackages.value.filter(
+      const deliveredCount = packages.value.filter(
         (p) => p.customerCargoCode.toUpperCase() === refCust.cargoCode.toUpperCase() && p.status === 'RELEASED'
       ).length;
       return deliveredCount >= minPackages;
@@ -1128,6 +1122,10 @@ export const useCargoStore = defineStore('cargo', () => {
           isBlocked: c.isBlocked || false,
           preferredBranchId: c.preferredBranchId || '',
           notes: c.notes || '',
+          invitedByCustomerId: c.invitedByCustomerId || undefined,
+          referralCode: c.referralCode || undefined,
+          bonusBalance: c.bonusBalance || 0,
+          createdAt: c.createdAt || undefined,
           tenantSlug: slug,
         }));
         const otherCustomers = rawCustomers.value.filter((c) => c.tenantSlug && c.tenantSlug !== slug);
@@ -2273,6 +2271,7 @@ export const useCargoStore = defineStore('cargo', () => {
       ...data,
       balanceUSD: 0,
       isBlocked: false,
+      createdAt: new Date().toISOString(),
       preferredBranchId: data.preferredBranchId || branches.value[0]?.id || 'b-1',
     });
     if (typeof window !== 'undefined') {

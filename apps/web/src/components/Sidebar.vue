@@ -108,6 +108,17 @@
           </router-link>
 
           <router-link
+            v-if="store.hasPermission('customers') && store.isLoyaltyModuleAllowed"
+            :to="`/o/${slug}/club`"
+            @click="emit('navigate')"
+            class="flex items-center gap-3 px-3 py-2 rounded-xl font-medium transition text-sm"
+            :class="isActive('club') ? 'bg-white/[0.07] text-white shadow-sm' : 'text-text-secondary hover:text-white hover:bg-white/[0.03]'"
+          >
+            <div class="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-accent-cyan"><Users class="w-4 h-4" /></div>
+            <span>{{ store.loyaltySettings?.clubName || 'NOOR CLUB' }}</span>
+          </router-link>
+
+          <router-link
             v-if="store.hasPermission('finance')"
             :to="`/o/${slug}/finance`"
             @click="emit('navigate')"

@@ -6,6 +6,7 @@ import BranchesView from '../views/BranchesView.vue';
 import WmsView from '../views/WmsView.vue';
 import TripsView from '../views/TripsView.vue';
 import CustomersView from '../views/CustomersView.vue';
+import LoyaltyView from '../views/LoyaltyView.vue';
 import FinanceView from '../views/FinanceView.vue';
 import AuditView from '../views/AuditView.vue';
 import SettingsView from '../views/SettingsView.vue';
@@ -99,6 +100,11 @@ const router = createRouter({
           path: 'customers',
           name: 'TenantCustomers',
           component: CustomersView,
+        },
+        {
+          path: 'club',
+          name: 'TenantClub',
+          component: LoyaltyView,
         },
         {
           path: 'finance',
