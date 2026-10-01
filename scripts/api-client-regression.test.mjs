@@ -61,6 +61,13 @@ try {
   assert.equal(qr.searchParams.get('t'), 'noor');
   assert.equal(qr.searchParams.get('c'), 'NOOR/S2301');
   assert.equal(qr.searchParams.get('b'), 'b');
+  const beforeIgnoredUpdate = messages.length;
+  const ignored = await app.inject({ method: 'POST', url: '/api/bot/webhook/noor', payload: { callback_query: { id: 'test' } } });
+  assert.equal(ignored.statusCode, 200);
+  assert.equal(messages.length, beforeIgnoredUpdate);
+  store.botConfigs = [];
+  const missingToken = await app.inject({ method: 'POST', url: '/api/bot/webhook/noor', payload: { message: { text: '/start', chat: { id: 1 } } } });
+  assert.equal(missingToken.statusCode, 503);
   console.log('API regression checks passed: /start, incomplete package records, tracking lookup, Mini App QR');
 } finally {
   await app.close();

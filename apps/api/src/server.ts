@@ -2340,6 +2340,8 @@ fastify.post<{
 }>('/api/bot/webhook/:slug', async (request, reply) => {
   const { slug } = request.params;
   const update = request.body;
+  const updateType = update?.message ? 'message' : update?.edited_message ? 'edited_message' : update?.callback_query ? 'callback_query' : 'other';
+  request.log.info({ updateId: update?.update_id, updateType, slug }, 'Telegram webhook received');
 
   let tenant = store.tenants.find((t) => (t.slug || '').toLowerCase() === (slug || '').toLowerCase());
   if (!tenant && store.tenants.length > 0) {
@@ -2359,16 +2361,19 @@ fastify.post<{
   const token = botConfig?.botToken || (envToken && !envToken.startsWith('MOCK_') ? envToken : '');
 
   if (!token) {
-    return reply.send({ ok: true });
+    request.log.error({ slug, reason: 'missing_bot_token' }, 'Telegram webhook cannot reply');
+    return reply.status(503).send({ ok: false });
   }
 
   const message = update?.message || update?.edited_message;
   if (!message || !message.chat) {
+    request.log.info({ slug, updateType, reason: 'no_chat_message' }, 'Telegram webhook skipped');
     return reply.send({ ok: true });
   }
 
   const chatId = message.chat.id;
   const text = (message.text || '').trim();
+  request.log.info({ slug, chatType: message.chat.type, isStart: /^\/start(?:@\w+)?(?:\s|$)/i.test(text), hasText: !!text }, 'Telegram message processing');
   const fromUser = message.from;
   const userName = fromUser?.first_name || fromUser?.username || 'клиент';
   const domain = ((request.headers['x-forwarded-host'] as string) || request.headers.host || APP_DOMAIN || 'noor.akii.world')
@@ -2460,18 +2465,15 @@ fastify.post<{
           (foundPkg.description ? `• <b>Описание:</b> ${foundPkg.description}\n` : '') +
           `\n👇 Откройте приложение для получения QR-кода на выдачу:`;
 
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        const sentMessage = await callTelegram(token, 'sendMessage', {
             chat_id: chatId,
             text: pkgText,
             parse_mode: 'HTML',
             reply_markup: {
               inline_keyboard: [[{ text: '📦 Открыть в приложении', web_app: { url: appUrl } }]],
             },
-          }),
         });
+        request.log.info({ slug, messageId: sentMessage?.message_id, replyType: 'tracking' }, 'Telegram reply sent');
         return reply.send({ ok: true });
       }
     }
@@ -2497,7 +2499,7 @@ fastify.post<{
       inlineKeyboard.push([{ text: '📢 Наш Telegram-канал', url: channelLink }]);
     }
 
-    await callTelegram(token, 'sendMessage', {
+    const sentMessage = await callTelegram(token, 'sendMessage', {
       chat_id: chatId,
       text: welcomeText,
       parse_mode: 'HTML',
@@ -2505,20 +2507,17 @@ fastify.post<{
         inline_keyboard: inlineKeyboard,
       },
     });
+    request.log.info({ slug, messageId: sentMessage?.message_id, replyType: 'welcome' }, 'Telegram reply sent');
 
     // Set persistent WebApp menu button for this user
-    await fetch(`https://api.telegram.org/bot${token}/setChatMenuButton`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    await callTelegram(token, 'setChatMenuButton', {
         chat_id: chatId,
         menu_button: {
           type: 'web_app',
           text: '📦 Открыть кабинет',
           web_app: { url: appUrl },
         },
-      }),
-    }).catch(() => {});
+    }).catch((error: Error) => request.log.warn({ slug, reason: error.message }, 'Telegram menu button failed'));
   } catch (err) {
     console.error(`[Bot Webhook Handler Error for ${slug}]:`, err);
     return reply.status(502).send({ ok: false });
