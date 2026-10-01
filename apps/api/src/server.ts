@@ -2370,6 +2370,10 @@ fastify.post<{
     request.log.info({ slug, updateType, reason: 'no_chat_message' }, 'Telegram webhook skipped');
     return reply.send({ ok: true });
   }
+  if (message.chat.type !== 'private') {
+    request.log.info({ slug, chatType: message.chat.type, reason: 'non_private_chat' }, 'Telegram webhook skipped');
+    return reply.send({ ok: true });
+  }
 
   const chatId = message.chat.id;
   const text = (message.text || '').trim();

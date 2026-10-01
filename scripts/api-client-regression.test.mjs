@@ -58,10 +58,13 @@ try {
   assert.ok(messages.some(({ body }) => body.text?.includes('TRACK123')));
   assert.ok(messages.some(({ body }) => body.reply_markup?.inline_keyboard[0][0].web_app));
   const beforeGroup = messages.length;
-  const groupResponse = await app.inject({ method: 'POST', url: '/api/bot/webhook/noor', headers: { host: 'example.test' }, payload: { message: { text: '/start ref_NOOR/S2301', chat: { id: -1, type: 'group' } } } });
-  assert.equal(groupResponse.statusCode, 200);
-  assert.equal(messages.length, beforeGroup + 1, 'Groups must not configure a private-chat menu');
-  assert.equal(messages.at(-1).body.reply_markup.inline_keyboard[0][0].url, 'https://example.test/o/noor/app?ref=NOOR%2FS2301');
+  for (const type of ['group', 'supergroup', 'channel']) {
+    for (const text of ['/start ref_NOOR/S2301', 'TRACK123']) {
+      const groupResponse = await app.inject({ method: 'POST', url: '/api/bot/webhook/noor', headers: { host: 'example.test' }, payload: { message: { text, chat: { id: -1, type } } } });
+      assert.equal(groupResponse.statusCode, 200);
+      assert.equal(messages.length, beforeGroup, 'Non-private chats must not trigger any Telegram messages or menu changes');
+    }
+  }
   const response = await app.inject('/api/app/noor/me?cargoCode=NOOR%2FS2301');
   assert.equal(response.statusCode, 200, response.body);
   const qr = new URL(response.json().pickupQr);
