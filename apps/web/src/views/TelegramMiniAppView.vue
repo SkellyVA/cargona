@@ -705,6 +705,10 @@
             </div>
           </div>
 
+          <div class="text-[11px] text-text-secondary space-y-1">
+            <div>ПВЗ: {{ packageBranchName(pkg) }}</div>
+            <div>{{ packageDateLabel(pkg) }}</div>
+          </div>
           <!-- Блок 1: Если посылка ГОТОВА К ВЫДАЧЕ В ПВЗ -->
           <div v-if="pkg.status === 'READY_FOR_PICKUP'" class="space-y-2 pt-2 border-t border-white/[0.06]">
             <!-- Плашка ячейки и таймер бесплатного хранения -->
@@ -1478,22 +1482,27 @@ function copyCardNumber() {
   }, 2000);
 }
 
-function submitReview() {
-  if (!selectedReviewPkg.value) return;
+const isSubmittingReview = ref(false);
+async function submitReview() {
+  if (!selectedReviewPkg.value || isSubmittingReview.value) return;
   const slugParam = (route.params.slug as string) || store.activeTenantSlug;
   if (!slugParam) return;
-  store.submitPackageReview(
-    selectedReviewPkg.value.id,
-    reviewRating.value,
-    reviewComment.value,
-    reviewPhotos.value,
-    slugParam
-  );
-  selectedReviewPkg.value.reviewRating = reviewRating.value;
-  selectedReviewPkg.value.reviewComment = reviewComment.value;
-  selectedReviewPkg.value.reviewPhotos = [...reviewPhotos.value];
-  showReviewModal.value = false;
-  miniAppToast.value = 'Спасибо за ваш отзыв! Он успешно отправлен.';
+  isSubmittingReview.value = true;
+  try {
+    const result = await store.submitPackageReview(
+      selectedReviewPkg.value.id,
+      reviewRating.value,
+      reviewComment.value,
+      reviewPhotos.value,
+      slugParam
+    );
+    selectedReviewPkg.value.reviewRating = reviewRating.value;
+    selectedReviewPkg.value.reviewComment = reviewComment.value;
+    selectedReviewPkg.value.reviewPhotos = [...reviewPhotos.value];
+    showReviewModal.value = false;
+    miniAppToast.value = result.publicationError ? 'Отзыв сохранён, но публикация в канал не удалась. Сообщите менеджеру.' : result.published ? 'Спасибо! Отзыв опубликован в канале.' : 'Спасибо! Отзыв сохранён.';
+  } catch (error) { miniAppToast.value = error instanceof Error ? error.message : 'Не удалось сохранить отзыв'; }
+  finally { isSubmittingReview.value = false; }
 }
 
 function openPaymentModal(pkg: any) {
@@ -1953,6 +1962,16 @@ function selectBranch(branchId: string) {
   if (showQrModal.value) {
     drawModalQr();
   }
+}
+
+function packageBranchName(pkg: any) {
+  const branch = store.branches.find(b => b.id === (pkg.targetBranchId || pkg.branchId));
+  return branch ? branch.name + (branch.address ? ' · ' + branch.address : '') : 'Не указан';
+}
+function packageDateLabel(pkg: any) {
+  const date = pkg.releasedAt || pkg.readyAt || pkg.shippedAt || store.trips.find(t => t.id === pkg.tripId)?.departureDate;
+  if (!date || Number.isNaN(new Date(date).getTime())) return 'Дата отправки / получения не указана';
+  return (pkg.releasedAt ? 'Получено: ' : pkg.readyAt ? 'Прибыло в ПВЗ: ' : 'Отправлено: ') + new Date(date).toLocaleDateString('ru-RU');
 }
 
 const clientPackages = computed(() => {

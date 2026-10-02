@@ -248,6 +248,8 @@ export interface PackageItem {
   photos?: string[];
   handoverPhoto?: string;
   releasedAt?: string;
+  readyAt?: string;
+  shippedAt?: string;
   notifiedReady?: boolean;
   reviewRating?: number;
   reviewComment?: string;
@@ -1157,6 +1159,10 @@ export const useCargoStore = defineStore('cargo', () => {
             shelfLocation: p.shelfLocation || '',
             branchId: p.currentBranchId || p.branchId || '',
             tripId: p.tripId || undefined,
+            targetBranchId: p.targetBranchId,
+            releasedAt: p.releasedAt,
+            readyAt: p.readyAt,
+            shippedAt: p.shippedAt,
             status: p.status || 'RECEIVED_AT_ORIGIN',
             createdAt: p.createdAt ? new Date(p.createdAt).toLocaleDateString('ru-RU') : '',
             reviewRating: p.reviewRating || undefined,
@@ -2518,7 +2524,7 @@ export const useCargoStore = defineStore('cargo', () => {
   }
 
   // Оставить отзыв о посылке / сервисе
-  function submitPackageReview(
+  async function submitPackageReview(
     pkgId: string,
     rating: number,
     comment: string = '',
@@ -2526,12 +2532,6 @@ export const useCargoStore = defineStore('cargo', () => {
     tenantSlugOverride?: string
   ) {
     const pkg = rawPackages.value.find((p) => p.id === pkgId);
-    if (pkg) {
-      pkg.reviewRating = rating;
-      pkg.reviewComment = comment;
-      pkg.reviewPhotos = photos;
-    }
-    safeStorageSet('cargona_packages', rawPackages.value);
     const cust = rawCustomers.value.find((c) => c.cargoCode === pkg?.customerCargoCode);
     addAudit(
       'REVIEW',
@@ -2542,10 +2542,10 @@ export const useCargoStore = defineStore('cargo', () => {
       pkg?.branchId
     );
 
-    try {
+    {
       const slug = tenantSlugOverride || activeTenantSlug.value || (typeof window !== 'undefined' ? window.location.pathname.split('/o/')[1]?.split('/')[0] : '');
       if (slug) {
-        fetch(`/api/o/${slug}/packages/${pkgId}/review`, {
+        const response = await fetch(`/api/o/${slug}/packages/${pkgId}/review`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2556,8 +2556,18 @@ export const useCargoStore = defineStore('cargo', () => {
             customerCargoCode: pkg?.customerCargoCode,
           }),
         });
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.error || 'Не удалось сохранить отзыв');
+        if (pkg) {
+          pkg.reviewRating = rating;
+          pkg.reviewComment = comment;
+          pkg.reviewPhotos = photos;
+        }
+        safeStorageSet('cargona_packages', rawPackages.value);
+        return result as { published: boolean; publicationError?: string };
       }
-    } catch {}
+      throw new Error('Не выбрана компания');
+    }
   }
 
   // Включение/отключение уведомления о готовности

@@ -1329,6 +1329,7 @@ fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/p
 
   const oldStatus = pkg.status;
   Object.assign(pkg, request.body);
+  if (pkg.status === 'IN_TRANSIT' && oldStatus !== 'IN_TRANSIT' && !(pkg as any).shippedAt) (pkg as any).shippedAt = new Date().toISOString();
   if (request.body.costUSD) pkg.cost = request.body.costUSD;
   if (request.body.status === 'READY_FOR_PICKUP' && oldStatus !== 'READY_FOR_PICKUP') {
     (pkg as any).readyAt = new Date().toISOString();
@@ -2277,6 +2278,9 @@ fastify.post<{
   if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
 
   const pkg = store.packages.find((p) => (p.id === id || p.trackingNumber === id) && p.tenantId === tenant.id);
+  if (!pkg) return reply.status(404).send({ error: 'Посылка не найдена' });
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) return reply.status(400).send({ error: 'Некорректная оценка' });
+  if ((comment && typeof comment !== 'string') || (photos && (!Array.isArray(photos) || photos.some(photo => typeof photo !== 'string')))) return reply.status(400).send({ error: 'Некорректный отзыв' });
   if (pkg) {
     (pkg as any).reviewRating = rating;
     (pkg as any).reviewComment = comment || '';
@@ -2284,24 +2288,34 @@ fastify.post<{
     pkg.updatedAt = new Date().toISOString();
   }
 
+  store.saveToFile();
+  let published = false;
+  let publicationError: string | undefined;
+  const checkedTelegramFetch = async (url: string, options: any) => {
+    const response = await fetch(url, { ...options, signal: AbortSignal.timeout(12000) });
+    const data = await response.json().catch(() => null) as any;
+    if (!response.ok || !data?.ok) throw new Error(data?.description || 'Telegram publication failed');
+    return data.result;
+  };
   // Post review to Telegram reviews channel if configured
   const botConfig = store.botConfigs.find((b) => b.tenantId === tenant.id && b.isActive && b.botToken);
   const reviewsChannel = (botConfig as any)?.reviewsChannelId || (tenant as any)?.reviewsChannelId;
 
   if (botConfig && botConfig.botToken && reviewsChannel) {
     try {
-      const cleanChannel = reviewsChannel.startsWith('@') || reviewsChannel.startsWith('-') ? reviewsChannel : `@${reviewsChannel}`;
+      const channel = reviewsChannel.trim().replace(/^https?:\/\/t\.me\//i, '').replace(/\/$/, '');
+      const cleanChannel = channel.startsWith('@') || channel.startsWith('-') ? channel : `@${channel}`;
       const stars = '⭐️'.repeat(Math.max(1, Math.min(5, Number(rating) || 5)));
       const custName = customerName || (pkg?.customerCargoCode ? `Клиент (${pkg.customerCargoCode})` : 'Клиент');
       const tracking = pkg?.trackingNumber || id;
-      const reviewText = comment ? `\n\n💬 <b>Отзыв:</b> <i>«${comment}»</i>` : '';
+      const reviewText = comment ? `\n\n💬 <b>Отзыв:</b> <i>«${escapeTelegramHtml(comment)}»</i>` : '';
 
       const caption =
         `⭐️ <b>Новый отзыв о доставке</b>\n\n` +
-        `👤 <b>Клиент:</b> ${custName} (${customerCargoCode || pkg?.customerCargoCode || '—'})\n` +
-        `📦 <b>Трек:</b> <code>${tracking}</code>\n` +
+        `👤 <b>Клиент:</b> ${escapeTelegramHtml(custName)} (${escapeTelegramHtml(customerCargoCode || pkg?.customerCargoCode || '—')})\n` +
+        `📦 <b>Трек:</b> <code>${escapeTelegramHtml(tracking)}</code>\n` +
         `⭐️ <b>Оценка:</b> ${stars} (${rating}/5)${reviewText}\n\n` +
-        `🏢 <b>${tenant.name}</b>`;
+        `🏢 <b>${escapeTelegramHtml(tenant.name)}</b>`;
 
       if (photos && photos.length > 0) {
         const firstPhoto = photos[0];
@@ -2315,12 +2329,12 @@ fastify.post<{
           const blob = new Blob([buffer], { type: 'image/jpeg' });
           formData.append('photo', blob, 'review.jpg');
 
-          await fetch(`https://api.telegram.org/bot${botConfig.botToken}/sendPhoto`, {
+          await checkedTelegramFetch(`https://api.telegram.org/bot${botConfig.botToken}/sendPhoto`, {
             method: 'POST',
             body: formData,
           });
         } else {
-          await fetch(`https://api.telegram.org/bot${botConfig.botToken}/sendPhoto`, {
+          await checkedTelegramFetch(`https://api.telegram.org/bot${botConfig.botToken}/sendPhoto`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -2332,7 +2346,7 @@ fastify.post<{
           });
         }
       } else {
-        await fetch(`https://api.telegram.org/bot${botConfig.botToken}/sendMessage`, {
+        await checkedTelegramFetch(`https://api.telegram.org/bot${botConfig.botToken}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2342,13 +2356,15 @@ fastify.post<{
           }),
         });
       }
+      published = true;
     } catch (err) {
+      publicationError = err instanceof Error ? err.message : 'Ошибка публикации';
       console.warn('[Review Channel Posting Error]:', err);
     }
   }
 
   store.saveToFile();
-  return { success: true, message: 'Review recorded' };
+  return { success: true, published, publicationError, message: 'Review recorded' };
 });
 
 // Telegram Webhook Handler (Incoming messages from Telegram)
@@ -2846,6 +2862,12 @@ fastify.get<{ Params: { slug: string }; Querystring: { tgUserId?: string; cargoC
         photos: p.photos,
         description: p.description,
         shelfLocation: (p as any).shelfLocation || '',
+        currentBranchId: p.currentBranchId,
+        targetBranchId: (p as any).targetBranchId,
+        tripId: p.tripId,
+        releasedAt: p.releasedAt,
+        readyAt: (p as any).readyAt,
+        shippedAt: (p as any).shippedAt,
         createdAt: p.createdAt,
       })),
     };
@@ -2906,6 +2928,12 @@ fastify.get<{ Params: { slug: string }; Querystring: { code: string } }>(
         photos: p.photos,
         description: p.description,
         shelfLocation: (p as any).shelfLocation || '',
+        currentBranchId: p.currentBranchId,
+        targetBranchId: (p as any).targetBranchId,
+        tripId: p.tripId,
+        releasedAt: p.releasedAt,
+        readyAt: (p as any).readyAt,
+        shippedAt: (p as any).shippedAt,
         createdAt: p.createdAt,
       })),
     };

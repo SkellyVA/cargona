@@ -11,6 +11,7 @@ const app = require('fastify')();
 const source = await readFile(new URL('../apps/api/src/server.ts', import.meta.url), 'utf8');
 const messages = [];
 const errors = [];
+let telegramFailure = false;
 const tenant = { id: 't', slug: 'noor', name: 'NOOR & <CLUB>' };
 const customer = { id: 'c', tenantId: 't', cargoCode: 'NOOR/S2301', fullName: 'Test', phone: '123' };
 const store = {
@@ -33,10 +34,12 @@ const context = {
   originHubPhone: () => '',
   console: { warn() {}, error: (...args) => errors.push(args) },
   callTelegram: async (_token, method, body) => { messages.push({ method, body }); return {}; },
-  fetch: async (_url, options) => { messages.push({ body: JSON.parse(options.body) }); return new Response('{"ok":true}'); },
+  fetch: async (_url, options) => { messages.push({ url: _url, body: options.body instanceof FormData ? Object.fromEntries(options.body) : JSON.parse(options.body) }); return new Response(JSON.stringify(telegramFailure ? { ok: false, description: 'Forbidden: bot is not an administrator' } : { ok: true, result: { message_id: 123 } })); },
+  Response, FormData, Blob, Buffer, AbortSignal,
 };
 // Register the production handlers without starting the server or touching real data/Telegram.
 for (const [start, end] of [
+  ['// Submit Package Review & Post to Reviews Channel', '// Telegram Webhook Handler'],
   ['// Bulk Package Intake', "fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/packages/:id'"],
   ['// Telegram Webhook Handler', '// 5. WMS Operations'],
   ["fastify.get<{ Params: { slug: string }; Querystring: { tgUserId?", '// Client MiniApp Auth Lookup'],
@@ -49,6 +52,23 @@ for (const [start, end] of [
   vm.runInNewContext(ts.transpileModule(snippet, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
 }
 try {
+  store.botConfigs[0].reviewsChannelId = '@reviews';
+  for (const photos of [[], ['https://example.test/photo.jpg'], ['data:image/jpeg;base64,aGVsbG8=']]) {
+    const review = await app.inject({ method: 'POST', url: '/api/o/noor/packages/found/review', payload: { rating: 5, comment: 'Great <&>', customerName: 'A <B>', photos } });
+    assert.equal(review.statusCode, 200, review.body);
+    assert.equal(review.json().published, true);
+    const sent = messages.at(-1).body;
+    assert.equal(sent.chat_id, '@reviews');
+    assert.ok((sent.text || sent.caption).includes('Great &lt;&amp;&gt;'));
+  }
+  telegramFailure = true;
+  const failedReview = await app.inject({ method: 'POST', url: '/api/o/noor/packages/found/review', payload: { rating: 4, comment: 'Saved despite channel failure' } });
+  assert.equal(failedReview.json().success, true);
+  assert.equal(failedReview.json().published, false);
+  assert.match(failedReview.json().publicationError, /administrator/);
+  assert.equal(store.packages.find(p => p.id === 'found').reviewRating, 4);
+  telegramFailure = false;
+  assert.equal((await app.inject({ method: 'POST', url: '/api/o/noor/packages/missing/review', payload: { rating: 5 } })).statusCode, 404);
   assert.deepEqual(parseTrackList(' NEW1\r\n\n NEW2 \nnew1'), ['NEW1', 'NEW2', 'new1']);
   const existing = JSON.stringify(store.packages.find(p => p.id === 'found'));
   const bulkPayload = { trackingNumbers: ['NEW1', 'NEW2', 'new1', 'track123'], skipExisting: true, status: 'PRE_REGISTERED', customerCargoCode: 'NOOR/S2301' };
