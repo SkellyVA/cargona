@@ -1147,7 +1147,14 @@ fastify.delete<{ Params: { slug: string; id: string } }>('/api/o/:slug/customers
   const idx = store.customers.findIndex((c) => (c.id === id || c.cargoCode === id) && c.tenantId === tenant.id);
   if (idx === -1) return reply.status(404).send({ error: 'Customer not found' });
 
-  store.customers.splice(idx, 1);
+  const removed = store.customers.splice(idx, 1)[0];
+  store.auditLogs.unshift({
+    id: store.nextId('audit', store.auditLogs), tenantId: tenant.id,
+    userId: 'user-admin', userName: 'Администратор', userRole: 'TENANT_OWNER',
+    entityType: 'CUSTOMER', entityId: removed.id, action: 'DELETE',
+    details: `Удалён клиент ${removed.fullName} (${removed.cargoCode}). История посылок и платежей сохранена.`,
+    createdAt: new Date().toISOString(),
+  });
   store.saveToFile();
   return { success: true, message: 'Customer deleted' };
 });

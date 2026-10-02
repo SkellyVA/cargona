@@ -43,6 +43,7 @@ const context = {
 };
 // Register the production handlers without starting the server or touching real data/Telegram.
 for (const [start, end] of [
+  ["fastify.delete<{ Params: { slug: string; id: string } }>('/api/o/:slug/customers/:id'", '// --- Packages Management ---'],
   ["fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/branches/:id'", "fastify.post<{ Params: { slug: string; id: string } }>('/api/o/:slug/branches/:id/collection'"],
   ['// Save Tenant Bot Settings (Set BYOB token & register webhook)', '// Submit Package Review & Post to Reviews Channel'],
   ['// Submit Package Review & Post to Reviews Channel', '// Telegram Webhook Handler'],
@@ -182,6 +183,18 @@ try {
   assert.equal(ignored.statusCode, 200);
   assert.equal(messages.length, beforeIgnoredUpdate);
   store.botConfigs = [];
+  store.customers.push({ id: 'delete-test', tenantId: 't', cargoCode: 'DELETE/1', fullName: 'Delete Test' });
+  store.customers.push({ id: 'other-tenant', tenantId: 'other', cargoCode: 'OTHER/1', fullName: 'Other' });
+  store.packages.push({ id: 'keep-package', tenantId: 't', customerId: 'delete-test', customerCargoCode: 'DELETE/1', trackingNumber: 'KEEP' });
+  const packageCount = store.packages.length;
+  assert.equal((await app.inject({ method: 'DELETE', url: '/api/o/noor/customers/other-tenant' })).statusCode, 404);
+  const deleted = await app.inject({ method: 'DELETE', url: '/api/o/noor/customers/delete-test' });
+  assert.equal(deleted.statusCode, 200, deleted.body);
+  assert.ok(!store.customers.some(c => c.id === 'delete-test'));
+  assert.ok(store.customers.some(c => c.id === 'other-tenant'));
+  assert.equal(store.packages.length, packageCount);
+  assert.equal(store.packages.find(p => p.id === 'keep-package').customerCargoCode, 'DELETE/1');
+  assert.equal(store.auditLogs[0].action, 'DELETE');
   const missingToken = await app.inject({ method: 'POST', url: '/api/bot/webhook/noor', payload: { message: { text: '/start', chat: { id: 1 } } } });
   assert.equal(missingToken.statusCode, 503);
   console.log('API regression checks passed: /start, incomplete package records, tracking lookup, Mini App QR');

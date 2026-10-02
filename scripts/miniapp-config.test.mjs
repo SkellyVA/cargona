@@ -43,7 +43,13 @@ try {
     let bulkRequest;
     let failBulk = false;
     let savedBranchTariffs;
+    let failDelete = true;
     await page.route('**/api/**', route => {
+      if (route.request().method() === 'DELETE' && route.request().url().endsWith('/customers/c')) {
+        if (failDelete) return route.fulfill({ status: 500, json: { error: 'Ошибка удаления' } });
+        data.customers = [];
+        return route.fulfill({ json: { success: true } });
+      }
       if (route.request().method() === 'PUT' && route.request().url().endsWith('/branches/pickup-custom')) {
         savedBranchTariffs = route.request().postDataJSON().deliveryTariffs;
         data.branches[0].deliveryTariffs = savedBranchTariffs;
@@ -135,6 +141,19 @@ try {
     assert.deepEqual(savedBranchTariffs, { autoRatePerKgUSD: 4.25, airRatePerKgUSD: 0, minPackageCostUSD: null });
     await page.goto(`http://127.0.0.1:${server.address().port}/o/acme/app`);
     await page.getByText('4.25 USD/кг', { exact: true }).waitFor();
+    assert.deepEqual(pageErrors, []);
+    await page.goto(`http://127.0.0.1:${server.address().port}/o/acme/customers`);
+    await page.getByText('Test Customer', { exact: true }).filter({ visible: true }).first().click();
+    await page.getByRole('button', { name: 'Удалить клиента', exact: true }).click();
+    await page.getByRole('button', { name: 'Отмена', exact: true }).last().click();
+    await page.getByRole('button', { name: 'Удалить клиента', exact: true }).click();
+    await page.getByRole('button', { name: 'Удалить клиента навсегда', exact: true }).click();
+    await page.getByText('Ошибка удаления', { exact: true }).waitFor();
+    assert.ok(await page.getByText('Карточка клиента: ACME/S123', { exact: true }).isVisible());
+    failDelete = false;
+    await page.getByRole('button', { name: 'Удалить клиента навсегда', exact: true }).click();
+    await page.getByText('Клиент удалён', { exact: true }).waitFor();
+    await page.getByText('Test Customer', { exact: true }).waitFor({ state: 'hidden' });
     assert.deepEqual(pageErrors, []);
     await page.close();
   }

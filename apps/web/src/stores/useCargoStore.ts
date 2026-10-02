@@ -2238,6 +2238,17 @@ export const useCargoStore = defineStore('cargo', () => {
     } catch {}
   }
 
+  async function deleteCustomer(id: string) {
+    const slug = activeTenantSlug.value;
+    if (!slug) throw new Error('Не выбрана компания');
+    const response = await fetch(`/api/o/${encodeURIComponent(slug)}/customers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    const result = await response.json().catch(() => null);
+    if (!response.ok || !result?.success) throw new Error(result?.error || 'Не удалось удалить клиента');
+    rawCustomers.value = rawCustomers.value.filter(c => !(c.id === id && c.tenantSlug === slug));
+    safeStorageSet('cargona_customers', rawCustomers.value);
+    safeStorageSet(`cargona_customers_${slug}`, rawCustomers.value.filter(c => c.tenantSlug === slug));
+  }
+
   // Удаление сотрудника
   function deleteEmployee(id: string) {
     const idx = rawStaff.value.findIndex((e) => e.id === id);
@@ -3451,6 +3462,7 @@ export const useCargoStore = defineStore('cargo', () => {
     addEmployee,
     updateEmployee,
     deleteEmployee,
+    deleteCustomer,
     toggleEmployeeStatus,
     addCustomer,
     nextCargoCode,

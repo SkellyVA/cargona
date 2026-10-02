@@ -353,6 +353,7 @@
     <CustomerDetailsModal
       v-model="showDetailsModal"
       :customer="selectedCustomer"
+      @deleted="selectedCustomer = null; toastMessage = 'Клиент удалён'"
     />
   </div>
 </template>

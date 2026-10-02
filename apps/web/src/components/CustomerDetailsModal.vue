@@ -97,12 +97,24 @@
     </div>
 
     <template #footer>
+      <button v-if="store.isOwner" type="button" @click="showDeleteConfirm = true; deleteError = ''" class="px-4 py-2.5 rounded-xl bg-accent-coral/10 text-accent-coral hover:bg-accent-coral/20 font-semibold text-xs cursor-pointer">Удалить клиента</button>
       <button
         @click="isOpen = false"
         class="px-4 py-2.5 rounded-xl bg-white/[0.04] text-text-secondary hover:text-white font-medium text-xs transition"
       >
         Закрыть
       </button>
+    </template>
+  </AppModal>
+  <AppModal v-model="showDeleteConfirm" title="Удаление клиента">
+    <div class="space-y-3 text-xs">
+      <p class="text-white">Удалить клиента {{ customer?.fullName }} ({{ customer?.cargoCode }}) из системы?</p>
+      <p class="text-text-secondary">Профиль будет удалён. Посылки, платежи и их история сохранятся. Это действие нельзя отменить.</p>
+      <p v-if="deleteError" role="alert" class="text-accent-coral">{{ deleteError }}</p>
+    </div>
+    <template #footer>
+      <button type="button" :disabled="isDeleting" @click="showDeleteConfirm = false" class="px-4 py-2.5 rounded-xl bg-white/[0.04] text-text-secondary text-xs cursor-pointer disabled:opacity-50">Отмена</button>
+      <button type="button" :disabled="isDeleting" @click="confirmDeleteCustomer" class="px-4 py-2.5 rounded-xl bg-accent-coral text-white font-semibold text-xs cursor-pointer disabled:opacity-50">{{ isDeleting ? 'Удаление…' : 'Удалить клиента навсегда' }}</button>
     </template>
   </AppModal>
 </template>
@@ -119,9 +131,27 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:modelValue', val: boolean): void;
+  (e: 'deleted', id: string): void;
 }>();
 
 const store = useCargoStore();
+const showDeleteConfirm = ref(false);
+const isDeleting = ref(false);
+const deleteError = ref('');
+async function confirmDeleteCustomer() {
+  if (!props.customer || isDeleting.value) return;
+  isDeleting.value = true;
+  deleteError.value = '';
+  const id = props.customer.id;
+  try {
+    await store.deleteCustomer(id);
+    showDeleteConfirm.value = false;
+    isOpen.value = false;
+    emit('deleted', id);
+  } catch (error) {
+    deleteError.value = error instanceof Error ? error.message : 'Не удалось удалить клиента';
+  } finally { isDeleting.value = false; }
+}
 const balanceDelta = ref<number | null>(null);
 
 const isOpen = computed({
