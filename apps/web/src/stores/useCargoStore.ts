@@ -40,6 +40,7 @@ export interface StorageCell {
 }
 
 export interface Branch {
+  deliveryTariffs?: { autoRatePerKgUSD?: number | null; airRatePerKgUSD?: number | null; minPackageCostUSD?: number | null };
   id: string;
   name: string;
   city: string;
@@ -441,20 +442,25 @@ export const useCargoStore = defineStore('cargo', () => {
   });
 
   // 2.0 Тарифы доставки и хранения в выбранной валюте (<выбранная валюта>/кг, /день)
-  const deliveryRates = computed(() => {
+  function deliveryRatesForBranch(branchId?: string) {
+    const tariff = branches.value.find(b => b.id === branchId)?.deliveryTariffs;
+    const auto = tariff?.autoRatePerKgUSD ?? settings.value.autoDeliveryRatePerKgUSD;
+    const air = tariff?.airRatePerKgUSD ?? settings.value.airDeliveryRatePerKgUSD;
+    const minimum = tariff?.minPackageCostUSD ?? settings.value.minPackageCostUSD;
     const rate = ratesToUSD.value[activeCurrency.value] || 1;
     return {
-      autoRatePerKg: Math.round(settings.value.autoDeliveryRatePerKgUSD * rate * 100) / 100,
-      airRatePerKg: Math.round(settings.value.airDeliveryRatePerKgUSD * rate * 100) / 100,
-      minPackageCost: Math.round(settings.value.minPackageCostUSD * rate * 100) / 100,
+      autoRatePerKg: Math.round(auto * rate * 100) / 100,
+      airRatePerKg: Math.round(air * rate * 100) / 100,
+      minPackageCost: Math.round(minimum * rate * 100) / 100,
       freeStorageDays: settings.value.freeStorageDays ?? 0,
       storageOverdueRatePerDay: Math.round((settings.value.storageOverdueRatePerDayUSD || 0.50) * rate * 100) / 100,
-      formattedAuto: `${(settings.value.autoDeliveryRatePerKgUSD * rate).toFixed(2)} ${activeCurrency.value}/кг`,
-      formattedAir: `${(settings.value.airDeliveryRatePerKgUSD * rate).toFixed(2)} ${activeCurrency.value}/кг`,
-      formattedMinCost: `${(settings.value.minPackageCostUSD * rate).toFixed(2)} ${activeCurrency.value}`,
+      formattedAuto: `${(auto * rate).toFixed(2)} ${activeCurrency.value}/кг`,
+      formattedAir: `${(air * rate).toFixed(2)} ${activeCurrency.value}/кг`,
+      formattedMinCost: `${(minimum * rate).toFixed(2)} ${activeCurrency.value}`,
       formattedStorageOverdue: `${((settings.value.storageOverdueRatePerDayUSD || 0.50) * rate).toFixed(2)} ${activeCurrency.value}/день`,
     };
-  });
+  }
+  const deliveryRates = computed(() => deliveryRatesForBranch());
 
   function updateDeliveryRates(rates: { autoRatePerKg: number; airRatePerKg: number; minPackageCost: number }) {
     const rate = ratesToUSD.value[activeCurrency.value] || 1;
@@ -709,7 +715,7 @@ export const useCargoStore = defineStore('cargo', () => {
       Math.round((active.length / (loyalty.requiredActiveReferralsForSpecialRate || 1)) * 100)
     );
 
-    const standardRate = deliveryRates.value.autoRatePerKg;
+    const standardRate = deliveryRatesForBranch(cust.preferredBranchId).autoRatePerKg;
     const effectiveRate = isMember ? loyalty.specialRatePerKg : standardRate;
 
     return {
@@ -1106,6 +1112,7 @@ export const useCargoStore = defineStore('cargo', () => {
           address: b.address,
           phone: b.phone || '',
           cashBalanceUSD: typeof b.cashBalance === 'number' ? b.cashBalance : (b.cashBalanceUSD || 0),
+          deliveryTariffs: b.deliveryTariffs,
           cells: b.cells || [],
           tenantSlug: slug,
         }));
@@ -1850,25 +1857,18 @@ export const useCargoStore = defineStore('cargo', () => {
     return newB;
   }
 
-  function updateBranch(id: string, data: Partial<Branch>) {
-    const branch = rawBranches.value.find((b) => b.id === id);
-    if (!branch) return;
+  async function updateBranch(id: string, data: Partial<Branch>) {
+    const slug = activeTenantSlug.value;
+    const branch = rawBranches.value.find(b => b.id === id && b.tenantSlug === slug);
+    if (!branch || !slug) throw new Error('ПВЗ не найден');
+    const response = await fetch('/api/o/' + encodeURIComponent(slug) + '/branches/' + encodeURIComponent(id), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) throw new Error(result.error || 'Не удалось сохранить ПВЗ');
     Object.assign(branch, data);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('cargona_branches', JSON.stringify(rawBranches.value));
-    }
-    addAudit('UPDATE', 'Обновление филиала', branch.name, `Обновлены данные филиала ${branch.name}`);
-
-    try {
-      const slug = activeTenantSlug.value;
-      if (slug) {
-        fetch(`/api/o/${slug}/branches/${id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
-        });
-      }
-    } catch {}
+    safeStorageSet('cargona_branches', rawBranches.value);
+    addAudit('UPDATE', 'Обновление филиала', branch.name, 'Обновлены данные и тарифы ПВЗ');
   }
 
   function deleteBranch(id: string) {
@@ -2455,8 +2455,8 @@ export const useCargoStore = defineStore('cargo', () => {
     const defaultWeight = data.weightKg || 1.0;
     const activeRate = ratesToUSD.value[activeCurrency.value] || 1;
     const defaultCostUSD = Math.max(
-      Math.round(settings.value.autoDeliveryRatePerKgUSD * defaultWeight * 100) / 100,
-      settings.value.minPackageCostUSD
+      Math.round(deliveryRatesForBranch(targetBranchId).autoRatePerKg / activeRate * defaultWeight * 100) / 100,
+      deliveryRatesForBranch(targetBranchId).minPackageCost / activeRate
     );
 
     for (const trackRaw of data.trackingNumbers) {
@@ -3395,6 +3395,7 @@ export const useCargoStore = defineStore('cargo', () => {
     activeTenantSlug,
     setTenantSlug,
     deliveryRates,
+    deliveryRatesForBranch,
     updateDeliveryRates,
     updateStorageSettings,
     tenant,

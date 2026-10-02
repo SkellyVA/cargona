@@ -766,6 +766,14 @@
             class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono"
           />
         </div>
+        <div class="pt-3 border-t border-white/[0.08] space-y-3">
+          <p class="font-semibold text-white">Тарифы доставки · {{ store.activeCurrency }}</p>
+          <p class="text-text-tertiary">Пустое поле — общий тариф компании. Изменение применяется к новым расчётам.</p>
+          <div v-for="field in branchTariffFields" :key="field.key">
+            <label :for="'tariff-' + field.key" class="block text-text-secondary mb-1">{{ field.label }}</label>
+            <input :id="'tariff-' + field.key" v-model="editingBranch[field.key]" type="number" min="0" step="0.01" placeholder="Общий тариф" class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none" />
+          </div>
+        </div>
       </div>
 
       <template #footer>
@@ -1026,6 +1034,7 @@ const activeViewTab = ref<'BRANCHES' | 'WAREHOUSES'>('BRANCHES');
 const showCreateBranchModal = ref(false);
 const showEditBranchModal = ref(false);
 const editingBranch = ref<any>(null);
+const branchTariffFields = [{ key: 'autoRate', label: 'Авто, за кг' }, { key: 'airRate', label: 'Авиа, за кг' }, { key: 'minimumCost', label: 'Минимальная стоимость посылки' }];
 const showCreateWarehouseModal = ref(false);
 const showEditWarehouseModal = ref(false);
 const editingWarehouse = ref<any>(null);
@@ -1201,21 +1210,34 @@ function openEditBranchModal(b: any) {
     city: b.city,
     address: b.address,
     phone: b.phone,
+    autoRate: b.deliveryTariffs?.autoRatePerKgUSD == null ? '' : b.deliveryTariffs.autoRatePerKgUSD * (store.ratesToUSD[store.activeCurrency] || 1),
+    airRate: b.deliveryTariffs?.airRatePerKgUSD == null ? '' : b.deliveryTariffs.airRatePerKgUSD * (store.ratesToUSD[store.activeCurrency] || 1),
+    minimumCost: b.deliveryTariffs?.minPackageCostUSD == null ? '' : b.deliveryTariffs.minPackageCostUSD * (store.ratesToUSD[store.activeCurrency] || 1),
   };
   showEditBranchModal.value = true;
 }
 
-function saveEditedBranch() {
+async function saveEditedBranch() {
   if (!editingBranch.value) return;
-  store.updateBranch(editingBranch.value.id, {
+  const rate = store.ratesToUSD[store.activeCurrency] || 1;
+  const values = [editingBranch.value.autoRate, editingBranch.value.airRate, editingBranch.value.minimumCost];
+  if (values.some(value => value !== '' && (!Number.isFinite(Number(value)) || Number(value) < 0))) { toastMessage.value = 'Укажите тарифы от 0 или оставьте поля пустыми'; return; }
+  try {
+  await store.updateBranch(editingBranch.value.id, {
     name: editingBranch.value.name,
     city: editingBranch.value.city,
     address: editingBranch.value.address,
     phone: editingBranch.value.phone,
+    deliveryTariffs: {
+      autoRatePerKgUSD: values[0] === '' ? null : Number(values[0]) / rate,
+      airRatePerKgUSD: values[1] === '' ? null : Number(values[1]) / rate,
+      minPackageCostUSD: values[2] === '' ? null : Number(values[2]) / rate,
+    },
   });
   showEditBranchModal.value = false;
   toastMessage.value = `Филиал «${editingBranch.value.name}» успешно обновлен`;
   editingBranch.value = null;
+  } catch (error) { toastMessage.value = error instanceof Error ? error.message : 'Не удалось сохранить тарифы'; }
 }
 
 function promptDeleteWarehouse(wh: any) {

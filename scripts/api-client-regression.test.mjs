@@ -43,6 +43,7 @@ const context = {
 };
 // Register the production handlers without starting the server or touching real data/Telegram.
 for (const [start, end] of [
+  ["fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/branches/:id'", "fastify.post<{ Params: { slug: string; id: string } }>('/api/o/:slug/branches/:id/collection'"],
   ['// Save Tenant Bot Settings (Set BYOB token & register webhook)', '// Submit Package Review & Post to Reviews Channel'],
   ['// Submit Package Review & Post to Reviews Channel', '// Telegram Webhook Handler'],
   ['// Bulk Package Intake', "fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/packages/:id'"],
@@ -57,6 +58,12 @@ for (const [start, end] of [
   vm.runInNewContext(ts.transpileModule(snippet, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
 }
 try {
+  const branchRates = await app.inject({ method: 'PUT', url: '/api/o/noor/branches/b', payload: { deliveryTariffs: { autoRatePerKgUSD: 4, airRatePerKgUSD: 0, minPackageCostUSD: null } } });
+  assert.equal(branchRates.statusCode, 200, branchRates.body);
+  assert.equal(store.branches[0].deliveryTariffs.autoRatePerKgUSD, 4);
+  for (const deliveryTariffs of [{ autoRatePerKgUSD: -1 }, { airRatePerKgUSD: 'bad' }, { unknown: 1 }]) {
+    assert.equal((await app.inject({ method: 'PUT', url: '/api/o/noor/branches/b', payload: { deliveryTariffs } })).statusCode, 400);
+  }
   const history = await app.inject('/api/o/noor/packages/found/history');
   assert.equal(history.statusCode, 200, history.body);
   assert.deepEqual(history.json().events.map(e => e.id), ['event']);

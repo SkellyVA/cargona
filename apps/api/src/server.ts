@@ -729,6 +729,12 @@ fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/b
   const branch = store.branches.find((b) => b.id === id && b.tenantId === tenant.id);
   if (!branch) return reply.status(404).send({ error: 'Branch not found' });
 
+  if (request.body.deliveryTariffs !== undefined) {
+    const tariffs = request.body.deliveryTariffs;
+    if (!tariffs || typeof tariffs !== 'object' || Array.isArray(tariffs) || Object.keys(tariffs).some(key => !['autoRatePerKgUSD', 'airRatePerKgUSD', 'minPackageCostUSD'].includes(key)) || Object.values(tariffs).some(value => value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0))) {
+      return reply.status(400).send({ error: 'Тарифы должны быть неотрицательными числами' });
+    }
+  }
   Object.assign(branch, request.body);
   branch.updatedAt = new Date().toISOString();
   store.saveToFile();

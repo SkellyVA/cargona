@@ -76,6 +76,7 @@ export interface Tenant {
 export type BranchType = 'ORIGIN_HUB' | 'TRANSIT_HUB' | 'DESTINATION_PVZ';
 
 export interface Branch {
+  deliveryTariffs?: { autoRatePerKgUSD?: number | null; airRatePerKgUSD?: number | null; minPackageCostUSD?: number | null };
   id: string;
   tenantId: string;
   name: string;

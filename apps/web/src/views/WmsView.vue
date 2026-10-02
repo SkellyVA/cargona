@@ -1627,8 +1627,8 @@ function handleIntakeScan(track: string) {
   const costLocal = existing
     ? Math.round(existing.costUSD * activeRate * 100) / 100
     : Math.max(
-        Math.round(store.settings.autoDeliveryRatePerKgUSD * (existing?.weightKg || 2.5) * activeRate * 100) / 100,
-        Math.round(store.settings.minPackageCostUSD * activeRate * 100) / 100
+        Math.round(store.deliveryRatesForBranch(selectedBranchId.value).autoRatePerKg * (existing?.weightKg || 2.5) * 100) / 100,
+        Math.round(store.deliveryRatesForBranch(selectedBranchId.value).minPackageCost * 100) / 100
       );
 
   const defaultShelf = currentBranchCells.value[0]?.shelf || (isOriginWarehouse.value ? 'Паллет CN-01' : 'Полка А-01');

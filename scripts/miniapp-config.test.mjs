@@ -42,7 +42,13 @@ try {
     };
     let bulkRequest;
     let failBulk = false;
+    let savedBranchTariffs;
     await page.route('**/api/**', route => {
+      if (route.request().method() === 'PUT' && route.request().url().endsWith('/branches/pickup-custom')) {
+        savedBranchTariffs = route.request().postDataJSON().deliveryTariffs;
+        data.branches[0].deliveryTariffs = savedBranchTariffs;
+        return route.fulfill({ json: { success: true } });
+      }
       if (route.request().url().endsWith('/history')) return route.fulfill({ json: { package: data.packages[0], branches: data.branches, trips: [{ id: 'trip-test', tripCode: 'TEST-TRIP' }], events: [{ id: 'move', createdAt: '2026-10-02T10:00:00Z', action: 'UPDATE', changes: [{ field: 'status', before: 'IN_TRANSIT', after: 'READY_FOR_PICKUP' }, { field: 'tripId', before: null, after: 'trip-test' }, { field: 'currentBranchId', before: null, after: 'pickup-custom' }] }] } });
       if (route.request().url().endsWith('/packages/bulk')) {
         bulkRequest = route.request().postDataJSON();
@@ -114,6 +120,17 @@ try {
     await page.getByText('Статус: В пути → Готова к выдаче', { exact: true }).waitFor();
     await page.getByText('Рейс: Не указан → TEST-TRIP', { exact: true }).waitFor();
     await page.getByText('ПВЗ / склад: Не указан → Configured pickup', { exact: true }).waitFor();
+    assert.deepEqual(pageErrors, []);
+    await page.goto(`http://127.0.0.1:${server.address().port}/o/acme/branches`);
+    await page.getByTitle('Редактировать филиал ПВЗ', { exact: true }).click();
+    await page.locator('#tariff-autoRate').fill('4.25');
+    await page.locator('#tariff-airRate').fill('0');
+    await page.locator('#tariff-minimumCost').fill('');
+    await page.getByRole('button', { name: /Сохранить/ }).last().click();
+    await page.getByText('Филиал «Configured pickup» успешно обновлен', { exact: true }).waitFor();
+    assert.deepEqual(savedBranchTariffs, { autoRatePerKgUSD: 4.25, airRatePerKgUSD: 0, minPackageCostUSD: null });
+    await page.goto(`http://127.0.0.1:${server.address().port}/o/acme/app`);
+    await page.getByText('4.25 USD/кг', { exact: true }).waitFor();
     assert.deepEqual(pageErrors, []);
     await page.close();
   }

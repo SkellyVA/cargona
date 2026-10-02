@@ -511,7 +511,7 @@
                 </div>
               </div>
               <div class="text-sm font-bold text-accent-cyan font-mono">
-                {{ store.deliveryRates.formattedAuto }}
+                {{ store.deliveryRatesForBranch(currentBranchSelectedId).formattedAuto }}
               </div>
             </div>
 
@@ -524,7 +524,7 @@
                 </div>
               </div>
               <div class="text-sm font-bold text-sky-300 font-mono">
-                {{ store.deliveryRates.formattedAir }}
+                {{ store.deliveryRatesForBranch(currentBranchSelectedId).formattedAir }}
               </div>
             </div>
           </div>
