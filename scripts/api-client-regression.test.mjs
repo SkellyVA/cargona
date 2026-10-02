@@ -81,6 +81,24 @@ try {
   const repeat = await app.inject({ method: 'POST', url: '/api/o/noor/packages/bulk', payload: bulkPayload });
   assert.equal(repeat.json().createdCount, 0);
   assert.equal(repeat.json().skippedCount, 4);
+  store.packages.push({ id: 'free', tenantId: 't', trackingNumber: 'FREE123', status: 'IN_TRANSIT', weightKg: 8, cost: 25, currentBranchId: 'b' });
+  store.packages.push({ id: 'foreign', tenantId: 't', trackingNumber: 'FOREIGN123', customerCargoCode: 'OTHER/CUSTOMER', status: 'RELEASED' });
+  const tracked = await app.inject({ method: 'POST', url: '/api/o/noor/packages/bulk', payload: { trackingNumbers: ['FREE123', 'TRACK123', 'FOREIGN123', 'free123'], customerCargoCode: customer.cargoCode, skipExisting: true, attachExisting: true, status: 'PRE_REGISTERED' } });
+  assert.equal(tracked.statusCode, 200, tracked.body);
+  assert.equal(tracked.json().createdCount, 0);
+  assert.equal(tracked.json().trackingCount, 2);
+  assert.equal(tracked.json().skippedCount, 1);
+  assert.deepEqual(tracked.json().conflictingTrackingNumbers, ['FOREIGN123']);
+  const free = store.packages.find(p => p.id === 'free');
+  assert.equal(free.customerId, customer.id);
+  assert.equal(free.status, 'IN_TRANSIT');
+  assert.equal(free.weightKg, 8);
+  assert.equal(free.cost, 25);
+  assert.equal(free.currentBranchId, 'b');
+  assert.equal(store.packages.find(p => p.id === 'foreign').customerCargoCode, 'OTHER/CUSTOMER');
+  const trackedAgain = await app.inject({ method: 'POST', url: '/api/o/noor/packages/bulk', payload: { trackingNumbers: ['FREE123'], customerCargoCode: customer.cargoCode, skipExisting: true, attachExisting: true } });
+  assert.equal(trackedAgain.json().trackingCount, 1);
+  assert.equal(trackedAgain.json().packages[0].id, 'free');
   const count = store.packages.length;
   for (const trackingNumbers of [['GOOD', 123], ['GOOD', 'bad track'], Array(501).fill('TRACK'), []]) {
     const invalid = await app.inject({ method: 'POST', url: '/api/o/noor/packages/bulk', payload: { trackingNumbers } });

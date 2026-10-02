@@ -95,7 +95,7 @@ try {
     await page.keyboard.press('Escape');
     await page.locator('#client-tracks').fill('BULK1\nBULK2\nBULK1');
     await page.getByRole('button', { name: 'Добавить посылки (3)', exact: true }).click();
-    await page.getByText('Пропущены существующие треки и повторы: BULK1', { exact: true }).waitFor();
+    await page.getByText('Повторы в списке: BULK1', { exact: true }).waitFor();
     assert.deepEqual(bulkRequest.trackingNumbers, ['BULK1', 'BULK2', 'BULK1']);
     assert.equal(bulkRequest.skipExisting, true);
     assert.equal(bulkRequest.status, 'PRE_REGISTERED');

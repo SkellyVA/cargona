@@ -652,7 +652,8 @@
           {{ isAddingTracks ? 'Сохранение…' : `Добавить посылки (${parsedTracks.length})` }}
         </button>
         <p v-if="addTracksError" role="alert" class="text-xs text-accent-coral">{{ addTracksError }}</p>
-        <p v-if="skippedTracks.length" class="max-h-24 overflow-auto break-words text-xs text-text-muted">Пропущены существующие треки и повторы: {{ skippedTracks.join(', ') }}</p>
+        <p v-if="skippedTracks.length" class="max-h-24 overflow-auto break-words text-xs text-text-muted">Повторы в списке: {{ skippedTracks.join(', ') }}</p>
+        <p v-if="conflictingTracks.length" role="alert" class="text-xs text-accent-coral">Треки привязаны к другому клиенту. Обратитесь к менеджеру: {{ conflictingTracks.join(', ') }}</p>
       </div>
 
       <!-- Список посылок со статусами -->
@@ -1678,6 +1679,7 @@ const parsedTracks = computed(() => parseTrackList(newTrack.value));
 const isAddingTracks = ref(false);
 const addTracksError = ref('');
 const skippedTracks = ref<string[]>([]);
+const conflictingTracks = ref<string[]>([]);
 const showQrModal = ref(false);
 const showBranchModal = ref(false);
 const qrModalCanvasRef = ref<HTMLCanvasElement | null>(null);
@@ -1976,7 +1978,7 @@ function packageDateLabel(pkg: any) {
 
 const clientPackages = computed(() => {
   if (!activeCustomer.value?.cargoCode) return [];
-  return store.packages.filter((p) => p.customerCargoCode === activeCustomer.value.cargoCode);
+  return store.packages.filter((p) => p.customerCargoCode?.trim().toUpperCase() === activeCustomer.value.cargoCode.trim().toUpperCase());
 });
 
 async function openQrModal() {
@@ -2286,14 +2288,16 @@ async function addTrack() {
   try {
     const result = await store.addPackagesFromList({
       trackingNumbers: parsedTracks.value,
+      attachExisting: true,
       customerCargoCode: activeCustomer.value.cargoCode,
       description: `Ожидается на складе (${originName})`,
       targetBranchId: currentBranchSelectedId.value,
       status: 'PRE_REGISTERED',
     });
     skippedTracks.value = result.skippedTrackingNumbers;
+    conflictingTracks.value = result.conflictingTrackingNumbers || [];
     newTrack.value = '';
-    miniAppToast.value = `Добавлено: ${result.createdCount}. Пропущено повторов: ${result.skippedCount}.`;
+    miniAppToast.value = `Добавлено в отслеживание: ${result.createdCount + (result.trackingCount || 0)}. Повторов: ${result.skippedCount}.`;
     safeHaptic('notification', 'success');
   } catch (error) {
     addTracksError.value = error instanceof Error ? error.message : 'Не удалось сохранить посылки';

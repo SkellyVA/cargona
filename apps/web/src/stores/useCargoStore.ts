@@ -2811,6 +2811,7 @@ export const useCargoStore = defineStore('cargo', () => {
   // Добавление новой посылки (с автоматическим расчетом кубатуры, площади и плотности)
   async function addPackagesFromList(data: {
     trackingNumbers: string[];
+    attachExisting?: boolean;
     customerCargoCode?: string;
     targetBranchId?: string;
     description?: string;
@@ -2826,7 +2827,8 @@ export const useCargoStore = defineStore('cargo', () => {
     const result = await response.json().catch(() => null);
     if (!response.ok || !result?.success) throw new Error(result?.error || 'Не удалось сохранить посылки. Повторите попытку.');
     for (const pkg of result.packages || []) {
-      if (rawPackages.value.some(p => p.id === pkg.id && p.tenantSlug === slug)) continue;
+      const existingIndex = rawPackages.value.findIndex(p => p.id === pkg.id && p.tenantSlug === slug);
+      if (existingIndex >= 0) rawPackages.value.splice(existingIndex, 1);
       rawPackages.value.unshift({
         ...pkg,
         tenantSlug: slug,
@@ -2838,7 +2840,7 @@ export const useCargoStore = defineStore('cargo', () => {
     }
     triggerRef(rawPackages);
     safeStorageSet('cargona_packages', rawPackages.value);
-    return result as { createdCount: number; skippedCount: number; skippedTrackingNumbers: string[] };
+    return result as { createdCount: number; skippedCount: number; skippedTrackingNumbers: string[]; trackingCount?: number; conflictingTrackingNumbers?: string[] };
   }
 
   function addPackage(pkgData: Omit<PackageItem, 'id' | 'createdAt'>) {

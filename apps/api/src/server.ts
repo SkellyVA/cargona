@@ -1229,6 +1229,7 @@ fastify.post<{
     weightKg?: number;
     description?: string;
     skipExisting?: boolean;
+    attachExisting?: boolean;
   };
 }>('/api/o/:slug/packages/bulk', async (request, reply) => {
   const { slug } = request.params;
@@ -1245,6 +1246,10 @@ fastify.post<{
 
   const createdPackages: any[] = [];
   const updatedPackages: any[] = [];
+  const trackingPackages: any[] = [];
+  const conflictingTrackingNumbers: string[] = [];
+  const trackingCustomer = request.body.attachExisting ? store.customers.find(c => c.tenantId === tenant.id && c.cargoCode.trim().toUpperCase() === (customerCargoCode || '').trim().toUpperCase()) : undefined;
+  if (request.body.attachExisting && !trackingCustomer) return reply.status(400).send({ error: 'Клиент не найден. Обновите профиль и повторите попытку.' });
   const skippedTrackingNumbers: string[] = [];
   const seen = new Set<string>();
 
@@ -1261,6 +1266,18 @@ fastify.post<{
     let existing = store.packages.find((p) => p.tenantId === tenant.id && p.trackingNumber?.toLowerCase() === track.toLowerCase());
     if (existing) {
       if (skipExisting) {
+        if (trackingCustomer) {
+          const code = existing.customerCargoCode?.trim().toUpperCase();
+          const belongsToAnother = (existing.customerId && existing.customerId !== trackingCustomer.id) || (code && code !== trackingCustomer.cargoCode.trim().toUpperCase());
+          if (belongsToAnother) {
+            conflictingTrackingNumbers.push(track);
+          } else {
+            existing.customerId = trackingCustomer.id;
+            existing.customerCargoCode = trackingCustomer.cargoCode;
+            trackingPackages.push(existing);
+          }
+          continue;
+        }
         skippedTrackingNumbers.push(track);
         continue;
       }
@@ -1315,7 +1332,9 @@ fastify.post<{
     updatedCount: updatedPackages.length,
     skippedCount: skippedTrackingNumbers.length,
     skippedTrackingNumbers,
-    packages: [...createdPackages, ...updatedPackages],
+    trackingCount: trackingPackages.length,
+    conflictingTrackingNumbers,
+    packages: [...createdPackages, ...updatedPackages, ...trackingPackages],
   };
 });
 
