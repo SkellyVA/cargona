@@ -1,4 +1,4 @@
-const fields = ['status', 'currentBranchId', 'branchId', 'targetBranchId', 'shelfLocation', 'tripId', 'sackId', 'customerId', 'customerCargoCode', 'trackingNumber', 'weightKg', 'cost', 'costUSD', 'description', 'releasedAt', 'readyAt', 'shippedAt'] as const;
+const fields = ['originWarehouseId', 'originBranchId', 'status', 'currentBranchId', 'branchId', 'targetBranchId', 'shelfLocation', 'tripId', 'sackId', 'customerId', 'customerCargoCode', 'trackingNumber', 'weightKg', 'cost', 'costUSD', 'description', 'releasedAt', 'readyAt', 'shippedAt'] as const;
 
 export function packageSnapshot(pkg: any): Record<string, unknown> {
   return Object.fromEntries(fields.map(field => [field, pkg[field] ?? null]));

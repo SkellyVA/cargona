@@ -63,6 +63,8 @@ export interface TripManifestItem {
 }
 
 export interface Trip {
+  originBranchId?: string;
+  destinationBranchId?: string;
   id: string;
   tripCode: string;
   type?: 'AUTO' | 'AIR' | 'TRAIN' | 'SEA';
@@ -225,6 +227,9 @@ export interface Customer {
 }
 
 export interface PackageItem {
+  originBranchId?: string;
+  originWarehouseId?: string;
+  createdAtISO?: string;
   id: string;
   trackingNumber: string;
   customerCargoCode: string;
@@ -1167,6 +1172,9 @@ export const useCargoStore = defineStore('cargo', () => {
             branchId: p.currentBranchId || p.branchId || '',
             tripId: p.tripId || undefined,
             targetBranchId: p.targetBranchId,
+            originBranchId: p.originBranchId,
+            originWarehouseId: p.originWarehouseId,
+            createdAtISO: p.createdAt,
             releasedAt: p.releasedAt,
             readyAt: p.readyAt,
             shippedAt: p.shippedAt,
@@ -1212,6 +1220,8 @@ export const useCargoStore = defineStore('cargo', () => {
         const tenantTrips: Trip[] = data.trips.map((t: any) => ({
           id: t.id,
           tripCode: t.code || t.tripCode,
+          originBranchId: t.originBranchId,
+          destinationBranchId: t.destinationBranchId,
           type: t.transportType || t.type || 'AUTO',
           route: t.route || 'Маршрут не указан',
           driverName: t.driverName || '',
@@ -2812,6 +2822,7 @@ export const useCargoStore = defineStore('cargo', () => {
   async function addPackagesFromList(data: {
     trackingNumbers: string[];
     attachExisting?: boolean;
+    originWarehouseId?: string;
     customerCargoCode?: string;
     targetBranchId?: string;
     description?: string;

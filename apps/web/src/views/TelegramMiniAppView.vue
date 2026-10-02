@@ -708,7 +708,9 @@
 
           <div class="text-[11px] text-text-secondary space-y-1">
             <div>ПВЗ: {{ packageBranchName(pkg) }}</div>
-            <div>{{ packageDateLabel(pkg) }}</div>
+            <div>Откуда: {{ packageOriginName(pkg) }}</div>
+            <div>Куда: {{ packageDestinationName(pkg) }}</div>
+            <div v-for="line in packageDateLines(pkg)" :key="line">{{ line }}</div>
           </div>
           <!-- Блок 1: Если посылка ГОТОВА К ВЫДАЧЕ В ПВЗ -->
           <div v-if="pkg.status === 'READY_FOR_PICKUP'" class="space-y-2 pt-2 border-t border-white/[0.06]">
@@ -1967,13 +1969,33 @@ function selectBranch(branchId: string) {
 }
 
 function packageBranchName(pkg: any) {
-  const branch = store.branches.find(b => b.id === (pkg.targetBranchId || pkg.branchId));
+  const trip = store.trips.find(t => t.id === pkg.tripId);
+  const branch = store.branches.find(b => b.id === (pkg.targetBranchId || trip?.destinationBranchId || pkg.branchId || pkg.currentBranchId));
   return branch ? branch.name + (branch.address ? ' · ' + branch.address : '') : 'Не указан';
 }
-function packageDateLabel(pkg: any) {
-  const date = pkg.releasedAt || pkg.readyAt || pkg.shippedAt || store.trips.find(t => t.id === pkg.tripId)?.departureDate;
-  if (!date || Number.isNaN(new Date(date).getTime())) return 'Дата отправки / получения не указана';
-  return (pkg.releasedAt ? 'Получено: ' : pkg.readyAt ? 'Прибыло в ПВЗ: ' : 'Отправлено: ') + new Date(date).toLocaleDateString('ru-RU');
+function packageOriginName(pkg: any) {
+  const trip = store.trips.find(t => t.id === pkg.tripId);
+  const originId = pkg.originWarehouseId || pkg.originBranchId || trip?.originBranchId;
+  const origin = store.originWarehouses.find(w => w.id === originId) || store.branches.find(b => b.id === originId);
+  return origin ? [origin.city, origin.name].filter(Boolean).join(' · ') : 'Не указано';
+}
+function packageDestinationName(pkg: any) {
+  const trip = store.trips.find(t => t.id === pkg.tripId);
+  const branch = store.branches.find(b => b.id === (pkg.targetBranchId || trip?.destinationBranchId || pkg.branchId || pkg.currentBranchId));
+  return branch ? [branch.city, branch.name].filter(Boolean).join(' · ') : 'Не указано';
+}
+function packageDateLines(pkg: any) {
+  const shipped = pkg.shippedAt || store.trips.find(t => t.id === pkg.tripId)?.departureDate;
+  const format = (date: string) => {
+    if (/^\d{2}\.\d{2}\.\d{4}$/.test(date || '')) return date;
+    return date && !Number.isNaN(new Date(date).getTime()) ? new Date(date).toLocaleDateString('ru-RU') : 'Не указана';
+  };
+  return [
+    `Добавлено: ${format(pkg.createdAtISO || pkg.createdAt)}`,
+    `Отправлено: ${format(shipped)}`,
+    ...(pkg.readyAt ? [`Прибыло в ПВЗ: ${format(pkg.readyAt)}`] : []),
+    ...(pkg.releasedAt ? [`Получено: ${format(pkg.releasedAt)}`] : []),
+  ];
 }
 
 const clientPackages = computed(() => {
@@ -2289,6 +2311,7 @@ async function addTrack() {
     const result = await store.addPackagesFromList({
       trackingNumbers: parsedTracks.value,
       attachExisting: true,
+      originWarehouseId: currentWarehouse.value?.id,
       customerCargoCode: activeCustomer.value.cargoCode,
       description: `Ожидается на складе (${originName})`,
       targetBranchId: currentBranchSelectedId.value,

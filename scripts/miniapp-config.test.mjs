@@ -38,7 +38,7 @@ try {
       tenant: { id: 't', slug: 'acme', name: 'ACME', codePrefix: 'ACME/S', baseCurrency: 'USD', botUsername: 'AcmeTestBot' },
       branches: [{ id: 'pickup-custom', name: 'Configured pickup', city: 'Boston', address: 'Street' }],
       warehouses, originWarehouses: warehouses,
-      packages: [{ id: 'pkg', customerId: 'c', customerCargoCode: 'ACME/S123', trackingNumber: 'TRACK123', currentBranchId: 'pickup-custom', readyAt: '2026-10-01T12:00:00Z', cost: 12, costUSD: 12, weightKg: 1, status: 'READY_FOR_PICKUP', createdAt: '2026-10-01T00:00:00Z' }],
+      packages: [{ id: 'pkg', customerId: 'c', customerCargoCode: 'ACME/S123', trackingNumber: 'TRACK123', originWarehouseId: 'warehouse-custom', shippedAt: '2026-09-28T12:00:00Z', currentBranchId: 'pickup-custom', readyAt: '2026-10-01T12:00:00Z', cost: 12, costUSD: 12, weightKg: 1, status: 'READY_FOR_PICKUP', createdAt: '2026-10-01T00:00:00Z' }],
     };
     let bulkRequest;
     let failBulk = false;
@@ -70,6 +70,10 @@ try {
     const text = await page.locator('body').innerText();
     assert.ok(text.includes('ПВЗ: Configured pickup · Street'));
     assert.ok(text.includes('Прибыло в ПВЗ: 01.10.2026'));
+    assert.ok(text.includes('Добавлено: 01.10.2026'));
+    assert.ok(text.includes('Отправлено: 28.09.2026'));
+    assert.ok(text.includes('Откуда: Boston · Warehouse'));
+    assert.ok(text.includes('Куда: Boston · Configured pickup'));
     assert.ok(text.includes('+0 USD/друг'));
     assert.ok(text.includes('Минимум выданных посылок у каждого друга: 3'));
     assert.ok(text.includes('Boston'));

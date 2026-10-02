@@ -227,6 +227,11 @@ class CargonaDataStore {
       for (const pkg of this.packages) {
         const key = `${pkg.tenantId}:${pkg.id}`;
         const previous = this.packageSnapshots.get(key);
+        if (!(pkg as any).originBranchId && !(pkg as any).originWarehouseId) {
+          const originId = previous?.currentBranchId || pkg.currentBranchId;
+          if (this.originWarehouses.some((w: any) => w.tenantId === pkg.tenantId && w.id === originId)) (pkg as any).originWarehouseId = originId;
+          else if (this.branches.some(b => b.tenantId === pkg.tenantId && b.id === originId && b.type === 'ORIGIN_HUB')) (pkg as any).originBranchId = originId;
+        }
         if (previous && previous.status !== pkg.status) {
           const milestoneField = ({ IN_TRANSIT: 'shippedAt', READY_FOR_PICKUP: 'readyAt', RELEASED: 'releasedAt' } as Record<string, string>)[pkg.status];
           if (milestoneField && !(pkg as any)[milestoneField]) (pkg as any)[milestoneField] = now;

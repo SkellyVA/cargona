@@ -1236,6 +1236,7 @@ fastify.post<{
     description?: string;
     skipExisting?: boolean;
     attachExisting?: boolean;
+    originWarehouseId?: string;
   };
 }>('/api/o/:slug/packages/bulk', async (request, reply) => {
   const { slug } = request.params;
@@ -1302,6 +1303,7 @@ fastify.post<{
         customerId: null,
         customerCargoCode: (customerCargoCode || '').toUpperCase().trim(),
         currentBranchId: targetBranchId || 'branch-origin',
+        originWarehouseId: store.originWarehouses.find((w: any) => w.tenantId === tenant.id && w.id === request.body.originWarehouseId)?.id,
         weightKg: weightKg || 0,
         cost: 0,
         currency: tenant.baseCurrency || 'USD',
@@ -2910,6 +2912,8 @@ fastify.get<{ Params: { slug: string }; Querystring: { tgUserId?: string; cargoC
         shelfLocation: (p as any).shelfLocation || '',
         currentBranchId: p.currentBranchId,
         targetBranchId: (p as any).targetBranchId,
+        originWarehouseId: (p as any).originWarehouseId,
+        originBranchId: (p as any).originBranchId,
         tripId: p.tripId,
         releasedAt: p.releasedAt,
         readyAt: (p as any).readyAt,
@@ -2976,6 +2980,8 @@ fastify.get<{ Params: { slug: string }; Querystring: { code: string } }>(
         shelfLocation: (p as any).shelfLocation || '',
         currentBranchId: p.currentBranchId,
         targetBranchId: (p as any).targetBranchId,
+        originWarehouseId: (p as any).originWarehouseId,
+        originBranchId: (p as any).originBranchId,
         tripId: p.tripId,
         releasedAt: p.releasedAt,
         readyAt: (p as any).readyAt,
