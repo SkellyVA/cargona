@@ -125,6 +125,14 @@ try {
     assert.deepEqual(pageErrors, []);
     await page.evaluate(() => localStorage.setItem('cargona_auth_user', JSON.stringify({ id: 'owner', name: 'Owner', email: 'owner@example.test', role: 'OWNER', organizationSlug: 'acme' })));
     await page.goto(`http://127.0.0.1:${server.address().port}/o/acme/packages`);
+    failBulk = false;
+    await page.getByRole('button', { name: 'Добавить списком', exact: true }).click();
+    await page.locator('#bulk-tracks').fill('ORIGIN1\nORIGIN2');
+    await page.getByRole('button', { name: 'Не указан', exact: true }).last().click();
+    await page.getByRole('button', { name: 'Boston · Warehouse', exact: true }).click();
+    await page.getByRole('button', { name: 'Добавить посылки', exact: true }).click();
+    await page.locator('#bulk-tracks').waitFor({ state: 'hidden' });
+    assert.equal(bulkRequest.originWarehouseId, 'warehouse-custom');
     await page.getByRole('button', { name: 'TRACK123', exact: true }).filter({ visible: true }).click();
     await page.getByText('История посылки TRACK123', { exact: true }).waitFor();
     await page.getByText('Статус: В пути → Готова к выдаче', { exact: true }).waitFor();

@@ -129,10 +129,14 @@ try {
   assert.equal(trackedAgain.json().trackingCount, 1);
   assert.equal(trackedAgain.json().packages[0].id, 'free');
   const count = store.packages.length;
+  store.originWarehouses.push({ id: 'wh-test', tenantId: 't', city: 'Test City' });
+  const originBulk = await app.inject({ method: 'POST', url: '/api/o/noor/packages/bulk', payload: { trackingNumbers: ['ORIGIN1', 'ORIGIN2'], originWarehouseId: 'wh-test', skipExisting: true } });
+  assert.equal(originBulk.statusCode, 200, originBulk.body);
+  assert.ok(originBulk.json().packages.every(p => p.originWarehouseId === 'wh-test'));
   for (const trackingNumbers of [['GOOD', 123], ['GOOD', 'bad track'], Array(501).fill('TRACK'), []]) {
     const invalid = await app.inject({ method: 'POST', url: '/api/o/noor/packages/bulk', payload: { trackingNumbers } });
     assert.equal(invalid.statusCode, 400);
-    assert.equal(store.packages.length, count);
+    assert.equal(store.packages.length, count + 2);
   }
   for (const text of ['/start', '/start ref_NOOR/S2301', 'UNKNOWN123', 'track123']) {
     const response = await app.inject({
