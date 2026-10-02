@@ -8,10 +8,11 @@ import { parseTrackList } from '../apps/web/src/utils/trackList.mjs';
 
 const require = createRequire(new URL('../apps/api/package.json', import.meta.url));
 const app = require('fastify')();
-const source = await readFile(new URL('../apps/api/src/server.ts', import.meta.url), 'utf8');
+const source = (await readFile(new URL('../apps/api/src/server.ts', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
 const messages = [];
 const errors = [];
 let telegramFailure = false;
+let webhookSetups = 0;
 const tenant = { id: 't', slug: 'noor', name: 'NOOR & <CLUB>' };
 const customer = { id: 'c', tenantId: 't', cargoCode: 'NOOR/S2301', fullName: 'Test', phone: '123' };
 const store = {
@@ -29,6 +30,7 @@ const store = {
   nextId: (prefix, items) => `${prefix}-${items.length}`,
 };
 const context = {
+  setupTelegramBotWebhook: async () => { webhookSetups++; return { username: 'NoorcargoBot', first_name: 'NOOR' }; },
   fastify: app, store, APP_DOMAIN: 'example.test', process: { env: {} },
   escapeTelegramHtml, startReferral, URLSearchParams,
   originHubPhone: () => '',
@@ -39,6 +41,7 @@ const context = {
 };
 // Register the production handlers without starting the server or touching real data/Telegram.
 for (const [start, end] of [
+  ['// Save Tenant Bot Settings (Set BYOB token & register webhook)', '// Submit Package Review & Post to Reviews Channel'],
   ['// Submit Package Review & Post to Reviews Channel', '// Telegram Webhook Handler'],
   ['// Bulk Package Intake', "fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/packages/:id'"],
   ['// Telegram Webhook Handler', '// 5. WMS Operations'],
@@ -52,6 +55,17 @@ for (const [start, end] of [
   vm.runInNewContext(ts.transpileModule(snippet, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
 }
 try {
+  store.botConfigs[0].botUsername = 'NoorcargoBot';
+  const savedChannels = await app.inject({ method: 'POST', url: '/api/o/noor/bot-settings', payload: { botToken: 'test-token', reviewsChannelId: '@new_reviews' } });
+  assert.equal(savedChannels.statusCode, 200, savedChannels.body);
+  assert.equal(store.botConfigs[0].reviewsChannelId, '@new_reviews');
+  assert.equal(webhookSetups, 0, 'Changing channel with unchanged token must not reset webhook');
+  const partialSettings = await app.inject({ method: 'POST', url: '/api/o/noor/bot-settings', payload: { reviewsChannelId: '@partial_reviews' } });
+  assert.equal(partialSettings.statusCode, 200);
+  assert.equal(store.botConfigs[0].isActive, true);
+  const changedToken = await app.inject({ method: 'POST', url: '/api/o/noor/bot-settings', payload: { botToken: 'new-token' } });
+  assert.equal(changedToken.statusCode, 200, changedToken.body);
+  assert.equal(webhookSetups, 1);
   store.botConfigs[0].reviewsChannelId = '@reviews';
   for (const photos of [[], ['https://example.test/photo.jpg'], ['data:image/jpeg;base64,aGVsbG8=']]) {
     const review = await app.inject({ method: 'POST', url: '/api/o/noor/packages/found/review', payload: { rating: 5, comment: 'Great <&>', customerName: 'A <B>', photos } });

@@ -2198,7 +2198,7 @@ fastify.post<{
       };
       store.botConfigs.push(existing);
     } else {
-      existing.isActive = false;
+      if (botToken !== undefined) existing.isActive = false;
       if (channelId !== undefined) existing.channelIdForPosting = channelId || null;
       if (reviewsChannelId !== undefined) (existing as any).reviewsChannelId = reviewsChannelId || null;
       if (managerUsername !== undefined) (existing as any).managerUsername = managerUsername || null;
@@ -2218,7 +2218,11 @@ fastify.post<{
 
   try {
     const host = (request.headers['x-forwarded-host'] as string) || request.headers.host || APP_DOMAIN;
-    const botInfo = await setupTelegramBotWebhook(botToken, tenant.slug, tenant.name, host);
+    const connectedBot = store.botConfigs.find(b => b.tenantId === tenant.id);
+    const tokenUnchanged = connectedBot?.isActive && connectedBot.botUsername && connectedBot.botToken.trim() === botToken.trim();
+    const botInfo = tokenUnchanged
+      ? { username: connectedBot.botUsername, first_name: tenant.name }
+      : await setupTelegramBotWebhook(botToken, tenant.slug, tenant.name, host);
 
     let botConfig = store.botConfigs.find((b) => b.tenantId === tenant.id);
     if (!botConfig) {

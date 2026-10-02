@@ -1626,6 +1626,7 @@ watch(
 );
 
 async function saveBotSettings() {
+  if (isSavingBot.value) return;
   const slug = currentSlug.value || 'cargona';
   const companyName = store.settings.companyName.trim() || store.tenant?.name || slug;
   isSavingBot.value = true;
