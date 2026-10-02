@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { packageSnapshot, packageChanges } from './package-history.js';
 import {
   Tenant,
   Branch,
@@ -55,6 +56,8 @@ const { dataDir: DATA_DIR, storeFile: STORE_FILE } = resolveStorePaths();
  * Automatically syncs with disk so restarts/recreates never reset state.
  */
 class CargonaDataStore {
+  public packageHistory: any[] = [];
+  private packageSnapshots = new Map<string, Record<string, unknown>>();
   /** Generate next sequential ID like "tenant-001", "branch-042" etc. */
   public nextId(prefix: string, existing: { id: string }[]): string {
     let max = 0;
@@ -193,6 +196,8 @@ class CargonaDataStore {
         if (Array.isArray(data.storageCells)) this.storageCells = data.storageCells;
         if (Array.isArray(data.customers)) this.customers = data.customers;
         if (Array.isArray(data.packages)) this.packages = data.packages;
+        if (Array.isArray(data.packageHistory)) this.packageHistory = data.packageHistory;
+        this.packageSnapshots = new Map(this.packages.map(pkg => [`${pkg.tenantId}:${pkg.id}`, packageSnapshot(pkg)]));
         if (Array.isArray(data.sacks)) this.sacks = data.sacks;
         if (Array.isArray(data.trips)) this.trips = data.trips;
         if (Array.isArray(data.payments)) this.payments = data.payments;
@@ -217,6 +222,22 @@ class CargonaDataStore {
 
   public saveToFile() {
     try {
+      const now = new Date().toISOString();
+      const nextSnapshots = new Map<string, Record<string, unknown>>();
+      for (const pkg of this.packages) {
+        const key = `${pkg.tenantId}:${pkg.id}`;
+        const previous = this.packageSnapshots.get(key);
+        if (previous && previous.status !== pkg.status) {
+          const milestoneField = ({ IN_TRANSIT: 'shippedAt', READY_FOR_PICKUP: 'readyAt', RELEASED: 'releasedAt' } as Record<string, string>)[pkg.status];
+          if (milestoneField && !(pkg as any)[milestoneField]) (pkg as any)[milestoneField] = now;
+        }
+        const snapshot = packageSnapshot(pkg);
+        const changes = previous ? packageChanges(previous, snapshot) : [];
+        if (!previous || changes.length) {
+          this.packageHistory.push({ id: crypto.randomUUID(), tenantId: pkg.tenantId, packageId: pkg.id, createdAt: now, action: previous ? 'UPDATE' : 'CREATE', snapshot, changes });
+        }
+        nextSnapshots.set(key, snapshot);
+      }
       if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
       }
@@ -227,6 +248,7 @@ class CargonaDataStore {
         storageCells: this.storageCells,
         customers: this.customers,
         packages: this.packages,
+        packageHistory: this.packageHistory,
         sacks: this.sacks,
         trips: this.trips,
         payments: this.payments,
@@ -242,6 +264,7 @@ class CargonaDataStore {
         expenseCategories: this.expenseCategories,
       };
       fs.writeFileSync(STORE_FILE, JSON.stringify(data, null, 2), 'utf8');
+      this.packageSnapshots = nextSnapshots;
     } catch (err) {
       console.error('[Store] Failed to save state to disk:', err);
     }

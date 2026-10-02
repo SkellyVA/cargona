@@ -78,7 +78,7 @@
           <!-- Верх карточки: Трек + Код клиента + Кнопка статуса -->
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0">
-              <div class="font-mono font-bold text-white text-sm tracking-wide truncate">{{ pkg.trackingNumber }}</div>
+              <button type="button" @click="openPackageHistory(pkg)" class="font-mono font-bold text-accent-cyan text-sm tracking-wide text-left hover:underline cursor-pointer" title="История посылки">{{ pkg.trackingNumber }}</button>
               <span class="inline-block mt-1 px-2 py-0.5 rounded-md bg-accent-cyan/15 text-accent-cyan border border-accent-cyan/30 font-mono font-bold text-[11px]">
                 {{ pkg.customerCargoCode || 'Без кода' }}
               </span>
@@ -173,7 +173,7 @@
             >
               <!-- Трек -->
               <td class="py-3.5 px-3 font-mono font-bold text-white whitespace-nowrap">
-                {{ pkg.trackingNumber }}
+                <button type="button" @click="openPackageHistory(pkg)" class="text-accent-cyan hover:underline cursor-pointer" title="История посылки">{{ pkg.trackingNumber }}</button>
               </td>
 
               <!-- Клиент -->
@@ -295,6 +295,25 @@
       </template>
     </div>
 
+    <AppModal v-model="showPackageHistory" :title="`История посылки ${historyTracking}`">
+      <div class="space-y-4 text-xs">
+        <p v-if="historyLoading" class="text-text-secondary">Загрузка истории…</p>
+        <p v-else-if="historyError" role="alert" class="text-accent-coral">{{ historyError }}</p>
+        <template v-else>
+          <p class="text-text-secondary">Текущий статус: {{ historyValue('status', historyPackage?.status) }} · ПВЗ / склад: {{ historyValue('currentBranchId', historyPackage?.currentBranchId || historyPackage?.branchId) }}</p>
+          <p class="text-text-tertiary">Для старых посылок отображаются только сохранённые даты. Подробный журнал изменений ведётся после обновления системы.</p>
+          <ol class="space-y-4 border-l border-accent-cyan/30 pl-4">
+            <li v-for="event in historyEvents" :key="event.id" class="space-y-1">
+              <div class="font-semibold text-white">{{ historyAction(event.action) }}</div>
+              <time class="text-text-tertiary">{{ new Date(event.createdAt).toLocaleString('ru-RU') }}</time>
+              <p v-if="event.action === 'CREATE'" class="text-text-secondary">{{ historyValue('status', event.snapshot?.status) }} · {{ historyValue('currentBranchId', event.snapshot?.currentBranchId) }}</p>
+              <p v-for="change in event.changes" :key="change.field" class="text-text-secondary break-words">{{ historyField(change.field) }}: {{ historyValue(change.field, change.before) }} → {{ historyValue(change.field, change.after) }}</p>
+            </li>
+          </ol>
+          <p v-if="!historyEvents.length" class="text-text-tertiary">Сохранённых событий пока нет.</p>
+        </template>
+      </div>
+    </AppModal>
     <!-- Модальное окно добавления посылки -->
     <AppModal v-model="showBulkAddModal" title="Добавить посылки списком">
       <div class="space-y-4 text-xs">
@@ -699,6 +718,48 @@ import { useI18n } from '../locales';
 import { parseTrackList } from '../utils/trackList.mjs';
 
 const store = useCargoStore();
+const showPackageHistory = ref(false);
+const historyTracking = ref('');
+const historyLoading = ref(false);
+const historyError = ref('');
+const historyPackage = ref<any>(null);
+const historyEvents = ref<any[]>([]);
+const historyBranches = ref<any[]>([]);
+const historyTrips = ref<any[]>([]);
+let historyRequest = 0;
+async function openPackageHistory(pkg: any) {
+  const requestId = ++historyRequest;
+  historyTracking.value = pkg.trackingNumber;
+  showPackageHistory.value = true;
+  historyLoading.value = true;
+  historyError.value = '';
+  try {
+    const response = await fetch(`/api/o/${encodeURIComponent(store.activeTenantSlug)}/packages/${encodeURIComponent(pkg.id)}/history`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Не удалось загрузить историю');
+    if (requestId !== historyRequest) return;
+    historyPackage.value = data.package;
+    historyEvents.value = data.events;
+    historyBranches.value = data.branches;
+    historyTrips.value = data.trips;
+  } catch (error) {
+    if (requestId === historyRequest) historyError.value = error instanceof Error ? error.message : 'Не удалось загрузить историю';
+  } finally { if (requestId === historyRequest) historyLoading.value = false; }
+}
+function historyAction(action: string) {
+  return ({ CREATE: 'Посылка добавлена в систему', UPDATE: 'Изменение посылки', CREATED: 'Дата создания', SHIPPED: 'Отправлена', ARRIVED: 'Прибыла в ПВЗ', RELEASED: 'Получена клиентом' } as Record<string, string>)[action] || action;
+}
+function historyField(field: string) {
+  return ({ status: 'Статус', currentBranchId: 'ПВЗ / склад', branchId: 'ПВЗ / склад', targetBranchId: 'ПВЗ назначения', shelfLocation: 'Полка', tripId: 'Рейс', sackId: 'Мешок', customerId: 'Клиент', customerCargoCode: 'Карго-код', trackingNumber: 'Трек-код', weightKg: 'Вес, кг', cost: 'Стоимость', costUSD: 'Стоимость', description: 'Описание', releasedAt: 'Дата выдачи', readyAt: 'Дата прибытия', shippedAt: 'Дата отправки' } as Record<string, string>)[field] || field;
+}
+function historyValue(field: string, value: any): string {
+  if (value === null || value === undefined || value === '') return 'Не указан';
+  if (['currentBranchId', 'branchId', 'targetBranchId'].includes(field)) return historyBranches.value.find(b => b.id === value)?.name || String(value);
+  if (field === 'tripId') return historyTrips.value.find(t => t.id === value)?.tripCode || String(value);
+  if (field === 'status') return ({ PRE_REGISTERED: 'Предварительно внесена', RECEIVED_AT_ORIGIN: 'Принята на складе', PACKED_IN_SACK: 'В мешке', IN_TRANSIT: 'В пути', CUSTOMS: 'На таможне', ARRIVED_AT_PVZ: 'Прибыла в ПВЗ', READY_FOR_PICKUP: 'Готова к выдаче', RELEASED: 'Выдана', RETURNED: 'Возвращена' } as Record<string, string>)[value] || String(value);
+  if (['releasedAt', 'readyAt', 'shippedAt'].includes(field)) return new Date(value).toLocaleString('ru-RU');
+  return String(value);
+}
 const { t } = useI18n();
 const searchQuery = ref('');
 const showBulkAddModal = ref(false);

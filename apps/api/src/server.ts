@@ -1338,6 +1338,22 @@ fastify.post<{
   };
 });
 
+// Package movement history (tenant-scoped)
+fastify.get<{ Params: { slug: string; id: string } }>('/api/o/:slug/packages/:id/history', async (request, reply) => {
+  const tenant = store.tenants.find(t => t.slug === request.params.slug);
+  if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
+  const pkg = store.packages.find(p => p.tenantId === tenant.id && p.id === request.params.id);
+  if (!pkg) return reply.status(404).send({ error: 'Посылка не найдена' });
+  const events = (store.packageHistory || []).filter(event => event.tenantId === tenant.id && event.packageId === pkg.id);
+  const milestones = [
+    { action: 'CREATED', date: pkg.createdAt },
+    { action: 'SHIPPED', date: (pkg as any).shippedAt || store.trips.find(t => t.tenantId === tenant.id && t.id === pkg.tripId)?.departureDate },
+    { action: 'ARRIVED', date: (pkg as any).readyAt },
+    { action: 'RELEASED', date: pkg.releasedAt },
+  ].filter(item => item.date && !Number.isNaN(Date.parse(item.date))).map(item => ({ id: `date-${item.action}`, action: item.action, createdAt: item.date, changes: [], snapshot: {}, source: 'date' }));
+  return { package: pkg, events: [...events, ...milestones].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)), branches: store.branches.filter(b => b.tenantId === tenant.id).map(b => ({ id: b.id, name: b.name })), trips: store.trips.filter(t => t.tenantId === tenant.id).map(t => ({ id: t.id, tripCode: t.tripCode })) };
+});
+
 fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/packages/:id', async (request, reply) => {
   const { slug, id } = request.params;
   const tenant = store.tenants.find((t) => t.slug === slug);
@@ -1348,6 +1364,7 @@ fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/p
 
   const oldStatus = pkg.status;
   Object.assign(pkg, request.body);
+  if (pkg.status === 'RELEASED' && oldStatus !== 'RELEASED' && !pkg.releasedAt) pkg.releasedAt = new Date().toISOString();
   if (pkg.status === 'IN_TRANSIT' && oldStatus !== 'IN_TRANSIT' && !(pkg as any).shippedAt) (pkg as any).shippedAt = new Date().toISOString();
   if (request.body.costUSD) pkg.cost = request.body.costUSD;
   if (request.body.status === 'READY_FOR_PICKUP' && oldStatus !== 'READY_FOR_PICKUP') {

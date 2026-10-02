@@ -43,6 +43,7 @@ try {
     let bulkRequest;
     let failBulk = false;
     await page.route('**/api/**', route => {
+      if (route.request().url().endsWith('/history')) return route.fulfill({ json: { package: data.packages[0], branches: data.branches, trips: [{ id: 'trip-test', tripCode: 'TEST-TRIP' }], events: [{ id: 'move', createdAt: '2026-10-02T10:00:00Z', action: 'UPDATE', changes: [{ field: 'status', before: 'IN_TRANSIT', after: 'READY_FOR_PICKUP' }, { field: 'tripId', before: null, after: 'trip-test' }, { field: 'currentBranchId', before: null, after: 'pickup-custom' }] }] } });
       if (route.request().url().endsWith('/packages/bulk')) {
         bulkRequest = route.request().postDataJSON();
         if (failBulk) return route.fulfill({ status: 500, json: { error: 'Ошибка сохранения' } });
@@ -105,6 +106,14 @@ try {
     await page.getByRole('button', { name: 'Добавить посылки (1)', exact: true }).click();
     await page.getByRole('alert').getByText('Ошибка сохранения', { exact: true }).waitFor();
     assert.equal(await page.locator('#client-tracks').inputValue(), 'FAILTRACK');
+    assert.deepEqual(pageErrors, []);
+    await page.evaluate(() => localStorage.setItem('cargona_auth_user', JSON.stringify({ id: 'owner', name: 'Owner', email: 'owner@example.test', role: 'OWNER', organizationSlug: 'acme' })));
+    await page.goto(`http://127.0.0.1:${server.address().port}/o/acme/packages`);
+    await page.getByRole('button', { name: 'TRACK123', exact: true }).filter({ visible: true }).click();
+    await page.getByText('История посылки TRACK123', { exact: true }).waitFor();
+    await page.getByText('Статус: В пути → Готова к выдаче', { exact: true }).waitFor();
+    await page.getByText('Рейс: Не указан → TEST-TRIP', { exact: true }).waitFor();
+    await page.getByText('ПВЗ / склад: Не указан → Configured pickup', { exact: true }).waitFor();
     assert.deepEqual(pageErrors, []);
     await page.close();
   }

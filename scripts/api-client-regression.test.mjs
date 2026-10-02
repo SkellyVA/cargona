@@ -21,6 +21,8 @@ const store = {
   branches: [{ id: 'b', tenantId: 't', type: 'PVZ', name: 'Office' }],
   originWarehouses: [],
   auditLogs: [],
+  packageHistory: [{ id: 'event', tenantId: 't', packageId: 'found', createdAt: '2026-10-01T00:00:00Z', action: 'UPDATE', changes: [] }, { id: 'foreign-event', tenantId: 'other', packageId: 'found', createdAt: '2026-10-01T00:00:00Z', action: 'UPDATE' }],
+  trips: [],
   packages: [
     { id: 'incomplete', tenantId: 't' },
     { id: 'without-barcode', tenantId: 't', trackingNumber: 'OTHER' },
@@ -55,6 +57,11 @@ for (const [start, end] of [
   vm.runInNewContext(ts.transpileModule(snippet, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
 }
 try {
+  const history = await app.inject('/api/o/noor/packages/found/history');
+  assert.equal(history.statusCode, 200, history.body);
+  assert.deepEqual(history.json().events.map(e => e.id), ['event']);
+  assert.equal((await app.inject('/api/o/missing/packages/found/history')).statusCode, 404);
+  assert.equal((await app.inject('/api/o/noor/packages/missing/history')).statusCode, 404);
   store.botConfigs[0].botUsername = 'NoorcargoBot';
   const savedChannels = await app.inject({ method: 'POST', url: '/api/o/noor/bot-settings', payload: { botToken: 'test-token', reviewsChannelId: '@new_reviews' } });
   assert.equal(savedChannels.statusCode, 200, savedChannels.body);
