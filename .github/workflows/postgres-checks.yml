@@ -31,9 +31,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 12.5.1
+      # The action's older bundled installer cannot read this pnpm 12 configuration.
+      - run: npm install --global pnpm@12.5.1
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm --filter @cargona/types build && pnpm --filter @cargona/db build && pnpm --filter @cargona/api build
       - name: Trial migration and PostgreSQL runtime
