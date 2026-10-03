@@ -4,6 +4,9 @@ import { createServer } from 'node:http';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { chromium } from 'playwright';
+import vm from 'node:vm';
+import ts from 'typescript';
+import { shippingDate } from '../apps/api/src/shipping-date.ts';
 const require = createRequire(new URL('../apps/web/package.json', import.meta.url));
 const { RGBLuminanceSource, HybridBinarizer, BinaryBitmap, QRCodeReader } = require('@zxing/library');
 
@@ -40,6 +43,13 @@ try {
       warehouses, originWarehouses: warehouses,
       packages: [{ id: 'pkg', customerId: 'c', customerCargoCode: 'ACME/S123', trackingNumber: 'TRACK123', originWarehouseId: 'warehouse-custom', shippedAt: '2026-09-28T12:00:00Z', currentBranchId: 'pickup-custom', readyAt: '2026-10-01T12:00:00Z', cost: 12, costUSD: 12, weightKg: 1, status: 'READY_FOR_PICKUP', createdAt: '2026-10-01T00:00:00Z' }],
     };
+    const apiRequire = createRequire(new URL('../apps/api/package.json', import.meta.url));
+    const bulkApi = apiRequire('fastify')();
+    const apiSource = await readFile(new URL('../apps/api/src/server.ts', import.meta.url), 'utf8');
+    const bulkStart = apiSource.indexOf('// Bulk Package Intake');
+    const bulkEnd = apiSource.indexOf('// Package movement history', bulkStart);
+    const fixtureStore = { tenants: [data.tenant], customers: [{ ...customer, tenantId: 't' }], packages: data.packages, originWarehouses: warehouses.map(w => ({ ...w, tenantId: 't' })), auditLogs: [], nextId: (prefix, items) => `${prefix}-${items.length + 1}`, saveToFile() {} };
+    vm.runInNewContext(ts.transpileModule(apiSource.slice(bulkStart, bulkEnd), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, { fastify: bulkApi, store: fixtureStore, shippingDate });
     let bulkRequest;
     let failBulk = false;
     let savedBranchTariffs;
@@ -66,11 +76,11 @@ try {
         data.branches[0].deliveryTariffs = savedBranchTariffs;
         return route.fulfill({ json: { success: true } });
       }
-      if (route.request().url().endsWith('/history')) return route.fulfill({ json: { package: data.packages[0], branches: data.branches, trips: [{ id: 'trip-test', tripCode: 'TEST-TRIP' }], events: [{ id: 'move', createdAt: '2026-10-02T10:00:00Z', action: 'UPDATE', changes: [{ field: 'status', before: 'IN_TRANSIT', after: 'READY_FOR_PICKUP' }, { field: 'tripId', before: null, after: 'trip-test' }, { field: 'currentBranchId', before: null, after: 'pickup-custom' }] }] } });
+      if (route.request().url().endsWith('/history')) return route.fulfill({ json: { package: data.packages.find(p => p.id === 'pkg'), branches: data.branches, trips: [{ id: 'trip-test', tripCode: 'TEST-TRIP' }], events: [{ id: 'move', createdAt: '2026-10-02T10:00:00Z', action: 'UPDATE', changes: [{ field: 'status', before: 'IN_TRANSIT', after: 'READY_FOR_PICKUP' }, { field: 'tripId', before: null, after: 'trip-test' }, { field: 'currentBranchId', before: null, after: 'pickup-custom' }] }] } });
       if (route.request().url().endsWith('/packages/bulk')) {
         bulkRequest = route.request().postDataJSON();
         if (failBulk) return route.fulfill({ status: 500, json: { error: 'Ошибка сохранения' } });
-        return route.fulfill({ json: { success: true, createdCount: 2, skippedCount: 1, skippedTrackingNumbers: ['BULK1'], packages: ['BULK1', 'BULK2'].map((trackingNumber, i) => ({ id: `bulk-${i}`, trackingNumber, customerCargoCode: customer.cargoCode, status: 'PRE_REGISTERED', weightPending: true, weightKg: 0, cost: 0 })) } });
+        return bulkApi.inject({ method: 'POST', url: '/api/o/acme/packages/bulk', payload: bulkRequest }).then(response => route.fulfill({ status: response.statusCode, json: response.json() }));
       }
       return route.fulfill({ json: data });
     });
@@ -141,13 +151,17 @@ try {
     failBulk = false;
     await page.getByRole('button', { name: 'Добавить списком', exact: true }).click();
     await page.locator('#bulk-tracks').fill('ORIGIN1\nORIGIN2');
-    await page.locator('#bulk-shipping-date').fill('2026-09-28');
+    await page.locator('#bulk-shipping-date').fill('28-09-2026');
     await page.getByRole('button', { name: 'Не указан', exact: true }).last().click();
     await page.getByRole('button', { name: 'Boston · Warehouse', exact: true }).click();
     await page.getByRole('button', { name: 'Добавить посылки', exact: true }).click();
     await page.locator('#bulk-tracks').waitFor({ state: 'hidden' });
     assert.equal(bulkRequest.originWarehouseId, 'warehouse-custom');
     assert.equal(bulkRequest.shippedAt, '2026-09-28');
+    await page.getByRole('button', { name: 'ORIGIN1', exact: true }).filter({ visible: true }).waitFor();
+    assert.ok(fixtureStore.packages.some(p => p.trackingNumber === 'ORIGIN1' && p.shippedAt === '2026-09-28' && p.weightPending));
+    await page.reload();
+    await page.getByRole('button', { name: 'ORIGIN1', exact: true }).filter({ visible: true }).waitFor();
     await page.getByRole('button', { name: 'TRACK123', exact: true }).filter({ visible: true }).click();
     await page.getByText('История посылки TRACK123', { exact: true }).waitFor();
     await page.getByText('Статус: В пути → Готова к выдаче', { exact: true }).waitFor();
@@ -192,6 +206,7 @@ try {
     assert.equal(broadcastStarts, 1);
     assert.deepEqual(pageErrors, []);
     await page.close();
+    await bulkApi.close();
   }
   console.log('Mini App configuration checks passed: custom tenant, zero settings, warehouse, payment details');
 } finally {

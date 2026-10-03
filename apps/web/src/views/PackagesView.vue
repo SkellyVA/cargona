@@ -328,14 +328,14 @@
           <AppDropdown v-model="bulkOriginWarehouseId" :options="bulkOriginWarehouseOptions" class="w-full" :class="{ 'pointer-events-none opacity-50': isBulkAdding }" />
           <p v-if="!store.originWarehouses.length" class="text-text-tertiary mt-2">Добавьте склад в разделе «ПВЗ и склады», чтобы выбрать его здесь.</p>
         </div>
-        <div><label for="bulk-shipping-date" class="block text-text-secondary mb-2">Дата отправки (необязательно)</label><input id="bulk-shipping-date" v-model="bulkShippingDate" :disabled="isBulkAdding" placeholder="ГГГГ-ММ-ДД" class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:outline-none focus:border-accent-cyan" /><p class="text-text-tertiary mt-2">Если поле пустое — сегодняшняя дата.</p></div>
+        <div><label for="bulk-shipping-date" class="block text-text-secondary mb-2">Дата отправки (необязательно)</label><input id="bulk-shipping-date" v-model="bulkShippingDate" :disabled="isBulkAdding" placeholder="ДД-ММ-ГГГГ" class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:outline-none focus:border-accent-cyan" /><p class="text-text-tertiary mt-2">Если поле пустое — сегодняшняя дата.</p></div>
         <p class="text-text-secondary">Вес — «Не взвешена», стоимость — «Не рассчитана» до приёмки.</p>
         <p v-if="bulkAddError" role="alert" class="text-accent-coral">{{ bulkAddError }}</p>
       </div>
       <template #footer><button type="button" @click="submitBulkAdd" :disabled="isBulkAdding || !bulkTrackList.length" class="px-4 py-2.5 rounded-xl bg-accent-blue text-white text-xs font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">{{ isBulkAdding ? 'Сохранение…' : 'Добавить посылки' }}</button></template>
     </AppModal>
     <AppModal v-model="showCreatePackageModal" title="Добавить посылку">
-      <div class="mb-4 text-xs"><label for="single-shipping-date" class="block text-text-secondary mb-2">Дата отправки (необязательно)</label><input id="single-shipping-date" v-model="singleShippingDate" placeholder="ГГГГ-ММ-ДД · пусто — сегодня" class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:outline-none focus:border-accent-cyan" /></div>
+      <div class="mb-4 text-xs"><label for="single-shipping-date" class="block text-text-secondary mb-2">Дата отправки (необязательно)</label><input id="single-shipping-date" v-model="singleShippingDate" placeholder="ДД-ММ-ГГГГ · пусто — сегодня" class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:outline-none focus:border-accent-cyan" /></div>
       <div class="space-y-3.5 text-xs">
         <div>
           <label class="text-text-secondary mb-1 block">Трек-номер (Китай / ZTO / SF)</label>
@@ -723,6 +723,7 @@ import BarcodePrintModal from '../components/BarcodePrintModal.vue';
 import { useCargoStore } from '../stores/useCargoStore';
 import { useI18n } from '../locales';
 import { parseTrackList } from '../utils/trackList.mjs';
+import { shippingInputToISO } from '../utils/shippingInput.mjs';
 
 const store = useCargoStore();
 const showPackageHistory = ref(false);
@@ -772,7 +773,7 @@ const searchQuery = ref('');
 const showBulkAddModal = ref(false);
 const bulkTracksText = ref('');
 function validShippingDate(value: string) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+  try { shippingInputToISO(value); return true; } catch { return false; }
 }
 const bulkShippingDate = ref('');
 const singleShippingDate = ref('');
@@ -785,13 +786,20 @@ const bulkAddError = ref('');
 const bulkSkippedTracks = ref<string[]>([]);
 async function submitBulkAdd() {
   if (isBulkAdding.value || !bulkTrackList.value.length) return;
-  if (bulkShippingDate.value && !validShippingDate(bulkShippingDate.value)) { bulkAddError.value = 'Укажите существующую дату в формате ГГГГ-ММ-ДД'; return; }
+  if (bulkShippingDate.value && !validShippingDate(bulkShippingDate.value)) { bulkAddError.value = 'Укажите существующую дату в формате ДД-ММ-ГГГГ'; return; }
   isBulkAdding.value = true;
   bulkAddError.value = '';
   try {
-    const result = await store.addPackagesFromList({ trackingNumbers: bulkTrackList.value, customerCargoCode: bulkCustomerCode.value.trim(), originWarehouseId: String(bulkOriginWarehouseId.value) || undefined, shippedAt: bulkShippingDate.value || undefined, status: 'RECEIVED_AT_ORIGIN' });
+    const result = await store.addPackagesFromList({ trackingNumbers: bulkTrackList.value, customerCargoCode: bulkCustomerCode.value.trim(), originWarehouseId: String(bulkOriginWarehouseId.value) || undefined, shippedAt: shippingInputToISO(bulkShippingDate.value), status: 'RECEIVED_AT_ORIGIN' });
     toastMessage.value = `Добавлено: ${result.createdCount}. Пропущено повторов: ${result.skippedCount}.`;
     bulkSkippedTracks.value = result.skippedTrackingNumbers;
+    if (!result.createdCount) {
+      bulkAddError.value = `Новые посылки не добавлены: все треки уже существуют или повторяются (${result.skippedCount}).`;
+      return;
+    }
+    activeTab.value = 'ALL';
+    searchQuery.value = '';
+    currentPage.value = 1;
     bulkTracksText.value = '';
     showBulkAddModal.value = false;
   } catch (error) {
@@ -1007,7 +1015,7 @@ function saveStatusChange() {
 
 function createPackage() {
   if (!newPkg.value.trackingNumber) return;
-  if (singleShippingDate.value && !validShippingDate(singleShippingDate.value)) { toastMessage.value = 'Укажите существующую дату в формате ГГГГ-ММ-ДД'; return; }
+  if (singleShippingDate.value && !validShippingDate(singleShippingDate.value)) { toastMessage.value = 'Укажите существующую дату в формате ДД-ММ-ГГГГ'; return; }
   const activeRate = store.ratesToUSD[store.activeCurrency] || 1;
   const costUSD = newPkg.value.costTJS / activeRate;
 
@@ -1022,7 +1030,7 @@ function createPackage() {
 
   store.addPackage({
     trackingNumber: newPkg.value.trackingNumber,
-    shippedAt: singleShippingDate.value || undefined,
+    shippedAt: shippingInputToISO(singleShippingDate.value),
     customerCargoCode: newPkg.value.customerCargoCode.toUpperCase() || 'БЕЗ КОДА',
     description: newPkg.value.description || 'Товары народного потребления',
     weightKg: newPkg.value.weightKg,
