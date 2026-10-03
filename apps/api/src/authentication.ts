@@ -17,7 +17,7 @@ export function registerAuthentication(app: any, store: any, environment = proce
   const identity = (session: any) => {
     if (session.kind === 'superadmin') {
       const password = environment.SUPERADMIN_PASSWORD || '';
-      if (!password || session.credential !== digest(password)) return null;
+      if (!password || password === 'password123' || session.credential !== digest(password)) return null;
       return { id: 'superadmin-1', name: environment.SUPERADMIN_NAME || 'Администратор', email: environment.SUPERADMIN_EMAIL || 'admin@cargona.io', role: 'SUPERADMIN', organizationSlug: 'cargona-platform', organizationName: 'CargonaOS Platform' };
     }
     const tenant = store.tenants.find((t: any) => t.id === session.tenantId);
@@ -56,7 +56,7 @@ export function registerAuthentication(app: any, store: any, environment = proce
     entry.count++;
     let session: any;
     const adminEmail = (environment.SUPERADMIN_EMAIL || 'admin@cargona.io').toLowerCase().trim();
-    if (email === adminEmail && environment.SUPERADMIN_PASSWORD && verifyPassword(password, environment.SUPERADMIN_PASSWORD)) {
+    if (email === adminEmail && environment.SUPERADMIN_PASSWORD && environment.SUPERADMIN_PASSWORD !== 'password123' && verifyPassword(password, environment.SUPERADMIN_PASSWORD)) {
       session = { kind: 'superadmin', userId: 'superadmin-1', credential: digest(environment.SUPERADMIN_PASSWORD) };
     } else {
       const tenant = store.tenants.find((t: any) => t.ownerEmail?.toLowerCase().trim() === email);

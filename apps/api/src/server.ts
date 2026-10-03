@@ -13,6 +13,7 @@ import { registerHandover } from './handover.js';
 import { registerFinance, ensureDefaultCashAccounts as ensureFinanceAccounts } from './finance.js';
 import { webhookSecret } from './telegram-identity.js';
 import { registerStorageLifecycle } from './storage-lifecycle.js';
+import { registerBotHealth } from './bot-health.js';
 
 await store.initialize();
 
@@ -40,6 +41,7 @@ await fastify.register(cors, {
 const APP_DOMAIN = (process.env.APP_DOMAIN || 'cargona.akii.world').trim();
 const SUPERADMIN_EMAIL = (process.env.SUPERADMIN_EMAIL || 'admin@cargona.io').toLowerCase().trim();
 const SUPERADMIN_NAME = (process.env.SUPERADMIN_NAME || 'Администратор Платформы').trim();
+registerBotHealth(fastify, store, APP_DOMAIN);
 const MAX_TENANTS_LIMIT = Number(process.env.MAX_TENANTS_LIMIT || 0); // 0 or negative means unlimited
 
 const ENABLE_NOOR_CLUB_ENV = (process.env.ENABLE_NOOR_CLUB || 'false').trim().toLowerCase();
@@ -1292,7 +1294,19 @@ fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/p
   if (!pkg) return reply.status(404).send({ error: 'Package not found' });
 
   const oldStatus = pkg.status;
+  const firstWeighing = ((pkg as any).weightPending || !(Number(pkg.weightKg) > 0) && !(Number(pkg.cost) > 0)) && Number(request.body.weightKg) > 0;
   if (request.body.weightKg !== undefined && (!Number.isFinite(request.body.weightKg) || request.body.weightKg < 0 || (pkg as any).weightPending && request.body.weightKg === 0)) return reply.status(400).send({ error: 'Укажите фактический положительный вес' });
+  for (const key of ['cost', 'costUSD']) if (request.body[key] !== undefined && (!Number.isFinite(request.body[key]) || request.body[key] < 0)) return reply.status(400).send({ error: 'Стоимость должна быть неотрицательным числом' });
+  if (firstWeighing) {
+    const branch = store.branches.find(b => b.tenantId === tenant.id && b.id === (request.body.currentBranchId || pkg.currentBranchId));
+    const tariff = (branch as any)?.deliveryTariffs;
+    const settings = store.tenantSettings?.[tenant.id] || {};
+    const rate = tariff?.autoRatePerKgUSD ?? settings.autoDeliveryRatePerKgUSD;
+    const minimum = tariff?.minPackageCostUSD ?? settings.minPackageCostUSD ?? 0;
+    if (Number.isFinite(rate) && rate >= 0 && Number.isFinite(minimum) && minimum >= 0) {
+      request.body.costUSD = Math.round(Math.max(request.body.weightKg * rate, minimum) * 100) / 100;
+    }
+  }
   Object.assign(pkg, request.body);
   if (Number(pkg.weightKg) > 0) (pkg as any).weightPending = false;
   if (pkg.status === 'RELEASED' && oldStatus !== 'RELEASED' && !pkg.releasedAt) pkg.releasedAt = new Date().toISOString();
@@ -1582,7 +1596,7 @@ async function setupTelegramBotWebhook(token: string, tenantSlug: string, tenant
   const cleanToken = token.trim().replace(/^bot/i, '');
   let domain = (hostHeader || APP_DOMAIN || '').replace(/^https?:\/\//, '').replace(/\/+$/, '').trim();
   if (!domain || domain.includes('localhost') || domain.includes('127.0.0.1')) {
-    domain = 'noor.akii.world';
+    throw new Error('Для Telegram webhook настройте публичный HTTPS-домен приложения');
   }
   const webhookUrl = `https://${domain}/api/bot/webhook/${tenantSlug}`;
   const appUrl = `https://${domain}/o/${tenantSlug}/app`;

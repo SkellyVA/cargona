@@ -63,6 +63,11 @@ try {
   const staffUpdate = await app.inject({ method: 'POST', url: '/api/o/noor/staff', headers: { cookie: ownerCookie, 'x-cargona-csrf': ownerCsrf }, payload: { role: 'OPERATOR', tenantId: 'other', id: 'victim' } });
   assert.equal(staffUpdate.statusCode, 200);
   assert.deepEqual(staffUpdate.json(), { role: 'OPERATOR' });
+  const insecure = require('fastify')();
+  exports.registerAuthentication(insecure, { tenants: [], users: [], sessions: [], tenantSettings: {}, saveToFile() {} }, { SUPERADMIN_EMAIL: 'admin@test', SUPERADMIN_PASSWORD: 'password123' });
+  try {
+    assert.equal((await insecure.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'admin@test', password: 'password123' } })).statusCode, 401, 'Known default administrator password must never grant access');
+  } finally { await insecure.close(); }
   for (let i = 0; i < 10; i++) await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'missing@test', password: 'bad' } });
   assert.equal((await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'missing@test', password: 'bad' } })).statusCode, 429);
   console.log('Authentication checks passed: passwords, hashes, sessions, CSRF, admin permissions, revocation and rate limit');

@@ -39,7 +39,11 @@ mkdir -p "$BACKUP_DIR"
 get_env_var() {
   local var_name="$1"
   if [ -f "$ENV_FILE" ]; then
-    grep "^${var_name}=" "$ENV_FILE" | cut -d '=' -f2- | tr -d '\r"' || echo ""
+    local value
+    value="$(grep -m 1 "^${var_name}=" "$ENV_FILE" | cut -d '=' -f2- | tr -d '\r' || true)"
+    if [[ "$value" == \'*\' ]]; then value="${value:1:${#value}-2}"; value="${value//\\\'/\'}";
+    elif [[ "$value" == \"*\" ]]; then value="${value:1:${#value}-2}"; fi
+    printf '%s\n' "$value"
   fi
 }
 
@@ -47,14 +51,19 @@ get_env_var() {
 set_env_var() {
   local var_name="$1"
   local var_value="$2"
-  if [ ! -f "$ENV_FILE" ]; then
-    touch "$ENV_FILE"
+  [[ "$var_name" =~ ^[A-Z_][A-Z0-9_]*$ && "$var_value" != *$'\n'* && "$var_value" != *$'\r'* ]] || return 1
+  local temp line
+  temp="$(mktemp "$APP_DIR/.env-XXXXXX")"
+  if [[ -f "$ENV_FILE" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      [[ "$line" == "$var_name="* ]] || printf '%s\n' "$line" >>"$temp"
+    done <"$ENV_FILE"
   fi
-  if grep -q "^${var_name}=" "$ENV_FILE"; then
-    sed -i "s|^${var_name}=.*|${var_name}=${var_value}|" "$ENV_FILE"
-  else
-    echo "${var_name}=${var_value}" >> "$ENV_FILE"
-  fi
+  # Single-quoted dotenv values disable variable interpolation.
+  var_value="${var_value//\'/\\\'}"
+  printf "%s='%s'\n" "$var_name" "$var_value" >>"$temp"
+  chmod 600 "$temp"
+  mv "$temp" "$ENV_FILE"
 }
 
 # Docker compose command wrapper
@@ -94,113 +103,26 @@ cmd_status() {
 
 # 2. ADMIN PASSWORD & EMAIL RESET
 cmd_reset_admin() {
-  echo -e "\n${CYAN}=== Сброс учетных данных администраторов ===${NC}"
-  echo -e "Выберите тип учетной записи для сброса:"
-  echo -e "  ${BOLD}1)${NC} Супер-Администратор платформы (панель /admin)"
-  echo -e "  ${BOLD}2)${NC} Владелец карго-компании (Tenant Owner, вход в /login)"
-  read -p "Ваш выбор [1-2, по умолчанию 1]: " reset_type
-  reset_type=${reset_type:-1}
-
-  if [ "$reset_type" = "2" ]; then
-    read -p "Введите slug организации (например: prime, cargona) [cargona]: " t_slug
-    t_slug=${t_slug:-cargona}
-    read -p "Новый Email владельца [owner@${t_slug}.com]: " t_email
-    t_email=${t_email:-owner@${t_slug}.com}
-    
-    while true; do
-      echo -ne "${BOLD}Новый Пароль владельца${NC} (ввод скрыт): "
-      read -s pass1
-      echo ""
-      if [ -z "$pass1" ] || [ ${#pass1} -lt 6 ]; then
-        echo -e "${YELLOW}[!] Пароль должен содержать минимум 6 символов.${NC}"
-        continue
-      fi
-      echo -ne "${BOLD}Подтвердите пароль${NC}: "
-      read -s pass2
-      echo ""
-      if [ "$pass1" != "$pass2" ]; then
-        echo -e "${RED}[!] Пароли не совпадают! Попробуйте снова.${NC}\n"
-      else
-        break
-      fi
-    done
-
-    # Update cargona-store.json directly
-    if [ -f "$STORE_FILE" ]; then
-      node -e "
-        const fs = require('fs');
-        try {
-          const data = JSON.parse(fs.readFileSync('$STORE_FILE', 'utf8'));
-          let found = false;
-          if (Array.isArray(data.tenants)) {
-            for (const t of data.tenants) {
-              if (t.slug === '$t_slug' || (!t.slug && '$t_slug' === 'cargona')) {
-                t.ownerEmail = '$t_email';
-                t.ownerPassword = '$pass1';
-                found = true;
-              }
-            }
-          }
-          if (found) {
-            fs.writeFileSync('$STORE_FILE', JSON.stringify(data, null, 2));
-            console.log('JSON_UPDATED');
-          } else {
-            console.log('TENANT_NOT_FOUND');
-          }
-        } catch (e) {
-          console.error(e.message);
-        }
-      " 2>/dev/null || true
-    fi
-
-    echo -e "${CYAN}Применение пароля...${NC}"
-    dc_cmd restart backend 2>/dev/null || true
-
-    echo -e "\n${GREEN}✓ Учетные данные владельца организации «${t_slug}» успешно обновлены!${NC}"
-    echo -e "📧 Email:  ${BOLD}${t_email}${NC}"
-    echo -e "🔑 Пароль: ${BOLD}${pass1}${NC}"
-    echo -e "🌐 Вход:   https://$(get_env_var "APP_DOMAIN")/login\n"
-    return
+  read -r -p 'Сброс: 1 — Супер-Админ, 2 — владелец компании [1]: ' kind
+  read -r -p 'Email: ' email
+  read -r -s -p 'Новый пароль (12+ символов): ' password; printf '\n'
+  read -r -s -p 'Повторите пароль: ' repeated; printf '\n'
+  [[ ${#password} -ge 12 && "$password" == "$repeated" && "$password" != *$'\r'* ]] || { echo 'Пароли должны совпадать, минимум 12 символов' >&2; return 1; }
+  [[ "$email" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || { echo 'Invalid email' >&2; return 1; }
+  if [[ "${kind:-1}" == 2 ]]; then
+    read -r -p 'Slug компании: ' slug
+    printf '%s\0%s\0%s' "$slug" "$email" "$password" |
+      dc_cmd run --rm --no-deps --pull never -T --entrypoint node backend -e '
+        let input="";process.stdin.on("data",b=>input+=b).on("end",()=>{
+          const [slug,email,password]=input.split("\0");console.log(JSON.stringify({slug,email,password}));});' |
+      bash "$APP_DIR/maintenance.sh" owner-reset
+  else
+    set_env_var SUPERADMIN_EMAIL "$email"
+    set_env_var SUPERADMIN_PASSWORD "$password"
+    dc_cmd up -d --no-deps --no-build --pull never backend
+    echo 'Учетные данные Супер-Админа обновлены. Пароль не выводится в журнал.'
   fi
-
-  local current_email=$(get_env_var "SUPERADMIN_EMAIL")
-  read -p "$(echo -e "${BOLD}Новый Email Супер-Админа${NC} [${current_email:-admin@cargona.io}]: ")" new_email
-  new_email=${new_email:-${current_email:-admin@cargona.io}}
-  
-  while true; do
-    echo -ne "${BOLD}Новый Пароль Супер-Админа${NC} (ввод скрыт): "
-    read -s pass1
-    echo ""
-    if [ -z "$pass1" ]; then
-      echo -e "${YELLOW}[!] Пароль не может быть пустым.${NC}"
-      continue
-    fi
-    if [ ${#pass1} -lt 6 ]; then
-      echo -e "${YELLOW}[!] Минимальная длина пароля — 6 символов.${NC}"
-      continue
-    fi
-    echo -ne "${BOLD}Подтвердите пароль${NC}: "
-    read -s pass2
-    echo ""
-    if [ "$pass1" != "$pass2" ]; then
-      echo -e "${RED}[!] Пароли не совпадают! Попробуйте снова.${NC}\n"
-    else
-      break
-    fi
-  done
-
-  set_env_var "SUPERADMIN_EMAIL" "$new_email"
-  set_env_var "SUPERADMIN_PASSWORD" "$pass1"
-
-  echo -e "${CYAN}Перезапуск контейнера бэкенда для применения нового .env...${NC}"
-  dc_cmd up -d backend 2>/dev/null || dc_cmd restart backend 2>/dev/null || true
-
-  echo -e "\n${GREEN}✓ Учетные данные Супер-Админа успешно обновлены!${NC}"
-  echo -e "📧 Email:  ${BOLD}${new_email}${NC}"
-  echo -e "🔑 Пароль: ${BOLD}${pass1}${NC}"
-  echo -e "🌐 Вход:   https://$(get_env_var "APP_DOMAIN")/admin\n"
 }
-
 # 3. CHANGE TENANTS LIMIT
 cmd_set_limit() {
   echo -e "\n${CYAN}=== Изменение лимита организаций (Лицензия) ===${NC}"
@@ -210,11 +132,12 @@ cmd_set_limit() {
   echo -e "Текущий лимит: ${BOLD}${current_limit}${NC} (0 = безлимит, 1 = Single-Tenant)"
   read -p "Введите новый лимит [${current_limit}]: " new_limit
   new_limit=${new_limit:-$current_limit}
+  [[ "$new_limit" =~ ^[0-9]+$ ]] || { echo 'Лимит должен быть целым неотрицательным числом' >&2; return 1; }
 
   set_env_var "MAX_TENANTS_LIMIT" "$new_limit"
 
   echo -e "${CYAN}Применение нового лимита...${NC}"
-  dc_cmd up -d backend 2>/dev/null || dc_cmd restart backend 2>/dev/null || true
+  dc_cmd up -d --no-deps --no-build --pull never backend
 
   if [ "$new_limit" -gt 0 ] 2>/dev/null; then
     echo -e "${GREEN}✓ Лимит успешно установлен: ${BOLD}максимум ${new_limit} организаций${NC}.\n"
@@ -354,11 +277,12 @@ cmd_domain() {
   read -p "Введите новый домен [${current_domain}]: " new_dom
   new_dom=${new_dom:-$current_domain}
   new_dom=$(echo "$new_dom" | sed -e 's|^https://||' -e 's|^http://||' -e 's|/$||')
+  [[ "$new_dom" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+[a-zA-Z0-9]$ ]] || { echo 'Укажите корректный домен' >&2; return 1; }
 
   set_env_var "APP_DOMAIN" "$new_dom"
 
   echo -e "${CYAN}Перезапуск веб-сервера и перевыпуск SSL-сертификата...${NC}"
-  dc_cmd restart caddy 2>/dev/null || dc_cmd restart
+  dc_cmd up -d --no-deps --no-build --pull never caddy backend
   echo -e "\n${GREEN}✓ Домен изменен на: https://${new_dom}${NC}"
   echo -e "🔒 SSL-сертификат будет автоматически активирован при переходе.\n"
 }
@@ -395,7 +319,7 @@ cmd_loyalty() {
     set_env_var "ALLOWED_LOYALTY_TENANTS" ""
     set_env_var "ENABLE_NOOR_CLUB_TENANTS" ""
     echo -e "${CYAN}Применение настроек к контейнеру бэкенда...${NC}"
-    dc_cmd up -d backend 2>/dev/null || dc_cmd restart backend 2>/dev/null || true
+    dc_cmd up -d --no-deps --no-build --pull never backend
     echo -e "\n${GREEN}✓ Программа лояльности NOOR CLUB успешно активирована для всех организаций!${NC}\n"
   elif [ "$l_choice" = "2" ]; then
     read -p "Введите slug организаций через запятую (например: prime,has): " t_slugs
@@ -404,14 +328,14 @@ cmd_loyalty() {
     set_env_var "ALLOWED_LOYALTY_TENANTS" "$t_slugs"
     set_env_var "ENABLE_NOOR_CLUB_TENANTS" "$t_slugs"
     echo -e "${CYAN}Применение настроек к контейнеру бэкенда...${NC}"
-    dc_cmd up -d backend 2>/dev/null || dc_cmd restart backend 2>/dev/null || true
+    dc_cmd up -d --no-deps --no-build --pull never backend
     echo -e "\n${GREEN}✓ Программа лояльности NOOR CLUB активирована для организаций: ${BOLD}${t_slugs}${NC}\n"
   else
     set_env_var "ENABLE_NOOR_CLUB" "false"
     set_env_var "ALLOWED_LOYALTY_TENANTS" ""
     set_env_var "ENABLE_NOOR_CLUB_TENANTS" ""
     echo -e "${CYAN}Применение настроек к контейнеру бэкенда...${NC}"
-    dc_cmd up -d backend 2>/dev/null || dc_cmd restart backend 2>/dev/null || true
+    dc_cmd up -d --no-deps --no-build --pull never backend
     echo -e "\n${YELLOW}✓ Программа лояльности NOOR CLUB отключена.${NC}\n"
   fi
 }
@@ -522,22 +446,8 @@ EOF
 
 # Helper to execute smart importer
 run_importer() {
-  local args=("$@")
-  echo -e "${CYAN}Запуск импорта данных...${NC}"
-  if [ -f "${APP_DIR}/apps/api/dist/importer.js" ] && command -v node &> /dev/null; then
-    node "${APP_DIR}/apps/api/dist/importer.js" "${args[@]}"
-  elif dc_cmd ps 2>/dev/null | grep -q "cargona_api\|backend"; then
-    dc_cmd exec -T backend node apps/api/dist/importer.js "${args[@]}"
-  elif [ -f "${APP_DIR}/apps/api/dist/importer.mjs" ] && command -v node &> /dev/null; then
-    node "${APP_DIR}/apps/api/dist/importer.mjs" "${args[@]}"
-  else
-    pnpm --filter @cargona/api exec tsx src/importer/cli.ts "${args[@]}" 2>/dev/null || npx tsx "${APP_DIR}/apps/api/src/importer/cli.ts" "${args[@]}"
-  fi
-  # Reload backend container RAM state
-  echo -e "${CYAN}Синхронизация состояния сервера...${NC}"
-  dc_cmd restart backend 2>/dev/null || true
+  bash "$APP_DIR/maintenance.sh" import "$@"
 }
-
 # CLI Router
 cmd_install_global 2>/dev/null || true
 
@@ -546,8 +456,9 @@ case "$1" in
   "admin:reset"|"admin:password") cmd_reset_admin ;;
   "license:limit"|"limit")
     if [ -n "$2" ]; then
+      [[ "$2" =~ ^[0-9]+$ ]] || { echo 'Лимит должен быть целым неотрицательным числом' >&2; exit 1; }
       set_env_var "MAX_TENANTS_LIMIT" "$2"
-      dc_cmd restart backend 2>/dev/null || true
+      dc_cmd up -d --no-deps --no-build --pull never backend
       echo -e "${GREEN}✓ Лимит обновлен на: $2${NC}"
     else
       cmd_set_limit
@@ -556,15 +467,19 @@ case "$1" in
   loyalty|"club") cmd_loyalty ;;
   "backup:create"|"backup") cmd_backup_create ;;
   "backup:restore") cmd_backup_restore ;;
-  offsite:*) bash "${APP_DIR}/offsite-backup.sh" "${1#offsite:}" ;;
+  offsite:*) bash "${APP_DIR}/offsite-backup.sh" "${1#offsite:}" "${@:2}" ;;
+  monitor:*) bash "${APP_DIR}/monitor.sh" "${1#monitor:}" ;;
+  rehearse) bash "${APP_DIR}/rehearse.sh" "${2:-}" "${3:-}" ;;
+  "tools:update") bash "${APP_DIR}/runtime-tools.sh" "${2:-}" ;;
   update) cmd_update "${2:-}" ;;
   rollback) bash "${APP_DIR}/release.sh" rollback "${2:-}" ;;
   "rollback:list") bash "${APP_DIR}/release.sh" list ;;
   restart) cmd_restart ;;
   domain)
     if [ -n "$2" ]; then
+      [[ "$2" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+[a-zA-Z0-9]$ ]] || { echo 'Укажите корректный домен без протокола' >&2; exit 1; }
       set_env_var "APP_DOMAIN" "$2"
-      dc_cmd restart caddy 2>/dev/null || true
+      dc_cmd up -d --no-deps --no-build --pull never caddy backend
       echo -e "${GREEN}✓ Домен изменен на: $2${NC}"
     else
       cmd_domain
@@ -586,6 +501,9 @@ case "$1" in
     echo -e "  backup:restore   - Восстановить базу из бэкапа"
     echo -e "  offsite:configure - Настроить зашифрованные копии в B2"
     echo -e "  offsite:init|run|enable|disable|status|list|check|prune - Автобэкапы"
+    echo -e "  monitor:configure|enable|disable|run|status - Мониторинг и уведомления"
+    echo -e "  rehearse DIR IMAGE - Пробное восстановление в изолированной среде"
+    echo -e "  tools:update SHA - Обновить CLI и скрипты без клонирования репозитория"
     echo -e "  update SHA       - Обновить на конкретную версию Docker-образов"
     echo -e "  rollback:list    - Список сохранённых версий и бэкапов"
     echo -e "  rollback ID      - Вернуть образы приложения, сохранив актуальную базу"

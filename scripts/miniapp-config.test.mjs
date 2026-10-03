@@ -26,7 +26,7 @@ const server = createServer(async (req, res) => {
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 let browser;
 try {
-  browser = await chromium.launch({ channel: 'msedge', headless: true });
+  browser = await chromium.launch({ ...(process.env.PLAYWRIGHT_CHANNEL === 'bundled' ? {} : { channel: process.env.PLAYWRIGHT_CHANNEL || 'msedge' }), headless: true });
   for (const cardNumber of ['', '1234 5678 9012 3456']) {
     const page = await browser.newPage();
     page.setDefaultTimeout(10000);

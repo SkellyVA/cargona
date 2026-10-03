@@ -11,7 +11,7 @@ permissions:
 jobs:
   postgres:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:16-alpine
@@ -42,8 +42,17 @@ jobs:
           node scripts/state-migration.test.mjs
           node scripts/postgres-runtime.test.mjs
       - name: Financial and client regressions
+        env:
+          RUNTIME_COMPOSE_CHECK: 'true'
         run: |
           node scripts/package-history.test.mjs
+          node scripts/persistence.test.mjs
+          node scripts/package-weight.test.mjs
+          node scripts/branch-tariffs.test.mjs
+          node scripts/branch-create.test.mjs
+          node scripts/shipping-input.test.mjs
+          node scripts/sw.test.mjs
+          node scripts/telegram.test.mjs
           node scripts/authentication.test.mjs
           node scripts/customer-links.test.mjs
           node scripts/client-security.test.mjs
@@ -51,9 +60,12 @@ jobs:
           node scripts/handover.test.mjs
           node scripts/broadcasts.test.mjs
           node scripts/api-client-regression.test.mjs
-          for script in release.sh update.sh offsite-backup.sh cargona; do bash -n "$script"; done
+          for script in release.sh update.sh offsite-backup.sh monitor.sh rehearse.sh maintenance.sh runtime-tools.sh bundle-install.sh install.sh cargona; do bash -n "$script"; done
           node scripts/release.test.mjs
           node scripts/offsite-backup.test.mjs
+          node scripts/operations.test.mjs
+          node scripts/system-smoke.test.mjs
+          node scripts/runtime-tools.test.mjs
       - name: Encrypted backup round trip
         env:
           RESTIC_ROUNDTRIP: 'true'
@@ -61,3 +73,10 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y restic
           node scripts/offsite-backup.test.mjs
+      - name: Browser and UI build checks
+        env:
+          PLAYWRIGHT_CHANNEL: bundled
+        run: |
+          pnpm --filter @cargona/web build
+          pnpm exec playwright install --with-deps chromium
+          node scripts/miniapp-config.test.mjs

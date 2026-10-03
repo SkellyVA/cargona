@@ -70,6 +70,13 @@ case "$operation" in
   init) rest init ;;
   list) rest snapshots --tag cargona ;;
   check) rest check --read-data ;;
+  restore)
+    snapshot_id="${2:-}"
+    [[ "$snapshot_id" =~ ^[a-f0-9]{8,64}$ ]] || fail 'Use a snapshot ID from offsite:list'
+    target="$(mktemp -d "$ROOT/restored-XXXXXX")"
+    rest restore "$snapshot_id" --target "$target"
+    echo "Decrypted copy restored only into a new private directory: $target"
+    ;;
   prune)
     # Only this application's stable host/path group; never delete unrelated backups.
     rest forget --tag cargona --host cargona --path "$ROOT/snapshot" --keep-within 24h --keep-daily 14 --keep-weekly 8 --keep-monthly 12 --prune ;;
@@ -111,6 +118,7 @@ case "$operation" in
     [[ ! -f .env ]] || cp .env "$stage/settings.env"
     printf '%s\n' "$mode" >"$stage/storage"
     printf '%s\n' "$image" >"$stage/api-image"
+    docker image inspect --format '{{json .RepoDigests}}' "$image" >"$stage/api-repodigests.json"
     (cd "$stage" && sha256sum ./* >checksum && sha256sum --check checksum >/dev/null)
     # Stable path enables deduplication and a single retention group.
     mkdir -p "$ROOT/snapshot"
@@ -162,5 +170,5 @@ EOF
       [[ ! -f "$ROOT/$file" ]] || { printf '%s: ' "$file"; cat "$ROOT/$file"; }
     done
     systemctl list-timers cargona-backup.timer --no-pager ;;
-  *) fail 'Usage: offsite-backup.sh configure|init|run|list|check|prune|enable|disable|status' ;;
+  *) fail 'Usage: offsite-backup.sh configure|init|run|list|check|restore <snapshot ID>|prune|enable|disable|status' ;;
 esac
