@@ -6,15 +6,17 @@ import { runSmartMigration } from './importer/migrationEngine.js';
 import { callTelegram, escapeTelegramHtml, startReferral } from './telegram.js';
 import { shippingDate } from './shipping-date.js';
 import { registerBroadcasts } from './broadcasts.js';
+import { registerAuthentication } from './authentication.js';
 
 const fastify = Fastify({
-  logger: true,
+  logger: { redact: ['req.headers.cookie', 'req.headers.authorization', 'req.headers.x-cargona-csrf', 'res.headers.set-cookie'] },
 });
 fastify.addHook('onRequest', async (request, reply) => {
   if (store.persistenceError && !request.url.split('?')[0].startsWith('/health')) {
     return reply.status(503).send({ error: 'Хранилище недоступно. Изменения временно заблокированы.' });
   }
 });
+registerAuthentication(fastify, store);
 registerBroadcasts(fastify, store);
 
 await fastify.register(compress, {
@@ -29,7 +31,6 @@ await fastify.register(cors, {
 
 const APP_DOMAIN = (process.env.APP_DOMAIN || 'cargona.akii.world').trim();
 const SUPERADMIN_EMAIL = (process.env.SUPERADMIN_EMAIL || 'admin@cargona.io').toLowerCase().trim();
-const SUPERADMIN_PASSWORD = (process.env.SUPERADMIN_PASSWORD || 'password123').trim();
 const SUPERADMIN_NAME = (process.env.SUPERADMIN_NAME || 'Администратор Платформы').trim();
 const MAX_TENANTS_LIMIT = Number(process.env.MAX_TENANTS_LIMIT || 0); // 0 or negative means unlimited
 
@@ -61,105 +62,6 @@ fastify.get('/health/ready', async (_request, reply) => {
 // ==========================================
 // 1.5 Authentication Routes (/api/auth)
 // ==========================================
-fastify.post<{
-  Body: {
-    email: string;
-    password: string;
-  };
-}>('/api/auth/login', async (request, reply) => {
-  const { email, password } = request.body || {};
-  if (!email || !password) {
-    return reply.status(400).send({ error: 'Заполните email и пароль' });
-  }
-
-  const cleanEmail = email.trim().toLowerCase();
-  const cleanPass = password.trim();
-
-  // 1. SuperAdmin (Configured via CLI / Environment variables)
-  const isSuperAdminEmail = cleanEmail === SUPERADMIN_EMAIL || (SUPERADMIN_EMAIL === 'admin@cargona.io' && cleanEmail === 'admin@cargona.io');
-  const isSuperAdminPass = cleanPass === SUPERADMIN_PASSWORD || (SUPERADMIN_PASSWORD === 'password123' && (cleanPass === 'admin' || cleanPass === 'admin123'));
-
-  if (isSuperAdminEmail && isSuperAdminPass) {
-    return {
-      success: true,
-      user: {
-        id: 'superadmin-1',
-        name: SUPERADMIN_NAME,
-        email: cleanEmail,
-        role: 'SUPERADMIN',
-        organizationSlug: 'cargona-platform',
-        organizationName: 'CargonaOS Platform',
-      },
-    };
-  }
-
-  // 2. Tenant Owner (check store.tenants with ownerEmail)
-  const tenant = store.tenants.find((t: any) => t.ownerEmail?.toLowerCase() === cleanEmail);
-  if (tenant) {
-    const tenantPass = (tenant as any).ownerPassword || 'password123';
-    if (tenantPass !== cleanPass) {
-      return reply.status(401).send({ error: 'Неверный email или пароль' });
-    }
-    if (tenant.status === 'SUSPENDED') {
-      return reply.status(403).send({ error: 'Организация деактивирована' });
-    }
-    return {
-      success: true,
-      user: {
-        id: `owner-${tenant.id}`,
-        name: `Владелец (${tenant.name})`,
-        email: (tenant as any).ownerEmail,
-        role: 'OWNER',
-        organizationSlug: tenant.slug,
-        organizationName: tenant.name,
-      },
-      tenant: {
-        id: tenant.id,
-        name: tenant.name,
-        slug: tenant.slug,
-        codePrefix: tenant.codePrefix,
-        ownerEmail: (tenant as any).ownerEmail,
-        ownerPassword: (tenant as any).ownerPassword,
-        planName: (tenant as any).planName || 'PRO',
-        baseCurrency: tenant.baseCurrency || 'USD',
-        isActive: tenant.status === 'ACTIVE',
-      },
-    };
-  }
-
-  // 3. Check store.users
-  const user = store.users.find((u) => u.email?.toLowerCase() === cleanEmail);
-  if (user) {
-    const t = store.tenants.find((x) => x.id === user.tenantId);
-    return {
-      success: true,
-      user: {
-        id: user.id,
-        name: user.fullName,
-        email: user.email,
-        role: user.role === 'TENANT_OWNER' ? 'OWNER' : (user.role as any),
-        organizationSlug: t?.slug || 'cargona',
-        organizationName: t?.name || 'Cargona',
-      },
-      tenant: t
-        ? {
-            id: t.id,
-            name: t.name,
-            slug: t.slug,
-            codePrefix: t.codePrefix,
-            ownerEmail: (t as any).ownerEmail,
-            ownerPassword: (t as any).ownerPassword,
-            planName: (t as any).planName || 'PRO',
-            baseCurrency: t.baseCurrency || 'USD',
-            isActive: t.status === 'ACTIVE',
-          }
-        : null,
-    };
-  }
-
-  return reply.status(401).send({ error: 'Неверный email или пароль' });
-});
-
 // ==========================================
 // 2. Super Admin Routes (/admin)
 // ==========================================
@@ -190,7 +92,6 @@ fastify.get('/api/admin/overview', async () => {
       return {
         ...t,
         ownerEmail: t.ownerEmail || `owner@${t.slug}.cargo`,
-        ownerPassword: t.ownerPassword || 'password123',
         planName: t.planName || plan?.name || 'PRO',
         packageCount: pkgCount,
         botUsername: botCfg?.botUsername || null,
@@ -213,7 +114,6 @@ fastify.get('/api/admin/tenants', async () => {
         slug: t.slug,
         codePrefix: t.codePrefix,
         ownerEmail: t.ownerEmail || `owner@${t.slug}.cargo`,
-        ownerPassword: t.ownerPassword || 'password123',
         planName: t.planName || plan?.name || 'PRO',
         baseCurrency: t.baseCurrency || 'USD',
         isActive: t.status === 'ACTIVE' || t.isActive === true,
@@ -258,6 +158,7 @@ fastify.post<{
     });
   }
 
+  if (!ownerPassword?.trim()) return reply.status(400).send({ error: 'Укажите пароль владельца новой компании' });
   const newTenant = {
     id: store.nextId('tenant', store.tenants),
     name: name.trim(),
@@ -270,7 +171,7 @@ fastify.post<{
     planId: planId || 'plan-pro',
     planName: planName || 'PRO',
     ownerEmail: ownerEmail.toLowerCase().trim(),
-    ownerPassword: (ownerPassword || 'password123').trim(),
+    ownerPassword: ownerPassword?.trim() || '',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -946,6 +847,7 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/staff', asyn
 
   const cleanEmail = email.toLowerCase().trim();
   const existing = store.users.find((u) => u.email.toLowerCase() === cleanEmail);
+  if (existing && existing.tenantId !== tenant.id) return reply.status(409).send({ error: 'Email уже используется другой компанией' });
   if (existing) {
     existing.fullName = fullName.trim();
     if (password) (existing as any).password = password.trim();
@@ -956,12 +858,13 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/staff', asyn
     return { success: true, employee: existing };
   }
 
+  if (!password?.trim()) return reply.status(400).send({ error: 'Укажите пароль нового сотрудника' });
   const newEmployee = {
     id: store.nextId('user', store.users),
     tenantId: tenant.id,
     fullName: fullName.trim(),
     email: cleanEmail,
-    password: (password || 'password123').trim(),
+    password: password.trim(),
     username: cleanEmail.split('@')[0],
     role: role || 'OPERATOR',
     phone: phone || '+992 90 000 0000',

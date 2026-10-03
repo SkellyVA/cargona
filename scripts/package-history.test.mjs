@@ -17,7 +17,7 @@ const fakeFs = { existsSync: () => true, readFileSync: () => saved, mkdirSync() 
 function loadStore() {
   const exports = {};
   vm.runInNewContext(compiled, {
-    exports, require: name => name === 'node:fs' ? fakeFs : name === 'node:path' ? path : name === './package-history.js' ? helpers.exports : name === './persistence.js' ? { writeState: (_file, state) => { if (writeFailure) throw new Error('disk full'); saved = JSON.stringify(state); } } : {},
+    exports, require: name => name === 'node:fs' ? fakeFs : name === 'node:path' ? path : name === './package-history.js' ? helpers.exports : name === './credentials.js' ? { protectCredentials() {} } : name === './persistence.js' ? { writeState: (_file, state) => { if (writeFailure) throw new Error('disk full'); saved = JSON.stringify(state); } } : {},
     process: { env: { DATA_DIR: '/isolated-test' } }, console: { log() {}, error() {} }, crypto: { randomUUID },
   });
   return exports.store;

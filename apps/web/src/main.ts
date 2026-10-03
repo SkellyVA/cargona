@@ -4,6 +4,19 @@ import router from './router';
 import App from './App.vue';
 import './style.css';
 
+const originalFetch = window.fetch.bind(window);
+window.fetch = (input, init) => {
+  const url = new URL(input instanceof Request ? input.url : String(input), window.location.href);
+  if (url.origin === window.location.origin && url.pathname.startsWith('/api/')) {
+    const headers = new Headers(input instanceof Request ? input.headers : undefined);
+    new Headers(init?.headers).forEach((value, key) => headers.set(key, value));
+    const csrf = document.cookie.split(';').map(item => item.trim()).find(item => item.startsWith('cargona_csrf='))?.slice('cargona_csrf='.length);
+    if (csrf) headers.set('x-cargona-csrf', csrf);
+    return originalFetch(input, { ...init, headers });
+  }
+  return originalFetch(input, init);
+};
+
 const app = createApp(App);
 app.use(createPinia());
 app.use(router);

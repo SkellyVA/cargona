@@ -363,6 +363,7 @@ export const useCargoStore = defineStore('cargo', () => {
   }
 
   function logout() {
+    fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
     if (typeof window !== 'undefined') {
       localStorage.removeItem('cargona_auth_user');
     }

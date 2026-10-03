@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { packageSnapshot, packageChanges } from './package-history.js';
 import { writeState } from './persistence.js';
+import { protectCredentials } from './credentials.js';
 import {
   Tenant,
   Branch,
@@ -60,6 +61,7 @@ class CargonaDataStore {
   public persistenceError = false;
   public packageHistory: any[] = [];
   public botBroadcasts: any[] = [];
+  public sessions: any[] = [];
   private packageSnapshots = new Map<string, Record<string, unknown>>();
   /** Generate next sequential ID like "tenant-001", "branch-042" etc. */
   public nextId(prefix: string, existing: { id: string }[]): string {
@@ -185,6 +187,7 @@ class CargonaDataStore {
 
   constructor() {
     this.loadFromFile();
+    protectCredentials(this);
   }
 
   public loadFromFile() {
@@ -203,6 +206,7 @@ class CargonaDataStore {
         if (Array.isArray(data.packages)) this.packages = data.packages;
         if (Array.isArray(data.packageHistory)) this.packageHistory = data.packageHistory;
         if (Array.isArray(data.botBroadcasts)) this.botBroadcasts = data.botBroadcasts;
+        if (Array.isArray(data.sessions)) this.sessions = data.sessions;
         this.packageSnapshots = new Map(this.packages.map(pkg => [`${pkg.tenantId}:${pkg.id}`, packageSnapshot(pkg)]));
         if (Array.isArray(data.sacks)) this.sacks = data.sacks;
         if (Array.isArray(data.trips)) this.trips = data.trips;
@@ -230,6 +234,7 @@ class CargonaDataStore {
   public saveToFile() {
     if (this.persistenceError) throw new Error('Storage unavailable; changes are blocked until restart and recovery');
     try {
+      protectCredentials(this);
       const now = new Date().toISOString();
       const nextSnapshots = new Map<string, Record<string, unknown>>();
       for (const pkg of this.packages) {
@@ -263,6 +268,7 @@ class CargonaDataStore {
         packages: this.packages,
         packageHistory: this.packageHistory,
         botBroadcasts: this.botBroadcasts,
+        sessions: this.sessions,
         sacks: this.sacks,
         trips: this.trips,
         payments: this.payments,

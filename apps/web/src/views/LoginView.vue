@@ -84,10 +84,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { LogIn, Mail, Lock, AlertCircle, Loader2 } from 'lucide-vue-next';
-import { useCargoStore, CurrentUser } from '../stores/useCargoStore';
+import { useCargoStore } from '../stores/useCargoStore';
 import LanguageSwitcher from '../components/ui/LanguageSwitcher.vue';
 import { useI18n } from '../locales';
 
@@ -100,158 +100,29 @@ const password = ref('');
 const errorMessage = ref('');
 const isLoading = ref(false);
 
-onMounted(() => {
-  store.fetchTenantsFromBackend();
-});
 
 async function handleLogin() {
-  errorMessage.value = '';
+  if (isLoading.value) return;
   const cleanEmail = email.value.trim().toLowerCase();
   const cleanPass = password.value.trim();
-
-  if (!cleanEmail) {
-    errorMessage.value = t('auth.emailLabel');
-    return;
-  }
-  if (!cleanPass) {
-    errorMessage.value = t('auth.passwordLabel');
-    return;
-  }
-
+  errorMessage.value = '';
+  if (!cleanEmail || !cleanPass) { errorMessage.value = 'Укажите email и пароль'; return; }
   isLoading.value = true;
-
   try {
-    // 1. Попытка аутентификации через API бэкенда (SuperAdmin, Tenant Owner, Staff)
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail, password: cleanPass }),
-      });
-
-      if (res.ok) {
-        const data = (await res.json()) as any;
-        if (data.tenant) {
-          store.upsertTenant(data.tenant);
-        }
-        if (data.user) {
-          store.login(data.user);
-          if (data.user.role === 'SUPERADMIN' || data.user.role === 'SUPER_ADMIN') {
-            router.push('/admin');
-          } else if (data.user.role === 'SORTER') {
-            router.push(`/o/${data.user.organizationSlug}/wms`);
-          } else if (data.user.role === 'CASHIER' || data.user.role === 'OPERATOR') {
-            router.push(`/o/${data.user.organizationSlug}/pvz`);
-          } else {
-            router.push(`/o/${data.user.organizationSlug}/dashboard`);
-          }
-          isLoading.value = false;
-          return;
-        }
-      } else if (res.status === 401 || res.status === 403 || res.status === 400) {
-        const errData = (await res.json().catch(() => ({}))) as any;
-        if (errData?.error) {
-          errorMessage.value = errData.error;
-          isLoading.value = false;
-          return;
-        }
-      }
-    } catch {
-      // Backend offline fallback to local store checks
-    }
-
-    // 2. Локальная проверка Супер-Администратора (offline fallback)
-    if (cleanEmail === 'admin@cargona.io') {
-      if (cleanPass !== 'admin' && cleanPass !== 'admin123' && cleanPass !== 'password123') {
-        errorMessage.value = t('auth.invalidCredentials');
-        isLoading.value = false;
-        return;
-      }
-      const adminUser: CurrentUser = {
-        id: 'superadmin-1',
-        name: 'Администратор Платформы',
-        email: 'admin@cargona.io',
-        role: 'SUPERADMIN',
-        organizationSlug: 'cargona-platform',
-        organizationName: 'CargonaOS Platform',
-      };
-      store.login(adminUser);
-      router.push('/admin');
-      isLoading.value = false;
-      return;
-    }
-
-    // 3. Локальная проверка Владельцев Карго (из локального store.tenants)
-    const tenant = store.tenants.find(
-      (t) => t.ownerEmail?.toLowerCase().trim() === cleanEmail
-    );
-    if (tenant) {
-      if (tenant.ownerPassword && tenant.ownerPassword.trim() !== cleanPass) {
-        errorMessage.value = t('auth.invalidCredentials');
-        isLoading.value = false;
-        return;
-      }
-      if (tenant.isActive === false) {
-        errorMessage.value = 'Компания деактивирована';
-        isLoading.value = false;
-        return;
-      }
-      const ownerUser: CurrentUser = {
-        id: `owner-${tenant.id}`,
-        name: `Владелец (${tenant.name})`,
-        email: tenant.ownerEmail,
-        role: 'OWNER',
-        organizationSlug: tenant.slug,
-        organizationName: tenant.name,
-      };
-      store.login(ownerUser);
-      router.push(`/o/${tenant.slug}/dashboard`);
-      isLoading.value = false;
-      return;
-    }
-
-    // 4. Локальная проверка сотрудников (store.staff)
-    const employee = store.staff.find(
-      (emp) => emp.email?.toLowerCase().trim() === cleanEmail
-    );
-    if (employee) {
-      if (employee.password && employee.password.trim() !== cleanPass) {
-        errorMessage.value = t('auth.invalidCredentials');
-        isLoading.value = false;
-        return;
-      }
-      if (!employee.isActive) {
-        errorMessage.value = 'Учетная запись заблокирована';
-        isLoading.value = false;
-        return;
-      }
-
-      const tenantSlug = employee.tenantSlug || (store.settings.codePrefix || 'cargo').toLowerCase() + '-cargo';
-      const staffUser: CurrentUser = {
-        id: employee.id,
-        name: employee.fullName,
-        email: employee.email,
-        role: employee.role,
-        organizationSlug: tenantSlug,
-        organizationName: store.settings.companyName || 'Cargona',
-      };
-      store.login(staffUser);
-
-      if (employee.role === 'SORTER') {
-        router.push(`/o/${tenantSlug}/wms`);
-      } else if (employee.role === 'CASHIER' || employee.role === 'OPERATOR') {
-        router.push(`/o/${tenantSlug}/pvz`);
-      } else {
-        router.push(`/o/${tenantSlug}/dashboard`);
-      }
-      isLoading.value = false;
-      return;
-    }
-
-    // 5. Если не найден
-    errorMessage.value = t('auth.invalidCredentials');
-  } finally {
-    isLoading.value = false;
-  }
+    const response = await fetch('/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: cleanEmail, password: cleanPass }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.user) throw new Error(data.error || 'Не удалось войти');
+    if (data.tenant) store.upsertTenant(data.tenant);
+    store.login(data.user);
+    if (['SUPERADMIN', 'SUPER_ADMIN'].includes(data.user.role)) router.push('/admin');
+    else if (data.user.role === 'SORTER') router.push('/o/' + data.user.organizationSlug + '/wms');
+    else if (['CASHIER', 'OPERATOR'].includes(data.user.role)) router.push('/o/' + data.user.organizationSlug + '/pvz');
+    else router.push('/o/' + data.user.organizationSlug + '/dashboard');
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : 'Сервер недоступен. Повторите вход позже.';
+  } finally { isLoading.value = false; }
 }
 </script>
