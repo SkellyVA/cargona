@@ -56,9 +56,20 @@ cp "$MOCK_REPO/$(basename "$file")" "$output"
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout.trim(), password, 'Dotenv values must round trip without execution or interpolation');
   if (process.env.RUNTIME_COMPOSE_CHECK === 'true') {
-    const result = spawnSync('docker', ['compose', '--project-directory', path.join(root, 'installation'), '-f', path.join(root, 'installation/docker-compose.yml'), 'config', '--format', 'json'], { encoding: 'utf8', env: process.env });
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(JSON.parse(result.stdout).services.backend.environment.SUPERADMIN_PASSWORD, password);
+    const override = path.join(root, 'installation/env-check.yml');
+    fs.writeFileSync(override, 'services:\n  backend:\n    image: node:22-alpine\n');
+    const compose = ['compose', '-p', `cargona-env-${path.basename(root).toLowerCase()}`, '--project-directory', path.join(root, 'installation'), '-f', path.join(root, 'installation/docker-compose.yml'), '-f', override];
+    try {
+      // Resolved Compose serialization escapes dollar signs for later reuse.
+      // Verify the actual container environment instead of its serialized config.
+      const result = spawnSync('docker', [...compose, 'run', '--rm', '--no-deps', '-T', 'backend', 'node', '-p', 'process.env.SUPERADMIN_PASSWORD'], { encoding: 'utf8', env: process.env, timeout: 120000 });
+      assert.ifError(result.error);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout.trim(), password);
+    } finally {
+      const removed = spawnSync('docker', [...compose, 'down', '--remove-orphans'], { encoding: 'utf8' });
+      assert.equal(removed.status, 0, removed.stderr);
+    }
   }
   console.log('Runtime-only bundle and atomic script download checks passed.');
 } finally { fs.rmSync(root, { recursive: true, force: true }); }
