@@ -5,6 +5,7 @@
 # ==============================================================================
 
 set -e
+umask 077
 
 SCRIPT_PATH="${BASH_SOURCE[0]}"
 if [ -L "$SCRIPT_PATH" ]; then
@@ -58,10 +59,12 @@ set_env_var() {
 
 # Docker compose command wrapper
 dc_cmd() {
+  local files=(-f "${APP_DIR}/docker-compose.yml")
+  [ ! -f "${APP_DIR}/data/releases/active.yml" ] || files+=(-f "${APP_DIR}/data/releases/active.yml")
   if docker compose version &> /dev/null; then
-    docker compose "$@"
+    docker compose --project-directory "$APP_DIR" "${files[@]}" "$@"
   else
-    docker-compose "$@"
+    docker-compose --project-directory "$APP_DIR" "${files[@]}" "$@"
   fi
 }
 
@@ -222,6 +225,10 @@ cmd_set_limit() {
 
 # 4. BACKUP CREATE
 cmd_backup_create() {
+  if [ -f "${APP_DIR}/release.sh" ]; then
+    bash "${APP_DIR}/release.sh" backup
+    return
+  fi
   echo -e "\n${CYAN}=== Создание резервной копии базы данных ===${NC}"
   local ts=$(date +%Y%m%d_%H%M%S)
   local bkp_file="${BACKUP_DIR}/cargona_backup_${ts}.json"
@@ -243,9 +250,22 @@ cmd_backup_create() {
 }
 
 # 5. BACKUP RESTORE
-cmd_backup_restore() {
+cmd_backup_restore() (
+  if [ -f "${APP_DIR}/release.sh" ]; then
+    mkdir -p "${APP_DIR}/data/releases"
+    exec 8>"${APP_DIR}/data/releases/.lock"
+    flock -n 8 || { echo 'Другой процесс обновления или восстановления уже работает.' >&2; return 1; }
+    local selected_mode
+    selected_mode="$(bash "${APP_DIR}/release.sh" mode)" || return 1
+    if [ "$selected_mode" = postgres ]; then
+      echo 'PostgreSQL: восстановление требует отдельной проверки pg_restore. JSON-бэкап не заменяет PostgreSQL.' >&2
+      return 1
+    fi
+    STORE_FILE="$(bash "${APP_DIR}/release.sh" data-path)" || return 1
+  fi
   echo -e "\n${CYAN}=== Восстановление базы данных из бэкапа ===${NC}"
-  local backups=($(ls -t "${BACKUP_DIR}"/*.json 2>/dev/null || true))
+  local backups=()
+  while IFS= read -r bkp; do backups+=("$bkp"); done < <(find "$BACKUP_DIR" "${APP_DIR}/data/releases" -type f -name '*.json' 2>/dev/null | sort -r)
 
   if [ ${#backups[@]} -eq 0 ]; then
     echo -e "${RED}[!] В папке ${BACKUP_DIR} нет сохраненных бэкапов.${NC}\n"
@@ -268,6 +288,14 @@ cmd_backup_restore() {
   fi
 
   local selected_bkp="${backups[$((choice - 1))]}"
+  if [ -f "$(dirname "$selected_bkp")/checksum" ]; then
+    (cd "$(dirname "$selected_bkp")" && sha256sum --check checksum >/dev/null) || return 1
+  fi
+  dc_cmd run --rm --no-deps -v "$(dirname "$selected_bkp"):/snapshot:ro" --entrypoint node backend -e '
+    try {const s=JSON.parse(require("fs").readFileSync("/snapshot/"+process.argv[1],"utf8"));
+    if(!s || typeof s!=="object" || Array.isArray(s) || ("storageFormat" in s && s.storageFormat!=="cargona-state-v1") ||
+      !["tenants","customers","packages","users"].every(k=>Array.isArray(s[k])))process.exit(1);
+    } catch {console.error("Snapshot validation failed");process.exit(1);}' "$(basename "$selected_bkp")" || return 1
   echo -e "${YELLOW}[!] ВНИМАНИЕ: Текущая база данных будет заменена на копию: $(basename "$selected_bkp")${NC}"
   read -p "Вы уверены? (y/n): " confirm
   if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
@@ -277,26 +305,38 @@ cmd_backup_restore() {
 
   # Stop api to safely write file
   echo -e "${CYAN}Восстановление данных...${NC}"
-  dc_cmd stop backend 2>/dev/null || dc_cmd stop api 2>/dev/null || true
-  cp "$selected_bkp" "$STORE_FILE"
-  dc_cmd start backend 2>/dev/null || dc_cmd start api 2>/dev/null || true
+  dc_cmd stop backend
+  local safety_copy
+  safety_copy="$(mktemp --suffix=.json "${BACKUP_DIR}/before_restore_$(date +%Y%m%d_%H%M%S)_XXXXXX")"
+  cp "$STORE_FILE" "$safety_copy"
+  sync "$safety_copy"
+  local restore_tmp
+  restore_tmp="$(mktemp "$(dirname "$STORE_FILE")/.cargona-restore.XXXXXX")"
+  cp "$selected_bkp" "$restore_tmp"
+  sync "$restore_tmp"
+  mv "$restore_tmp" "$STORE_FILE"
+  dc_cmd start backend
+  local restore_ready=false
+  for attempt in {1..30}; do
+    if dc_cmd exec -T backend node -e '
+      fetch("http://127.0.0.1:4000/health/ready",{signal:AbortSignal.timeout(3000)})
+        .then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1));'; then restore_ready=true; break; fi
+    sleep 2
+  done
+  if [ "$restore_ready" != true ]; then echo 'Проверка API не прошла. Сохранена копия до восстановления.' >&2; return 1; fi
 
   echo -e "\n${GREEN}${BOLD}✓ База данных успешно восстановлена!${NC}\n"
-}
+)
 
 # 6. UPDATE SYSTEM
 cmd_update() {
   if [ -f "${APP_DIR}/update.sh" ]; then
-    bash "${APP_DIR}/update.sh"
+    local target="${1:-}"
+    if [ -z "$target" ]; then read -p 'Полный SHA версии Docker-образов из GitHub: ' target; fi
+    bash "${APP_DIR}/update.sh" "$target"
   else
-    cmd_backup_create
-    if [ -d .git ]; then
-      git pull
-    fi
-    chmod +x "${APP_DIR}/cargona" "${APP_DIR}/install.sh"
-    ln -sfn "${APP_DIR}/cargona" /usr/local/bin/cargona
-    dc_cmd up -d --build
-    echo -e "${GREEN}✓ Обновление завершено!${NC}\n"
+    echo 'Безопасный updater не установлен. Обновление не выполнено.' >&2
+    return 1
   fi
 }
 
@@ -516,7 +556,9 @@ case "$1" in
   loyalty|"club") cmd_loyalty ;;
   "backup:create"|"backup") cmd_backup_create ;;
   "backup:restore") cmd_backup_restore ;;
-  update) cmd_update ;;
+  update) cmd_update "${2:-}" ;;
+  rollback) bash "${APP_DIR}/release.sh" rollback "${2:-}" ;;
+  "rollback:list") bash "${APP_DIR}/release.sh" list ;;
   restart) cmd_restart ;;
   domain)
     if [ -n "$2" ]; then
@@ -541,7 +583,9 @@ case "$1" in
     echo -e "  loyalty          - Управление программой лояльности (NOOR CLUB)"
     echo -e "  backup           - Создать резервную копию базы"
     echo -e "  backup:restore   - Восстановить базу из бэкапа"
-    echo -e "  update           - Безопасно обновить систему"
+    echo -e "  update SHA       - Обновить на конкретную версию Docker-образов"
+    echo -e "  rollback:list    - Список сохранённых версий и бэкапов"
+    echo -e "  rollback ID      - Вернуть образы приложения, сохранив актуальную базу"
     echo -e "  restart          - Перезапустить контейнеры"
     echo -e "  domain [domain]  - Изменить домен и перевыпустить SSL"
     echo -e "  import [flags]   - Умный импорт из MongoDB или JSON (--mongo / --dir)"

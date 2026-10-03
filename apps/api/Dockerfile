@@ -20,6 +20,7 @@ WORKDIR /app
 COPY --from=builder /runtime/node_modules ./apps/api/node_modules
 COPY --from=builder /runtime/dist ./apps/api/dist
 COPY --from=builder /runtime/package.json ./apps/api/package.json
+COPY apps/api/runtime-compatibility.json ./apps/api/runtime-compatibility.json
 
 ENV NODE_ENV=production
 ENV PORT=4000

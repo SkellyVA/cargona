@@ -34,14 +34,15 @@ const forbiddenFs = new Proxy({}, { get(_target, key) {
   if (key === '__esModule') return false;
   return () => { throw new Error('PostgreSQL mode must not touch JSON files'); };
 } });
-vm.runInNewContext(compile('apps/api/src/store.ts'), {
+const storeContext = {
   exports, require: name => name === 'node:fs' ? forbiddenFs : name === 'node:path' ? path :
     name === './package-history.js' ? helpers : name === './credentials.js' ? { protectCredentials() {} } :
     name === './persistence.js' ? { writeState() { throw new Error('Unexpected JSON write'); } } :
     name === '@cargona/db' ? { async openPostgresState() { opened++; return database; } } : {},
   process: { env: { DATA_DIR: '/unused', STORAGE_BACKEND: 'postgres', DATABASE_URL: 'fixture' } },
   console, crypto: { randomUUID },
-});
+};
+vm.runInNewContext(compile('apps/api/src/store.ts'), storeContext);
 const store = exports.store;
 assert.equal(store.tenants.length, 0);
 await store.initialize();
@@ -102,6 +103,10 @@ assert.equal((await app.inject('/read')).statusCode, 503);
 assert.equal((await app.inject({ method: 'POST', url: '/write' })).statusCode, 503);
 assert.equal(handlers, 4);
 await app.close();
+database.document = { ...database.document, storageFormat: 'cargona-state-v2' };
+const futureExports = {};
+vm.runInNewContext(compile('apps/api/src/store.ts'), { ...storeContext, exports: futureExports });
+await assert.rejects(futureExports.store.initialize(), /Unsupported state format/);
 console.log('PostgreSQL lifecycle: no JSON access, initialization, commit barrier, serialized requests, error unlock and fail-closed checks passed');
 
 // Exercise the real adapter with a SQL double, including commit failure and lease loss.

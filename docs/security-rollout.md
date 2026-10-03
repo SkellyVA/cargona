@@ -54,6 +54,8 @@ Existing money and historical transactions are preserved. Deploy API and web tog
 
 The PostgreSQL trial-transfer CLI and opt-in API backend are available; see [the migration runbook](postgres-migration.md). The API defaults to JSON; updates never import or switch production automatically. PostgreSQL uses one verified JSONB document, a single writer, revision checks and a response barrier that waits for persistence. Live PostgreSQL rehearsals, off-server backups, restore drills, monitoring, the production Compose bundle and the remaining business protections are still pending.
 
+Safe image update, pre-update backups and compatibility-gated application rollback are described in [the release runbook](safe-updates.md). They preserve the current database during application rollback. Full restore drills, off-server automated backups and the standalone deployment bundle remain pending.
+
 ## Link an existing customer to Telegram
 
 The owner opens the customer card and selects «Привязать Telegram». Verify the recipient's identity, then copy and personally deliver the link. Do not post it publicly: possession of this link grants the right to claim that customer account. An administrator/manager cannot issue these links.

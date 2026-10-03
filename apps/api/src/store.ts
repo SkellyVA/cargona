@@ -59,6 +59,7 @@ const { dataDir: DATA_DIR, storeFile: STORE_FILE } = resolveStorePaths();
  */
 class CargonaDataStore {
   public storageMode = (process.env.STORAGE_BACKEND || 'json').trim();
+  public stateFormat = 'cargona-state-v1';
   private database?: Awaited<ReturnType<typeof import('@cargona/db').openPostgresState>>;
   private extraState: Record<string, unknown> = {};
   private pending: Promise<void> = Promise.resolve();
@@ -83,6 +84,11 @@ class CargonaDataStore {
     const { openPostgresState } = await import('@cargona/db');
     this.database = await openPostgresState(process.env.DATABASE_URL);
     const data = this.database.document;
+    if (data.storageFormat !== undefined && data.storageFormat !== this.stateFormat) {
+      await this.database.close();
+      this.database = undefined;
+      throw new Error('Unsupported state format; use a compatible application version');
+    }
     this.extraState = data;
     for (const key of ['plans', 'tenants', 'branches', 'storageCells', 'customers', 'packages',
       'packageHistory', 'botBroadcasts', 'sessions', 'clientLinks', 'handoverReceipts', 'financialReceipts',
@@ -249,6 +255,9 @@ class CargonaDataStore {
       if (fs.existsSync(STORE_FILE)) {
         const content = fs.readFileSync(STORE_FILE, 'utf8');
         const data = JSON.parse(content);
+        if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Invalid state document');
+        if (data.storageFormat !== undefined && data.storageFormat !== this.stateFormat) throw new Error('Unsupported state format');
+        this.extraState = data;
         if (Array.isArray(data.plans)) this.plans = data.plans;
         if (Array.isArray(data.tenants)) this.tenants = data.tenants;
         if (Array.isArray(data.branches)) this.branches = data.branches;
@@ -280,8 +289,8 @@ class CargonaDataStore {
         this.saveToFile();
       }
     } catch (err) {
-      console.error('[Store] Failed to load state from disk:', err);
-      throw new Error('Cannot load persistent state; restore a verified backup before starting', { cause: err });
+      console.error('[Store] Failed to load state from disk; restore a verified backup');
+      throw new Error('Cannot load persistent state; restore a verified backup before starting');
     }
   }
 
@@ -315,6 +324,7 @@ class CargonaDataStore {
       }
       const data = {
         ...this.extraState,
+        storageFormat: this.stateFormat,
         plans: this.plans,
         tenants: this.tenants,
         branches: this.branches,

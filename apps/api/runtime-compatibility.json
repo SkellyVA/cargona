@@ -1,0 +1,4 @@
+{
+  "storageFormats": ["json-v1", "postgres-jsonb-v1"],
+  "stateFormats": ["cargona-state-v1"]
+}

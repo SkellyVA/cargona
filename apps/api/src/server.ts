@@ -65,7 +65,7 @@ fastify.get('/health', async () => ({
 fastify.get('/health/ready', async (_request, reply) => {
   try { await store.checkStorage(); }
   catch { return reply.status(503).send({ status: 'unavailable', storage: 'failed' }); }
-  return { status: 'ok', storage: 'ready', backend: store.storageMode };
+  return { status: 'ok', storage: 'ready', backend: store.storageMode, stateFormat: store.stateFormat };
 });
 
 // ==========================================

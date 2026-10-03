@@ -11,7 +11,7 @@ vm.runInNewContext(ts.transpileModule(helperSource, { compilerOptions: { module:
 const storeSource = await readFile(new URL('../apps/api/src/store.ts', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(storeSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
 const original = { id: 'old', tenantId: 't', trackingNumber: 'OLD', status: 'IN_TRANSIT', weightKg: 1, createdAt: '2025-01-01T00:00:00Z' };
-let saved = JSON.stringify({ packages: [original] });
+let saved = JSON.stringify({ packages: [original], futureField: { keep: true } });
 let writeFailure = false;
 const fakeFs = { existsSync: () => true, readFileSync: () => saved, mkdirSync() {}, writeFileSync: (_file, contents) => { saved = contents; } };
 function loadStore() {
@@ -33,6 +33,7 @@ store.clientLinks.push({ tenantId: 't', customerId: 'legacy', tokenHash: 'hashed
 store.handoverReceipts.push({ tenantId: 't', actorId: 'cashier', key: 'retry-key', response: { paymentId: 'pay-1' } });
 store.financialReceipts.push({ tenantId: 't', actorId: 'owner', key: 'finance-retry-key', response: { transaction: { id: 'tx-1' } } });
 store.saveToFile();
+assert.equal(JSON.parse(saved).futureField.keep, true, 'Older compatible code must preserve unknown document fields');
 assert.equal(loadStore().clientLinks[0].usedAt, '2026-10-03T11:00:00Z', 'Used customer links must survive restart');
 assert.equal(loadStore().handoverReceipts[0].response.paymentId, 'pay-1', 'Handover receipt must survive restart');
 assert.equal(loadStore().financialReceipts[0].response.transaction.id, 'tx-1', 'Finance receipt must survive restart');
@@ -74,4 +75,8 @@ writeFailure = false;
 assert.throws(() => store.saveToFile(), /changes are blocked/);
 saved = 'broken JSON';
 assert.throws(() => loadStore(), /Cannot load persistent state/);
+saved = JSON.stringify({ packages: [original], storageFormat: 'cargona-state-v2' });
+assert.throws(() => loadStore(), /Cannot load persistent state/, 'Unknown state formats must not be overwritten by an older API');
+saved = 'false';
+assert.throws(() => loadStore(), /Cannot load persistent state/, 'A primitive JSON value is not a valid store');
 console.log('Store checks passed: failed writes block changes, corrupt storage prevents startup');

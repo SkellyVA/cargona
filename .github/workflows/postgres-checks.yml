@@ -51,3 +51,5 @@ jobs:
           node scripts/handover.test.mjs
           node scripts/broadcasts.test.mjs
           node scripts/api-client-regression.test.mjs
+          for script in release.sh update.sh cargona; do bash -n "$script"; done
+          node scripts/release.test.mjs
