@@ -45,7 +45,9 @@ printf 'POSTGRES_PASSWORD=%s\nPOSTGRES_USER=rehearsal\nPOSTGRES_DB=rehearsal\nDA
 pg="$(docker run -d --network "$network" --network-alias "$name" --env-file "$work/db.env" postgres:16-alpine)"
 ready=false
 for n in {1..60}; do
-  if docker exec "$pg" pg_isready -U rehearsal -d rehearsal >/dev/null 2>&1; then ready=true; break; fi
+  # The entrypoint's temporary initialization server accepts only Unix sockets.
+  # Wait for TCP so restore cannot race its shutdown before the real server starts.
+  if docker exec "$pg" pg_isready -h 127.0.0.1 -U rehearsal -d rehearsal >/dev/null 2>&1; then ready=true; break; fi
   sleep 1
 done
 [[ "$ready" == true ]] || fail 'Disposable PostgreSQL did not become ready'
