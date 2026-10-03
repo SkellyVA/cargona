@@ -287,8 +287,8 @@
                 <div>
                   <div class="flex items-center gap-2 flex-wrap">
                     <span class="font-mono text-sm font-bold text-white">{{ pkg.trackingNumber }}</span>
-                    <span class="text-xs text-text-secondary">{{ pkg.weightKg }} кг</span>
-                    <span class="text-xs font-mono text-accent-cyan">{{ store.formatMoney(pkg.costUSD) }}</span>
+                    <span class="text-xs text-text-secondary">{{ store.isWeightPending(pkg) ? 'Не взвешена' : pkg.weightKg + ' кг' }}</span>
+                    <span class="text-xs font-mono text-accent-cyan">{{ (store.isWeightPending(pkg) ? 'Не рассчитана' : store.formatMoney(pkg.costUSD)) }}</span>
                   </div>
                   <div class="text-xs text-text-tertiary mt-0.5">{{ pkg.description }}</div>
                   <div class="text-xs text-accent-amber mt-1 flex items-center gap-1.5 font-medium">
@@ -325,7 +325,7 @@
                 <div>
                   <div class="flex items-center gap-2">
                     <span class="font-mono text-sm font-bold text-white">{{ pkg.trackingNumber }}</span>
-                    <span class="text-xs text-text-secondary">{{ pkg.weightKg }} кг</span>
+                    <span class="text-xs text-text-secondary">{{ store.isWeightPending(pkg) ? 'Не взвешена' : pkg.weightKg + ' кг' }}</span>
                   </div>
                   <div class="text-xs text-text-tertiary">{{ pkg.description }}</div>
                 </div>
@@ -395,7 +395,7 @@
                 <div class="space-y-0.5">
                   <div class="flex items-center gap-2">
                     <span class="font-mono text-sm font-bold text-white">{{ pkg.trackingNumber }}</span>
-                    <span class="text-xs text-text-secondary">{{ pkg.weightKg }} кг</span>
+                    <span class="text-xs text-text-secondary">{{ store.isWeightPending(pkg) ? 'Не взвешена' : pkg.weightKg + ' кг' }}</span>
                   </div>
                   <div class="text-xs text-text-tertiary">{{ pkg.description }}</div>
                 </div>
@@ -410,7 +410,7 @@
                 </div>
 
                 <div class="text-sm font-bold text-white font-mono min-w-[70px] text-right">
-                  {{ store.formatMoney(pkg.costUSD) }}
+                  {{ (store.isWeightPending(pkg) ? 'Не рассчитана' : store.formatMoney(pkg.costUSD)) }}
                 </div>
 
                 <!-- Кнопка оформления возврата товара прямо при выдаче -->
@@ -838,7 +838,7 @@
                   <td class="py-2.5 px-2 font-mono text-text-tertiary">{{ item.time }}</td>
                   <td class="py-2.5 px-2 font-mono font-bold text-white">{{ item.trackingNumber }}</td>
                   <td class="py-2.5 px-2 font-mono text-accent-cyan">{{ item.customerCargoCode }}</td>
-                  <td class="py-2.5 px-2 font-mono text-text-secondary">{{ item.weightKg }} кг</td>
+                  <td class="py-2.5 px-2 font-mono text-text-secondary">{{ store.isWeightPending(item) ? 'Не взвешена' : item.weightKg + ' кг' }}</td>
                   <td class="py-2.5 px-2 font-mono text-white">{{ item.shelfLocation || '—' }}</td>
                   <td class="py-2.5 px-2 font-mono font-bold text-white">{{ store.formatMoney(item.costUSD || (item.costLocal / (store.ratesToUSD[store.activeCurrency] || 1))) }}</td>
                   <td class="py-2.5 px-2">
@@ -1262,7 +1262,7 @@ const bulkIntakeForm = ref({
   text: '',
   targetBranchId: store.branches[0]?.id || 'b-1',
   customerCargoCode: '',
-  weightKg: 1.5,
+  weightKg: 0,
   targetStatus: 'RECEIVED_AT_ORIGIN' as 'RECEIVED_AT_ORIGIN' | 'READY_FOR_PICKUP',
 });
 
@@ -1299,12 +1299,12 @@ const isExistingIntake = ref(false);
 const intakeForm = ref({
   trackingNumber: '',
   customerCargoCode: '',
-  weightKg: 2.5,
+  weightKg: 0,
   lengthCm: 30,
   widthCm: 20,
   heightCm: 15,
   shelfLocation: '',
-  costLocal: 35,
+  costLocal: 0,
   targetBranchId: store.branches[0]?.id || 'b-1',
   targetStatus: 'READY_FOR_PICKUP' as 'RECEIVED_AT_ORIGIN' | 'READY_FOR_PICKUP',
 });
@@ -1624,10 +1624,10 @@ function handleIntakeScan(track: string) {
   isExistingIntake.value = !!existing;
 
   const activeRate = store.ratesToUSD[store.activeCurrency] || 1;
-  const costLocal = existing
+  const costLocal = !existing?.weightKg ? 0 : existing && !store.isWeightPending(existing)
     ? Math.round(existing.costUSD * activeRate * 100) / 100
     : Math.max(
-        Math.round(store.deliveryRatesForBranch(selectedBranchId.value).autoRatePerKg * (existing?.weightKg || 2.5) * 100) / 100,
+        Math.round(store.deliveryRatesForBranch(selectedBranchId.value).autoRatePerKg * (existing?.weightKg || 0) * 100) / 100,
         Math.round(store.deliveryRatesForBranch(selectedBranchId.value).minPackageCost * 100) / 100
       );
 
@@ -1644,7 +1644,7 @@ function handleIntakeScan(track: string) {
   intakeForm.value = {
     trackingNumber: finalTrack,
     customerCargoCode: customerCode,
-    weightKg: existing?.weightKg || 2.5,
+    weightKg: existing?.weightKg || 0,
     lengthCm: existing?.lengthCm || 30,
     widthCm: existing?.widthCm || 20,
     heightCm: existing?.heightCm || 15,
@@ -1672,7 +1672,13 @@ function simulateIntakeScan() {
 
 function saveIntakePackage() {
   if (!intakeForm.value.trackingNumber) return;
+  if (!Number.isFinite(intakeForm.value.weightKg) || intakeForm.value.weightKg <= 0) { successToast.value = 'Укажите фактический положительный вес'; return; }
   const activeRate = store.ratesToUSD[store.activeCurrency] || 1;
+  const existing = store.packages.find(p => p.trackingNumber.toUpperCase() === intakeForm.value.trackingNumber.toUpperCase());
+  if (!existing || store.isWeightPending(existing)) {
+    const tariff = store.deliveryRatesForBranch(intakeForm.value.targetBranchId || selectedBranchId.value);
+    intakeForm.value.costLocal = Math.max(Math.round(tariff.autoRatePerKg * intakeForm.value.weightKg * 100) / 100, tariff.minPackageCost);
+  }
   const costUSD = intakeForm.value.costLocal / activeRate;
 
   const targetBranch = intakeForm.value.targetBranchId || selectedBranchId.value;

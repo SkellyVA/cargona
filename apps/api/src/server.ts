@@ -1220,6 +1220,7 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/packages', a
     shelfLocation: shelfLocation || null,
     tripId: tripId || null,
     weightKg: Number(weightKg) || 0,
+    weightPending: !(Number(weightKg) > 0) && !(Number(costUSD) > 0),
     lengthCm: lengthCm || null,
     widthCm: widthCm || null,
     heightCm: heightCm || null,
@@ -1309,7 +1310,7 @@ fastify.post<{
       if (status) existing.status = status as any;
       if (targetBranchId) existing.currentBranchId = targetBranchId;
       if (customerCargoCode) existing.customerCargoCode = customerCargoCode.toUpperCase().trim();
-      if (weightKg > 0) existing.weightKg = weightKg;
+      if (weightKg > 0) { existing.weightKg = weightKg; (existing as any).weightPending = false; }
       existing.updatedAt = new Date().toISOString();
       updatedPackages.push(existing);
     } else {
@@ -1324,6 +1325,7 @@ fastify.post<{
         currentBranchId: targetBranchId || 'branch-origin',
         originWarehouseId: store.originWarehouses.find((w: any) => w.tenantId === tenant.id && w.id === request.body.originWarehouseId)?.id,
         weightKg: weightKg || 0,
+        weightPending: !(weightKg > 0),
         cost: 0,
         currency: tenant.baseCurrency || 'USD',
         photos: [],
@@ -1390,10 +1392,12 @@ fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/p
   if (!pkg) return reply.status(404).send({ error: 'Package not found' });
 
   const oldStatus = pkg.status;
+  if (request.body.weightKg !== undefined && (!Number.isFinite(request.body.weightKg) || request.body.weightKg < 0 || (pkg as any).weightPending && request.body.weightKg === 0)) return reply.status(400).send({ error: 'Укажите фактический положительный вес' });
   Object.assign(pkg, request.body);
+  if (Number(pkg.weightKg) > 0) (pkg as any).weightPending = false;
   if (pkg.status === 'RELEASED' && oldStatus !== 'RELEASED' && !pkg.releasedAt) pkg.releasedAt = new Date().toISOString();
   if (pkg.status === 'IN_TRANSIT' && oldStatus !== 'IN_TRANSIT' && !(pkg as any).shippedAt) (pkg as any).shippedAt = new Date().toISOString();
-  if (request.body.costUSD) pkg.cost = request.body.costUSD;
+  if (request.body.costUSD !== undefined) pkg.cost = request.body.costUSD;
   if (request.body.status === 'READY_FOR_PICKUP' && oldStatus !== 'READY_FOR_PICKUP') {
     (pkg as any).readyAt = new Date().toISOString();
   }
@@ -2679,6 +2683,7 @@ fastify.post<{
         trackingNumber: p.trackingNumber,
         internalBarcode: p.internalBarcode,
         weightKg: p.weightKg,
+        weightPending: (p as any).weightPending,
         cost: p.cost,
         currency: p.currency,
         description: p.description,

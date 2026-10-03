@@ -1,3 +1,4 @@
+import { isWeightPending, weighedCost } from '../utils/packageWeight.mjs';
 import { defineStore } from 'pinia';
 import { ref, shallowRef, triggerRef, computed, watch } from 'vue';
 import { findInviter } from '../utils/referrals.mjs';
@@ -227,6 +228,7 @@ export interface Customer {
 }
 
 export interface PackageItem {
+  weightPending?: boolean;
   originBranchId?: string;
   originWarehouseId?: string;
   createdAtISO?: string;
@@ -1163,6 +1165,7 @@ export const useCargoStore = defineStore('cargo', () => {
             customerCargoCode: p.customerCargoCode || '',
             description: p.description || '',
             weightKg: w,
+            weightPending: p.weightPending,
             lengthCm: p.lengthCm,
             widthCm: p.widthCm,
             heightCm: p.heightCm,
@@ -2464,12 +2467,12 @@ export const useCargoStore = defineStore('cargo', () => {
     const targetBranchId = originWh ? (requestedBranchId === 'b-origin' ? 'b-origin' : originWh.id) : branch?.id || 'b-1';
     const targetStatus = data.status || (isOrigin ? 'RECEIVED_AT_ORIGIN' : 'READY_FOR_PICKUP');
 
-    const defaultWeight = data.weightKg || 1.0;
+    const defaultWeight = data.weightKg || 0;
     const activeRate = ratesToUSD.value[activeCurrency.value] || 1;
-    const defaultCostUSD = Math.max(
+    const defaultCostUSD = defaultWeight > 0 ? Math.max(
       Math.round(deliveryRatesForBranch(targetBranchId).autoRatePerKg / activeRate * defaultWeight * 100) / 100,
       deliveryRatesForBranch(targetBranchId).minPackageCost / activeRate
-    );
+    ) : 0;
 
     for (const trackRaw of data.trackingNumbers) {
       const track = trackRaw.trim().toUpperCase();
@@ -2491,6 +2494,7 @@ export const useCargoStore = defineStore('cargo', () => {
           customerCargoCode: (data.customerCargoCode || 'БЕЗ КОДА').toUpperCase(),
           description: data.description || 'Товары народного потребления',
           weightKg: defaultWeight,
+          weightPending: defaultWeight <= 0,
           costUSD: defaultCostUSD,
           shelfLocation: isOrigin ? (originWh?.cells?.[0]?.shelf || 'Паллет CN-01') : '',
           branchId: targetBranchId,
@@ -2619,7 +2623,8 @@ export const useCargoStore = defineStore('cargo', () => {
     const length = data.lengthCm || (existing ? existing.lengthCm || 0 : 0);
     const width = data.widthCm || (existing ? existing.widthCm || 0 : 0);
     const height = data.heightCm || (existing ? existing.heightCm || 0 : 0);
-    const weight = data.weightKg !== undefined ? data.weightKg : (existing ? existing.weightKg : 1.0);
+    const weight = data.weightKg !== undefined ? data.weightKg : (existing ? existing.weightKg : 0);
+    if (!Number.isFinite(weight) || weight <= 0) throw new Error('Укажите фактический положительный вес');
     const volumeM3 = length && width && height ? Math.round(((length * width * height) / 1000000) * 10000) / 10000 : existing?.volumeM3 || 0;
     const areaM2 = length && width ? Math.round(((length * width) / 10000) * 1000) / 1000 : existing?.areaM2 || 0;
     const densityKgM3 = volumeM3 > 0 ? Math.round(weight / volumeM3) : existing?.densityKgM3 || 0;
@@ -2637,12 +2642,15 @@ export const useCargoStore = defineStore('cargo', () => {
     const targetStatus = data.status || (originWh ? 'RECEIVED_AT_ORIGIN' : data.shelfLocation ? 'READY_FOR_PICKUP' : 'RECEIVED_AT_ORIGIN');
     const auditActionLabel = originWh ? 'Приемка на складе' : 'Приемка в ПВЗ';
     const operatorUser = currentUser.value?.name || (originWh ? 'farhod_china' : 'operator');
+    const conversion = ratesToUSD.value[activeCurrency.value] || 1;
+    const tariffs = deliveryRatesForBranch(existing?.targetBranchId || targetBranchId);
+    const cost = !existing || isWeightPending(existing) ? weighedCost(weight, tariffs.autoRatePerKg / conversion, tariffs.minPackageCost / conversion) : (data.costUSD ?? existing.costUSD);
 
     if (existing) {
       if (data.customerCargoCode) existing.customerCargoCode = data.customerCargoCode.toUpperCase();
       if (data.description) existing.description = data.description;
-      if (data.weightKg !== undefined) existing.weightKg = data.weightKg;
-      if (data.costUSD !== undefined) existing.costUSD = data.costUSD;
+      if (data.weightKg !== undefined) { existing.weightKg = data.weightKg; existing.weightPending = false; }
+      existing.costUSD = cost;
       if (data.shelfLocation !== undefined) existing.shelfLocation = data.shelfLocation;
       existing.branchId = targetBranchId;
       existing.lengthCm = length;
@@ -2667,10 +2675,10 @@ export const useCargoStore = defineStore('cargo', () => {
       try {
         const slug = activeTenantSlug.value;
         if (slug) {
-          fetch(`/api/o/${slug}/packages`, {
-            method: 'POST',
+          fetch(`/api/o/${slug}/packages/${encodeURIComponent(existing.id)}`, {
+            method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(existing),
+            body: JSON.stringify({ ...existing, currentBranchId: existing.branchId }),
           });
         }
       } catch {}
@@ -2688,7 +2696,8 @@ export const useCargoStore = defineStore('cargo', () => {
       customerCargoCode: (data.customerCargoCode || 'БЕЗ КОДА').toUpperCase(),
       description: data.description || 'Товары народного потребления',
       weightKg: weight,
-      costUSD: data.costUSD || 3.5,
+      costUSD: cost,
+      weightPending: false,
       lengthCm: length,
       widthCm: width,
       heightCm: height,
@@ -2750,7 +2759,7 @@ export const useCargoStore = defineStore('cargo', () => {
       sackNumber: `PKG-${pkg.trackingNumber.slice(-6)}`,
       category: pkg.description || 'Сборный груз',
       description: `Посылка ${pkg.trackingNumber} (${pkg.customerCargoCode})`,
-      weightKg: pkg.weightKg || 1,
+      weightKg: pkg.weightKg || 0,
       volumeM3: pkgVol,
       packageCount: 1,
       sealNumber: `PL-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -3410,6 +3419,7 @@ export const useCargoStore = defineStore('cargo', () => {
     setTenantSlug,
     deliveryRates,
     deliveryRatesForBranch,
+    isWeightPending,
     updateDeliveryRates,
     updateStorageSettings,
     tenant,

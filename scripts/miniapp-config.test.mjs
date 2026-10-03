@@ -70,7 +70,7 @@ try {
       if (route.request().url().endsWith('/packages/bulk')) {
         bulkRequest = route.request().postDataJSON();
         if (failBulk) return route.fulfill({ status: 500, json: { error: 'Ошибка сохранения' } });
-        return route.fulfill({ json: { success: true, createdCount: 2, skippedCount: 1, skippedTrackingNumbers: ['BULK1'], packages: ['BULK1', 'BULK2'].map((trackingNumber, i) => ({ id: `bulk-${i}`, trackingNumber, customerCargoCode: customer.cargoCode, status: 'PRE_REGISTERED', weightKg: 0, cost: 0 })) } });
+        return route.fulfill({ json: { success: true, createdCount: 2, skippedCount: 1, skippedTrackingNumbers: ['BULK1'], packages: ['BULK1', 'BULK2'].map((trackingNumber, i) => ({ id: `bulk-${i}`, trackingNumber, customerCargoCode: customer.cargoCode, status: 'PRE_REGISTERED', weightPending: true, weightKg: 0, cost: 0 })) } });
       }
       return route.fulfill({ json: data });
     });
@@ -128,6 +128,8 @@ try {
     assert.equal(bulkRequest.skipExisting, true);
     assert.equal(bulkRequest.status, 'PRE_REGISTERED');
     assert.equal(await page.locator('#client-tracks').inputValue(), '');
+    assert.ok((await page.locator('body').innerText()).includes('Не взвешена'));
+    assert.ok((await page.locator('body').innerText()).includes('Не рассчитана'));
     failBulk = true;
     await page.locator('#client-tracks').fill('FAILTRACK');
     await page.getByRole('button', { name: 'Добавить посылки (1)', exact: true }).click();

@@ -141,6 +141,7 @@ export type PackageStatus =
   | 'LOST_FOUND';             // Неопознанный груз (без кода клиента)
 
 export interface Package {
+  weightPending?: boolean;
   id: string;
   tenantId: string;
   trackingNumber: string;       // Китайский трек курьерки (ZTO, SF и др.)

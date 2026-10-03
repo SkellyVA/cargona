@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import { isWeightPending, weighedCost } from '../apps/web/src/utils/packageWeight.mjs';
+assert.equal(isWeightPending({ weightKg: 0, costUSD: 0 }), true);
+assert.equal(isWeightPending({ weightPending: true, weightKg: 0, costUSD: 0 }), true);
+assert.equal(isWeightPending({ weightKg: 0, costUSD: 12 }), false);
+assert.equal(isWeightPending({ weightKg: 2, costUSD: 0 }), false);
+assert.equal(weighedCost(2, 4, 1), 8);
+assert.equal(weighedCost(0.1, 4, 1), 1);
+assert.equal(weighedCost(2, 0, 0), 0);
+assert.throws(() => weighedCost(0, 4, 1));
+assert.throws(() => weighedCost(-2, 4, 1));
+console.log('Weight checks passed: pending flag, legacy data, actual weight, branch tariffs, zero rate');

@@ -44,6 +44,7 @@ const context = {
 };
 // Register the production handlers without starting the server or touching real data/Telegram.
 for (const [start, end] of [
+  ["fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/packages/:id'", "fastify.delete<{ Params: { slug: string; id: string } }>('/api/o/:slug/packages/:id'"],
   ["fastify.delete<{ Params: { slug: string; id: string } }>('/api/o/:slug/customers/:id'", '// --- Packages Management ---'],
   ["fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/branches/:id'", "fastify.post<{ Params: { slug: string; id: string } }>('/api/o/:slug/branches/:id/collection'"],
   ['// Save Tenant Bot Settings (Set BYOB token & register webhook)', '// Submit Package Review & Post to Reviews Channel'],
@@ -132,6 +133,13 @@ try {
   const manyTracks = await app.inject({ method: 'POST', url: '/api/o/noor/packages/bulk', payload: { trackingNumbers: Array.from({ length: 600 }, (_, i) => 'MANY' + i), shippedAt: '2026-09-28' } });
   assert.equal(manyTracks.statusCode, 200, manyTracks.body);
   assert.equal(manyTracks.json().createdCount, 600);
+  assert.ok(manyTracks.json().packages.every(p => p.weightPending === true && p.weightKg === 0 && p.cost === 0));
+  const weighedId = manyTracks.json().packages[0].id;
+  assert.equal((await app.inject({ method: 'PUT', url: '/api/o/noor/packages/' + weighedId, payload: { weightKg: 0 } })).statusCode, 400);
+  const weighed = await app.inject({ method: 'PUT', url: '/api/o/noor/packages/' + weighedId, payload: { weightKg: 2, costUSD: 8, currentBranchId: 'b' } });
+  assert.equal(weighed.statusCode, 200, weighed.body);
+  assert.equal(store.packages.find(p => p.id === weighedId).weightPending, false);
+  assert.equal(store.packages.find(p => p.id === weighedId).cost, 8);
   assert.equal(manyTracks.json().packages[0].shippedAt, '2026-09-28');
   assert.match(shippingDate(undefined), /^\d{4}-\d{2}-\d{2}$/);
   assert.throws(() => shippingDate('2026-02-30'));

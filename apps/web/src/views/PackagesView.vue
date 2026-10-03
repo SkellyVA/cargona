@@ -102,7 +102,7 @@
           <!-- Описание и вес -->
           <div class="text-xs text-text-secondary flex items-center justify-between border-t border-white/[0.04] pt-2">
             <span class="truncate pr-2">{{ pkg.description || 'Груз' }}</span>
-            <span class="font-mono text-white shrink-0 font-medium">{{ pkg.weightKg }} кг</span>
+            <span class="font-mono text-white shrink-0 font-medium">{{ store.isWeightPending(pkg) ? 'Не взвешена' : pkg.weightKg + ' кг' }}</span>
           </div>
 
           <!-- Низ карточки: Полка + Стоимость + Печать -->
@@ -120,7 +120,7 @@
 
             <div class="flex items-center gap-3">
               <span class="font-mono font-bold text-white text-sm">
-                {{ store.formatMoney(pkg.costUSD) }}
+                {{ (store.isWeightPending(pkg) ? 'Не рассчитана' : store.formatMoney(pkg.costUSD)) }}
               </span>
               <button
                 @click="printSticker(pkg)"
@@ -186,7 +186,7 @@
               <!-- Описание / Вес -->
               <td class="py-3.5 px-3 whitespace-nowrap text-text-secondary">
                 <div>{{ pkg.description }}</div>
-                <div class="text-[11px] text-text-tertiary font-mono">{{ pkg.weightKg }} кг</div>
+                <div class="text-[11px] text-text-tertiary font-mono">{{ store.isWeightPending(pkg) ? 'Не взвешена' : pkg.weightKg + ' кг' }}</div>
               </td>
 
               <!-- Полка ПВЗ (Кликабельно для выбора ПВЗ и полки) -->
@@ -206,7 +206,7 @@
 
               <!-- Стоимость (с конвертацией в активную валюту) -->
               <td class="py-3.5 px-3 whitespace-nowrap font-mono font-bold text-white">
-                {{ store.formatMoney(pkg.costUSD) }}
+                {{ (store.isWeightPending(pkg) ? 'Не рассчитана' : store.formatMoney(pkg.costUSD)) }}
               </td>
 
               <!-- Статус посылки с открытием модального окна по клику (БЕЗ случайных наведений) -->
@@ -329,7 +329,7 @@
           <p v-if="!store.originWarehouses.length" class="text-text-tertiary mt-2">Добавьте склад в разделе «ПВЗ и склады», чтобы выбрать его здесь.</p>
         </div>
         <div><label for="bulk-shipping-date" class="block text-text-secondary mb-2">Дата отправки (необязательно)</label><input id="bulk-shipping-date" v-model="bulkShippingDate" :disabled="isBulkAdding" placeholder="ГГГГ-ММ-ДД" class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:outline-none focus:border-accent-cyan" /><p class="text-text-tertiary mt-2">Если поле пустое — сегодняшняя дата.</p></div>
-        <p class="text-text-secondary">Вес и стоимость — 0 до приёмки и расчёта.</p>
+        <p class="text-text-secondary">Вес — «Не взвешена», стоимость — «Не рассчитана» до приёмки.</p>
         <p v-if="bulkAddError" role="alert" class="text-accent-coral">{{ bulkAddError }}</p>
       </div>
       <template #footer><button type="button" @click="submitBulkAdd" :disabled="isBulkAdding || !bulkTrackList.length" class="px-4 py-2.5 rounded-xl bg-accent-blue text-white text-xs font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">{{ isBulkAdding ? 'Сохранение…' : 'Добавить посылки' }}</button></template>
@@ -757,7 +757,7 @@ function historyAction(action: string) {
   return ({ CREATE: 'Посылка добавлена в систему', UPDATE: 'Изменение посылки', CREATED: 'Дата создания', SHIPPED: 'Отправлена', ARRIVED: 'Прибыла в ПВЗ', RELEASED: 'Получена клиентом' } as Record<string, string>)[action] || action;
 }
 function historyField(field: string) {
-  return ({ status: 'Статус', currentBranchId: 'ПВЗ / склад', branchId: 'ПВЗ / склад', targetBranchId: 'ПВЗ назначения', shelfLocation: 'Полка', tripId: 'Рейс', sackId: 'Мешок', customerId: 'Клиент', customerCargoCode: 'Карго-код', trackingNumber: 'Трек-код', weightKg: 'Вес, кг', cost: 'Стоимость', costUSD: 'Стоимость', description: 'Описание', releasedAt: 'Дата выдачи', readyAt: 'Дата прибытия', shippedAt: 'Дата отправки' } as Record<string, string>)[field] || field;
+  return ({ status: 'Статус', currentBranchId: 'ПВЗ / склад', branchId: 'ПВЗ / склад', targetBranchId: 'ПВЗ назначения', shelfLocation: 'Полка', tripId: 'Рейс', sackId: 'Мешок', customerId: 'Клиент', customerCargoCode: 'Карго-код', trackingNumber: 'Трек-код', weightKg: 'Вес, кг', weightPending: 'Ожидает взвешивания', cost: 'Стоимость', costUSD: 'Стоимость', description: 'Описание', releasedAt: 'Дата выдачи', readyAt: 'Дата прибытия', shippedAt: 'Дата отправки' } as Record<string, string>)[field] || field;
 }
 function historyValue(field: string, value: any): string {
   if (value === null || value === undefined || value === '') return 'Не указан';

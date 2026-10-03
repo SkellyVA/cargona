@@ -687,12 +687,12 @@
               </div>
               <div class="min-w-0">
                 <div class="text-xs font-bold text-white font-mono truncate">{{ pkg.trackingNumber }}</div>
-                <div class="text-[11px] text-text-secondary mt-0.5 truncate">{{ pkg.description || 'Посылка' }} • {{ pkg.weightKg }} {{ t('common.kg') }}</div>
+                <div class="text-[11px] text-text-secondary mt-0.5 truncate">{{ pkg.description || 'Посылка' }} • {{ store.isWeightPending(pkg) ? 'Не взвешена' : pkg.weightKg + ' ' + t('common.kg') }}</div>
               </div>
             </div>
 
             <div class="text-right shrink-0">
-              <div class="text-xs font-bold text-white font-mono">{{ store.formatMoney(pkg.costUSD) }}</div>
+              <div class="text-xs font-bold text-white font-mono">{{ (store.isWeightPending(pkg) ? 'Не рассчитана' : store.formatMoney(pkg.costUSD)) }}</div>
               <div
                 class="text-[10px] font-semibold mt-0.5 px-2 py-0.5 rounded-md inline-block"
                 :class="pkg.status === 'READY_FOR_PICKUP'
@@ -733,7 +733,7 @@
                 class="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-accent-emerald to-teal-500 hover:opacity-95 text-white font-bold text-xs shadow-[0_0_15px_rgba(16,185,129,0.3)] flex items-center justify-center gap-2 transition cursor-pointer active:scale-[0.99]"
               >
                 <CreditCard class="w-3.5 h-3.5" />
-                <span>Оплатить ({{ store.formatMoney(pkg.costUSD) }})</span>
+                <span>Оплатить ({{ (store.isWeightPending(pkg) ? 'Не рассчитана' : store.formatMoney(pkg.costUSD)) }})</span>
               </button>
               <div
                 v-else
