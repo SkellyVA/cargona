@@ -540,6 +540,8 @@
       </div>
     </div>
 
+    <BotBroadcastPanel />
+
     <!-- Секция 2.5: Программа лояльности и реферальная система (NOOR CLUB) -->
     <div v-if="store.isLoyaltyModuleAllowed" class="bg-surface border border-surface-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-card space-y-4">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/[0.06] pb-3">
@@ -1270,6 +1272,7 @@
 </template>
 
 <script setup lang="ts">
+import BotBroadcastPanel from '../components/BotBroadcastPanel.vue';
 import { ref, computed, watch, onMounted } from 'vue';
 import {
   UserPlus,

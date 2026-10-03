@@ -57,6 +57,7 @@ const { dataDir: DATA_DIR, storeFile: STORE_FILE } = resolveStorePaths();
  */
 class CargonaDataStore {
   public packageHistory: any[] = [];
+  public botBroadcasts: any[] = [];
   private packageSnapshots = new Map<string, Record<string, unknown>>();
   /** Generate next sequential ID like "tenant-001", "branch-042" etc. */
   public nextId(prefix: string, existing: { id: string }[]): string {
@@ -197,6 +198,7 @@ class CargonaDataStore {
         if (Array.isArray(data.customers)) this.customers = data.customers;
         if (Array.isArray(data.packages)) this.packages = data.packages;
         if (Array.isArray(data.packageHistory)) this.packageHistory = data.packageHistory;
+        if (Array.isArray(data.botBroadcasts)) this.botBroadcasts = data.botBroadcasts;
         this.packageSnapshots = new Map(this.packages.map(pkg => [`${pkg.tenantId}:${pkg.id}`, packageSnapshot(pkg)]));
         if (Array.isArray(data.sacks)) this.sacks = data.sacks;
         if (Array.isArray(data.trips)) this.trips = data.trips;
@@ -254,6 +256,7 @@ class CargonaDataStore {
         customers: this.customers,
         packages: this.packages,
         packageHistory: this.packageHistory,
+        botBroadcasts: this.botBroadcasts,
         sacks: this.sacks,
         trips: this.trips,
         payments: this.payments,

@@ -635,7 +635,7 @@
 
       <!-- МОИ ДОСТАВКИ (ФОРМА ДОБАВЛЕНИЯ ТРЕКА + СПИСОК ПОСЫЛОК) -->
       <div class="bg-surface border border-surface-border rounded-3xl p-4 shadow-card space-y-3">
-        <label for="client-tracks" class="block text-xs text-text-secondary">Трек-коды — по одному на строку (до 500)</label>
+        <label for="client-tracks" class="block text-xs text-text-secondary">Трек-коды — по одному на строку</label>
         <textarea
           id="client-tracks"
           v-model="newTrack"
@@ -646,7 +646,7 @@
         />
         <button
           @click="addTrack"
-          :disabled="isAddingTracks || !parsedTracks.length || parsedTracks.length > 500"
+          :disabled="isAddingTracks || !parsedTracks.length"
           class="w-full h-11 px-4 rounded-xl bg-accent-blue hover:bg-accent-blue/90 text-white font-bold text-xs shadow-glow-blue transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {{ isAddingTracks ? 'Сохранение…' : `Добавить посылки (${parsedTracks.length})` }}
@@ -1987,6 +1987,7 @@ function packageDestinationName(pkg: any) {
 function packageDateLines(pkg: any) {
   const shipped = pkg.shippedAt || store.trips.find(t => t.id === pkg.tripId)?.departureDate;
   const format = (date: string) => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return date.split('-').reverse().join('.');
     if (/^\d{2}\.\d{2}\.\d{4}$/.test(date || '')) return date;
     return date && !Number.isNaN(new Date(date).getTime()) ? new Date(date).toLocaleDateString('ru-RU') : 'Не указана';
   };

@@ -44,7 +44,18 @@ try {
     let failBulk = false;
     let savedBranchTariffs;
     let failDelete = true;
+    let broadcastStarts = 0;
+    let broadcastPayload;
     await page.route('**/api/**', route => {
+      const requestUrl = new URL(route.request().url());
+      if (requestUrl.pathname.endsWith('/broadcasts/preview')) return route.fulfill({ json: { recipientCount: 2, skipped: 1 } });
+      if (requestUrl.pathname.endsWith('/broadcasts/test-job')) return route.fulfill({ json: { id: 'test-job', status: 'COMPLETED', total: 2, sent: 1, failed: 1, skipped: 1, errors: [] } });
+      if (requestUrl.pathname.endsWith('/broadcasts')) {
+        if (route.request().method() === 'GET') return route.fulfill({ json: [] });
+        broadcastStarts++;
+        broadcastPayload = route.request().postDataJSON();
+        return route.fulfill({ status: 202, json: { id: 'test-job', status: 'RUNNING', total: 2, sent: 0, failed: 0, skipped: 1 } });
+      }
       if (route.request().method() === 'DELETE' && route.request().url().endsWith('/customers/c')) {
         if (failDelete) return route.fulfill({ status: 500, json: { error: 'Ошибка удаления' } });
         data.customers = [];
@@ -128,11 +139,13 @@ try {
     failBulk = false;
     await page.getByRole('button', { name: 'Добавить списком', exact: true }).click();
     await page.locator('#bulk-tracks').fill('ORIGIN1\nORIGIN2');
+    await page.locator('#bulk-shipping-date').fill('2026-09-28');
     await page.getByRole('button', { name: 'Не указан', exact: true }).last().click();
     await page.getByRole('button', { name: 'Boston · Warehouse', exact: true }).click();
     await page.getByRole('button', { name: 'Добавить посылки', exact: true }).click();
     await page.locator('#bulk-tracks').waitFor({ state: 'hidden' });
     assert.equal(bulkRequest.originWarehouseId, 'warehouse-custom');
+    assert.equal(bulkRequest.shippedAt, '2026-09-28');
     await page.getByRole('button', { name: 'TRACK123', exact: true }).filter({ visible: true }).click();
     await page.getByText('История посылки TRACK123', { exact: true }).waitFor();
     await page.getByText('Статус: В пути → Готова к выдаче', { exact: true }).waitFor();
@@ -162,6 +175,19 @@ try {
     await page.getByRole('button', { name: 'Удалить клиента навсегда', exact: true }).click();
     await page.getByText('Клиент удалён', { exact: true }).waitFor();
     await page.getByText('Test Customer', { exact: true }).waitFor({ state: 'hidden' });
+    assert.deepEqual(pageErrors, []);
+    await page.goto(`http://127.0.0.1:${server.address().port}/o/acme/settings`);
+    const broadcast = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Рассылка через бота', exact: true }) });
+    await broadcast.locator('#broadcast-text').fill('Test broadcast');
+    await broadcast.getByRole('button', { name: 'Все клиенты', exact: true }).click();
+    await broadcast.getByRole('button', { name: 'Configured pickup', exact: true }).click();
+    await broadcast.getByRole('button', { name: 'Подготовить рассылку', exact: true }).click();
+    await page.getByText('Получателей: 2 · Configured pickup', { exact: true }).waitFor();
+    assert.equal(broadcastStarts, 0, 'Preview must not send messages');
+    await page.getByRole('button', { name: 'Отправить рассылку', exact: true }).click();
+    await page.getByText('Рассылка завершена', { exact: true }).waitFor();
+    assert.deepEqual(broadcastPayload, { text: 'Test broadcast', branchId: 'pickup-custom' });
+    assert.equal(broadcastStarts, 1);
     assert.deepEqual(pageErrors, []);
     await page.close();
   }

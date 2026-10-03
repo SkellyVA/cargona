@@ -4,10 +4,13 @@ import compress from '@fastify/compress';
 import { store } from './store.js';
 import { runSmartMigration } from './importer/migrationEngine.js';
 import { callTelegram, escapeTelegramHtml, startReferral } from './telegram.js';
+import { shippingDate } from './shipping-date.js';
+import { registerBroadcasts } from './broadcasts.js';
 
 const fastify = Fastify({
   logger: true,
 });
+registerBroadcasts(fastify, store);
 
 await fastify.register(compress, {
   global: true,
@@ -1193,6 +1196,9 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/packages', a
   if (!trackingNumber) {
     return reply.status(400).send({ error: 'Tracking number required' });
   }
+  let shippedAt: string;
+  try { shippedAt = shippingDate(request.body.shippedAt, tenant.timezone || 'UTC'); }
+  catch (error) { return reply.status(400).send({ error: (error as Error).message }); }
 
   const existing = store.packages.find((p) => p.tenantId === tenant.id && p.trackingNumber?.toLowerCase() === trackingNumber.toLowerCase().trim());
   if (existing) {
@@ -1206,6 +1212,7 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/packages', a
     id: store.nextId('pkg', store.packages),
     tenantId: tenant.id,
     trackingNumber: trackingNumber.trim(),
+    shippedAt,
     internalBarcode: `PKG-${tenant.codePrefix}-${Math.floor(1000 + Math.random() * 9000)}`,
     customerId: null,
     customerCargoCode: (customerCargoCode || '').toUpperCase().trim(),
@@ -1244,6 +1251,7 @@ fastify.post<{
     skipExisting?: boolean;
     attachExisting?: boolean;
     originWarehouseId?: string;
+    shippedAt?: string;
   };
 }>('/api/o/:slug/packages/bulk', async (request, reply) => {
   const { slug } = request.params;
@@ -1254,9 +1262,12 @@ fastify.post<{
   if (!Array.isArray(trackingNumbers) || trackingNumbers.length === 0) {
     return reply.status(400).send({ error: 'Список трек-номеров пуст' });
   }
-  if (trackingNumbers.length > 500 || trackingNumbers.some(track => typeof track !== 'string' || !track.trim() || track.trim().length > 100 || /\s/.test(track.trim()))) {
-    return reply.status(400).send({ error: 'Укажите не более 500 трек-кодов, каждый без пробелов и не длиннее 100 символов.' });
+  if (trackingNumbers.some(track => typeof track !== 'string' || !track.trim() || track.trim().length > 100 || /\s/.test(track.trim()))) {
+    return reply.status(400).send({ error: 'Каждый трек-код должен быть без пробелов и не длиннее 100 символов.' });
   }
+  let shippedAt: string | undefined;
+  try { shippedAt = status === 'PRE_REGISTERED' && !request.body.shippedAt ? undefined : shippingDate(request.body.shippedAt, tenant.timezone || 'UTC'); }
+  catch (error) { return reply.status(400).send({ error: (error as Error).message }); }
 
   const createdPackages: any[] = [];
   const updatedPackages: any[] = [];
@@ -1306,6 +1317,7 @@ fastify.post<{
         id: store.nextId('pkg', store.packages),
         tenantId: tenant.id,
         trackingNumber: track,
+        shippedAt,
         internalBarcode: `PKG-${tenant.codePrefix}-${Math.floor(1000 + Math.random() * 9000)}`,
         customerId: null,
         customerCargoCode: (customerCargoCode || '').toUpperCase().trim(),

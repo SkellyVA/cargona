@@ -42,7 +42,9 @@ export async function callTelegram(token: string, method: string, body: unknown)
       }));
       return callTelegram(token, method, { ...message, reply_markup: { ...message.reply_markup, inline_keyboard } });
     }
-    throw new Error(`Telegram ${method}: ${data?.description || `HTTP ${response.status}`}`);
+    const error = new Error(`Telegram ${method}: ${data?.description || `HTTP ${response.status}`}`) as Error & { retryAfter?: number };
+    if (data?.error_code === 429 && Number(data?.parameters?.retry_after) > 0) error.retryAfter = Number(data.parameters.retry_after);
+    throw error;
   }
   return data.result;
 }

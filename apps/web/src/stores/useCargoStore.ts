@@ -2825,6 +2825,7 @@ export const useCargoStore = defineStore('cargo', () => {
     trackingNumbers: string[];
     attachExisting?: boolean;
     originWarehouseId?: string;
+    shippedAt?: string;
     customerCargoCode?: string;
     targetBranchId?: string;
     description?: string;

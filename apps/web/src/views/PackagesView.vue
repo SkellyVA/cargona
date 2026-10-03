@@ -318,7 +318,7 @@
     <AppModal v-model="showBulkAddModal" title="Добавить посылки списком">
       <div class="space-y-4 text-xs">
         <div>
-          <label for="bulk-tracks" class="block text-text-secondary mb-2">Трек-коды — по одному на строку, до 500 за раз</label>
+          <label for="bulk-tracks" class="block text-text-secondary mb-2">Трек-коды — по одному на строку</label>
           <textarea id="bulk-tracks" v-model="bulkTracksText" :disabled="isBulkAdding" rows="8" placeholder="TRACKCODE1&#10;TRACKCODE2&#10;TRACKCODE3" class="w-full px-3 py-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white font-mono placeholder:text-text-tertiary focus:outline-none focus:border-accent-cyan resize-y" />
           <p class="text-text-tertiary mt-2">Строк: {{ bulkTrackList.length }}. Существующие треки и повторы будут пропущены.</p>
         </div>
@@ -328,12 +328,14 @@
           <AppDropdown v-model="bulkOriginWarehouseId" :options="bulkOriginWarehouseOptions" class="w-full" :class="{ 'pointer-events-none opacity-50': isBulkAdding }" />
           <p v-if="!store.originWarehouses.length" class="text-text-tertiary mt-2">Добавьте склад в разделе «ПВЗ и склады», чтобы выбрать его здесь.</p>
         </div>
+        <div><label for="bulk-shipping-date" class="block text-text-secondary mb-2">Дата отправки (необязательно)</label><input id="bulk-shipping-date" v-model="bulkShippingDate" :disabled="isBulkAdding" placeholder="ГГГГ-ММ-ДД" class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:outline-none focus:border-accent-cyan" /><p class="text-text-tertiary mt-2">Если поле пустое — сегодняшняя дата.</p></div>
         <p class="text-text-secondary">Вес и стоимость — 0 до приёмки и расчёта.</p>
         <p v-if="bulkAddError" role="alert" class="text-accent-coral">{{ bulkAddError }}</p>
       </div>
-      <template #footer><button type="button" @click="submitBulkAdd" :disabled="isBulkAdding || !bulkTrackList.length || bulkTrackList.length > 500" class="px-4 py-2.5 rounded-xl bg-accent-blue text-white text-xs font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">{{ isBulkAdding ? 'Сохранение…' : 'Добавить посылки' }}</button></template>
+      <template #footer><button type="button" @click="submitBulkAdd" :disabled="isBulkAdding || !bulkTrackList.length" class="px-4 py-2.5 rounded-xl bg-accent-blue text-white text-xs font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">{{ isBulkAdding ? 'Сохранение…' : 'Добавить посылки' }}</button></template>
     </AppModal>
     <AppModal v-model="showCreatePackageModal" title="Добавить посылку">
+      <div class="mb-4 text-xs"><label for="single-shipping-date" class="block text-text-secondary mb-2">Дата отправки (необязательно)</label><input id="single-shipping-date" v-model="singleShippingDate" placeholder="ГГГГ-ММ-ДД · пусто — сегодня" class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:outline-none focus:border-accent-cyan" /></div>
       <div class="space-y-3.5 text-xs">
         <div>
           <label class="text-text-secondary mb-1 block">Трек-номер (Китай / ZTO / SF)</label>
@@ -769,6 +771,11 @@ const { t } = useI18n();
 const searchQuery = ref('');
 const showBulkAddModal = ref(false);
 const bulkTracksText = ref('');
+function validShippingDate(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+}
+const bulkShippingDate = ref('');
+const singleShippingDate = ref('');
 const bulkCustomerCode = ref('');
 const bulkOriginWarehouseId = ref<string | number>('');
 const bulkOriginWarehouseOptions = computed(() => [{ value: '', label: 'Не указан' }, ...store.originWarehouses.map(w => ({ value: w.id, label: [w.city, w.name || w.country].filter(Boolean).join(' · ') }))]);
@@ -778,10 +785,11 @@ const bulkAddError = ref('');
 const bulkSkippedTracks = ref<string[]>([]);
 async function submitBulkAdd() {
   if (isBulkAdding.value || !bulkTrackList.value.length) return;
+  if (bulkShippingDate.value && !validShippingDate(bulkShippingDate.value)) { bulkAddError.value = 'Укажите существующую дату в формате ГГГГ-ММ-ДД'; return; }
   isBulkAdding.value = true;
   bulkAddError.value = '';
   try {
-    const result = await store.addPackagesFromList({ trackingNumbers: bulkTrackList.value, customerCargoCode: bulkCustomerCode.value.trim(), originWarehouseId: String(bulkOriginWarehouseId.value) || undefined, status: 'RECEIVED_AT_ORIGIN' });
+    const result = await store.addPackagesFromList({ trackingNumbers: bulkTrackList.value, customerCargoCode: bulkCustomerCode.value.trim(), originWarehouseId: String(bulkOriginWarehouseId.value) || undefined, shippedAt: bulkShippingDate.value || undefined, status: 'RECEIVED_AT_ORIGIN' });
     toastMessage.value = `Добавлено: ${result.createdCount}. Пропущено повторов: ${result.skippedCount}.`;
     bulkSkippedTracks.value = result.skippedTrackingNumbers;
     bulkTracksText.value = '';
@@ -999,6 +1007,7 @@ function saveStatusChange() {
 
 function createPackage() {
   if (!newPkg.value.trackingNumber) return;
+  if (singleShippingDate.value && !validShippingDate(singleShippingDate.value)) { toastMessage.value = 'Укажите существующую дату в формате ГГГГ-ММ-ДД'; return; }
   const activeRate = store.ratesToUSD[store.activeCurrency] || 1;
   const costUSD = newPkg.value.costTJS / activeRate;
 
@@ -1013,6 +1022,7 @@ function createPackage() {
 
   store.addPackage({
     trackingNumber: newPkg.value.trackingNumber,
+    shippedAt: singleShippingDate.value || undefined,
     customerCargoCode: newPkg.value.customerCargoCode.toUpperCase() || 'БЕЗ КОДА',
     description: newPkg.value.description || 'Товары народного потребления',
     weightKg: newPkg.value.weightKg,

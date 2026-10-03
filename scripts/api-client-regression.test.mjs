@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { escapeTelegramHtml, startReferral } from '../apps/api/src/telegram.ts';
+import { shippingDate } from '../apps/api/src/shipping-date.ts';
 import { parseTrackList } from '../apps/web/src/utils/trackList.mjs';
 
 const require = createRequire(new URL('../apps/api/package.json', import.meta.url));
@@ -34,7 +35,7 @@ const store = {
 const context = {
   setupTelegramBotWebhook: async () => { webhookSetups++; return { username: 'NoorcargoBot', first_name: 'NOOR' }; },
   fastify: app, store, APP_DOMAIN: 'example.test', process: { env: {} },
-  escapeTelegramHtml, startReferral, URLSearchParams,
+  shippingDate, escapeTelegramHtml, startReferral, URLSearchParams,
   originHubPhone: () => '',
   console: { warn() {}, error: (...args) => errors.push(args) },
   callTelegram: async (_token, method, body) => { messages.push({ method, body }); return {}; },
@@ -128,12 +129,19 @@ try {
   const trackedAgain = await app.inject({ method: 'POST', url: '/api/o/noor/packages/bulk', payload: { trackingNumbers: ['FREE123'], customerCargoCode: customer.cargoCode, skipExisting: true, attachExisting: true } });
   assert.equal(trackedAgain.json().trackingCount, 1);
   assert.equal(trackedAgain.json().packages[0].id, 'free');
+  const manyTracks = await app.inject({ method: 'POST', url: '/api/o/noor/packages/bulk', payload: { trackingNumbers: Array.from({ length: 600 }, (_, i) => 'MANY' + i), shippedAt: '2026-09-28' } });
+  assert.equal(manyTracks.statusCode, 200, manyTracks.body);
+  assert.equal(manyTracks.json().createdCount, 600);
+  assert.equal(manyTracks.json().packages[0].shippedAt, '2026-09-28');
+  assert.match(shippingDate(undefined), /^\d{4}-\d{2}-\d{2}$/);
+  assert.throws(() => shippingDate('2026-02-30'));
   const count = store.packages.length;
   store.originWarehouses.push({ id: 'wh-test', tenantId: 't', city: 'Test City' });
   const originBulk = await app.inject({ method: 'POST', url: '/api/o/noor/packages/bulk', payload: { trackingNumbers: ['ORIGIN1', 'ORIGIN2'], originWarehouseId: 'wh-test', skipExisting: true } });
   assert.equal(originBulk.statusCode, 200, originBulk.body);
   assert.ok(originBulk.json().packages.every(p => p.originWarehouseId === 'wh-test'));
-  for (const trackingNumbers of [['GOOD', 123], ['GOOD', 'bad track'], Array(501).fill('TRACK'), []]) {
+  assert.ok(originBulk.json().packages.every(p => p.shippedAt === shippingDate(undefined)));
+  for (const trackingNumbers of [['GOOD', 123], ['GOOD', 'bad track'], []]) {
     const invalid = await app.inject({ method: 'POST', url: '/api/o/noor/packages/bulk', payload: { trackingNumbers } });
     assert.equal(invalid.statusCode, 400);
     assert.equal(store.packages.length, count + 2);
