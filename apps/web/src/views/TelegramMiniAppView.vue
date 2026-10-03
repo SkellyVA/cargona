@@ -1255,6 +1255,18 @@
     </AppModal>
     </template>
 
+    <AppModal v-model="showCustomerLink" title="Привязать существующий кабинет">
+      <div class="space-y-3 text-sm">
+        <p v-if="customerLinkPreview">Привязать ваш Telegram к клиенту {{ customerLinkPreview.fullName }} ({{ customerLinkPreview.cargoCode }})?</p>
+        <p class="text-text-secondary">Подтверждайте только свой кабинет. Прежний ID, посылки и баланс сохранятся.</p>
+        <p v-if="customerLinkError" role="alert" class="text-accent-coral">{{ customerLinkError }}</p>
+        <p v-if="customerLinkLoading" class="text-text-secondary">Проверка…</p>
+      </div>
+      <template #footer>
+        <button type="button" @click="showCustomerLink = false" :disabled="customerLinkLoading" class="px-4 py-2.5 rounded-xl bg-white/[0.08] text-white text-xs">Отмена</button>
+        <button v-if="customerLinkPreview" type="button" @click="confirmCustomerLink" :disabled="customerLinkLoading" class="px-4 py-2.5 rounded-xl bg-accent-cyan text-bg-primary font-semibold text-xs disabled:opacity-50">Это мой кабинет — привязать</button>
+      </template>
+    </AppModal>
     <!-- Футер: Powered by Cargona -->
     <footer class="mt-8 mb-3 flex flex-col items-center justify-center opacity-70 hover:opacity-100 transition">
       <div class="flex items-center gap-1.5 text-[11px] text-text-tertiary">
@@ -2032,6 +2044,42 @@ async function drawModalQr() {
   }
 }
 
+const showCustomerLink = ref(false);
+const customerLinkToken = ref('');
+const customerLinkPreview = ref<{ fullName: string; cargoCode: string } | null>(null);
+const customerLinkError = ref('');
+const customerLinkLoading = ref(false);
+async function customerLinkRequest(slug: string, preview: boolean) {
+  const response = await fetch(`/api/app/${slug}/customer/link${preview ? '/preview' : ''}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: customerLinkToken.value }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Не удалось привязать кабинет');
+  return data;
+}
+async function openCustomerLink(slug: string) {
+  const start = String((window as any).Telegram?.WebApp?.initDataUnsafe?.start_param || route.query.tgWebAppStartParam || '');
+  if (!start.startsWith('link_')) return;
+  customerLinkToken.value = start.slice(5);
+  showCustomerLink.value = true; customerLinkLoading.value = true;
+  customerLinkPreview.value = null; customerLinkError.value = '';
+  try { customerLinkPreview.value = await customerLinkRequest(slug, true); }
+  catch (error) { customerLinkError.value = error instanceof Error ? error.message : 'Не удалось проверить ссылку'; }
+  finally { customerLinkLoading.value = false; }
+}
+async function confirmCustomerLink() {
+  const slug = String(route.params.slug || '');
+  if (!slug || customerLinkLoading.value) return;
+  customerLinkLoading.value = true; customerLinkError.value = '';
+  try {
+    await customerLinkRequest(slug, false);
+    customerLinkPreview.value = null;
+    await store.syncTenantData(slug, true);
+    await fetchTenantInfo(slug);
+    showCustomerLink.value = false;
+  } catch (error) { customerLinkError.value = error instanceof Error ? error.message : 'Не удалось привязать кабинет'; }
+  finally { customerLinkLoading.value = false; }
+}
 async function fetchTenantInfo(slug: string) {
   const cleanSlug = (slug || '').trim();
   if (!cleanSlug || cleanSlug === 'app') return;
@@ -2217,6 +2265,7 @@ onMounted(() => {
 
   // Fast boot: fetch lightweight tenant info and display UI instantly
   if (slugParam) {
+    openCustomerLink(slugParam);
     fetchTenantInfo(slugParam)
       .then(() => {
         checkTelegramUser();

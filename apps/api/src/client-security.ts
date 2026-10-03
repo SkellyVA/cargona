@@ -64,6 +64,10 @@ export function registerClientSecurity(app: any, store: any) {
     request.telegramUser = user;
     request.clientCustomer = customer || null;
     if (surface === 'app') {
+      if (['customer/link', 'customer/link/preview'].includes(resource) && request.method === 'POST') {
+        if (!user) return reply.status(401).send({ error: 'Откройте ссылку через Telegram' });
+        return;
+      }
       if (resource === 'bootstrap' || resource === 'me') {
         request.query = { ...(request.query || {}), tgUserId: user ? String(user.id) : undefined, cargoCode: customer?.cargoCode };
         return;

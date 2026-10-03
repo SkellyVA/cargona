@@ -8,6 +8,7 @@ import { shippingDate } from './shipping-date.js';
 import { registerBroadcasts } from './broadcasts.js';
 import { registerAuthentication } from './authentication.js';
 import { registerClientSecurity } from './client-security.js';
+import { registerCustomerLinks } from './customer-links.js';
 import { webhookSecret } from './telegram-identity.js';
 
 const fastify = Fastify({
@@ -20,6 +21,7 @@ fastify.addHook('onRequest', async (request, reply) => {
 });
 registerAuthentication(fastify, store);
 registerClientSecurity(fastify, store);
+registerCustomerLinks(fastify, store);
 registerBroadcasts(fastify, store);
 
 await fastify.register(compress, {

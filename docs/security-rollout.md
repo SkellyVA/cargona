@@ -28,6 +28,14 @@ Deploy frontend/backend together and restart the backend. Startup configures a p
 
 ## Still pending
 
-Financial transactions/idempotency, comprehensive server-authoritative tariffs/status transitions, and verified administrative linking of legacy customers need further implementation and integration checks. This is not a completed resilience rollout.
+Financial transactions/idempotency and comprehensive server-authoritative tariffs/status transitions need further implementation and integration checks. This is not a completed resilience rollout.
 
 PostgreSQL migration, off-server backups, restore drills, monitoring, the production Compose bundle and the remaining business protections are also pending.
+
+## Link an existing customer to Telegram
+
+The owner opens the customer card and selects «Привязать Telegram». Verify the recipient's identity, then copy and personally deliver the link. Do not post it publicly: possession of this link grants the right to claim that customer account. An administrator/manager cannot issue these links.
+
+The bot must have an active configuration and a Main Mini App configured in BotFather for `https://t.me/<bot>?startapp=...` links to open the app, as described in https://core.telegram.org/bots/webapps#launching-mini-apps. The MiniApp previews the name and cargo code and requires an explicit confirmation from a verified Telegram user. No message is sent automatically.
+
+Links expire after 30 minutes, are single-use and are stored only as hashes. Reissuing invalidates the previous link. Already linked or blocked customers cannot be claimed; an existing Telegram customer cannot claim a second account in the same company. Existing IDs, parcels, weights and balances remain unchanged. Issuance and confirmation are audited. Deploy backend and frontend together; no server commands are executed by this change.

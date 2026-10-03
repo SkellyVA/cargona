@@ -97,6 +97,7 @@
     </div>
 
     <template #footer>
+      <button v-if="store.isOwner && !customer?.telegramUserId && !customer?.isBlocked" type="button" :disabled="linkLoading" @click="createTelegramLink" class="px-4 py-2.5 rounded-xl bg-accent-cyan/10 text-accent-cyan font-semibold text-xs cursor-pointer disabled:opacity-50">Привязать Telegram</button>
       <button v-if="store.isOwner" type="button" @click="showDeleteConfirm = true; deleteError = ''" class="px-4 py-2.5 rounded-xl bg-accent-coral/10 text-accent-coral hover:bg-accent-coral/20 font-semibold text-xs cursor-pointer">Удалить клиента</button>
       <button
         @click="isOpen = false"
@@ -117,10 +118,21 @@
       <button type="button" :disabled="isDeleting" @click="confirmDeleteCustomer" class="px-4 py-2.5 rounded-xl bg-accent-coral text-white font-semibold text-xs cursor-pointer disabled:opacity-50">{{ isDeleting ? 'Удаление…' : 'Удалить клиента навсегда' }}</button>
     </template>
   </AppModal>
+  <AppModal v-model="showTelegramLink" title="Привязка Telegram">
+    <div class="space-y-3 text-xs">
+      <p>Ссылка даёт доступ к кабинету клиента {{ customer?.cargoCode }}. Передайте её лично клиенту после проверки его личности.</p>
+      <p class="text-text-secondary">Действует 30 минут, используется один раз. Новая ссылка отменяет предыдущую. ID, посылки и баланс сохранятся.</p>
+      <p v-if="linkError" role="alert" class="text-accent-coral">{{ linkError }}</p>
+      <p v-if="telegramLink" class="break-all select-all text-accent-cyan">{{ telegramLink }}</p>
+    </div>
+    <template #footer>
+      <button v-if="telegramLink" type="button" @click="copyTelegramLink" class="px-4 py-2.5 rounded-xl bg-accent-cyan text-bg-primary font-semibold text-xs cursor-pointer">{{ linkCopied ? 'Скопировано' : 'Скопировать ссылку' }}</button>
+    </template>
+  </AppModal>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import AppModal from './ui/AppModal.vue';
 import { useCargoStore } from '../stores/useCargoStore';
 
@@ -135,6 +147,29 @@ const emit = defineEmits<{
 }>();
 
 const store = useCargoStore();
+const showTelegramLink = ref(false);
+const telegramLink = ref('');
+const linkError = ref('');
+const linkLoading = ref(false);
+const linkCopied = ref(false);
+watch(() => props.customer?.id, () => { showTelegramLink.value = false; telegramLink.value = ''; linkError.value = ''; });
+async function createTelegramLink() {
+  if (!props.customer || linkLoading.value) return;
+  const customerId = props.customer.id;
+  showTelegramLink.value = true;
+  telegramLink.value = ''; linkError.value = ''; linkCopied.value = false; linkLoading.value = true;
+  try {
+    const response = await fetch(`/api/o/${store.activeTenantSlug}/customers/${encodeURIComponent(customerId)}/telegram-link`, { method: 'POST' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Не удалось создать ссылку');
+    if (props.customer?.id === customerId) telegramLink.value = data.url;
+  } catch (error) { if (props.customer?.id === customerId) linkError.value = error instanceof Error ? error.message : 'Не удалось создать ссылку'; }
+  finally { linkLoading.value = false; }
+}
+async function copyTelegramLink() {
+  try { await navigator.clipboard.writeText(telegramLink.value); linkCopied.value = true; }
+  catch { linkError.value = 'Не удалось скопировать. Выделите ссылку и скопируйте вручную.'; }
+}
 const showDeleteConfirm = ref(false);
 const isDeleting = ref(false);
 const deleteError = ref('');

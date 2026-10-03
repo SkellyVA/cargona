@@ -56,8 +56,15 @@ try {
     let failDelete = true;
     let broadcastStarts = 0;
     let broadcastPayload;
+    let linkClaims = 0;
     await page.route('**/api/**', route => {
       const requestUrl = new URL(route.request().url());
+      if (requestUrl.pathname.endsWith('/telegram-link')) return route.fulfill({ json: { url: 'https://t.me/AcmeTestBot?startapp=link_test', expiresAt: new Date(Date.now() + 1800000).toISOString() } });
+      if (requestUrl.pathname.endsWith('/customer/link/preview')) return route.fulfill({ json: { fullName: customer.fullName, cargoCode: customer.cargoCode } });
+      if (requestUrl.pathname.endsWith('/customer/link')) {
+        linkClaims++;
+        return route.fulfill({ json: { success: true, cargoCode: customer.cargoCode } });
+      }
       if (requestUrl.pathname.endsWith('/broadcasts/preview')) return route.fulfill({ json: { recipientCount: 2, skipped: 1 } });
       if (requestUrl.pathname.endsWith('/broadcasts/test-job')) return route.fulfill({ json: { id: 'test-job', status: 'COMPLETED', total: 2, sent: 1, failed: 1, skipped: 1, errors: [] } });
       if (requestUrl.pathname.endsWith('/broadcasts')) {
@@ -181,6 +188,9 @@ try {
     assert.deepEqual(pageErrors, []);
     await page.goto(`http://127.0.0.1:${server.address().port}/o/acme/customers`);
     await page.getByText('Test Customer', { exact: true }).filter({ visible: true }).first().click();
+    await page.getByRole('button', { name: 'Привязать Telegram', exact: true }).click();
+    await page.getByText('https://t.me/AcmeTestBot?startapp=link_test', { exact: true }).waitFor();
+    await page.getByRole('heading', { name: 'Привязка Telegram', exact: true }).locator('..').getByRole('button').click();
     await page.getByRole('button', { name: 'Удалить клиента', exact: true }).click();
     await page.getByRole('button', { name: 'Отмена', exact: true }).last().click();
     await page.getByRole('button', { name: 'Удалить клиента', exact: true }).click();
@@ -204,6 +214,12 @@ try {
     await page.getByText('Рассылка завершена', { exact: true }).waitFor();
     assert.deepEqual(broadcastPayload, { text: 'Test broadcast', branchId: 'pickup-custom' });
     assert.equal(broadcastStarts, 1);
+    await page.goto(`http://127.0.0.1:${server.address().port}/o/acme/app?tgWebAppStartParam=link_test`);
+    await page.getByText('Привязать ваш Telegram к клиенту Test Customer (ACME/S123)?', { exact: true }).waitFor();
+    assert.equal(linkClaims, 0, 'Opening a link must not bind automatically');
+    await page.getByRole('button', { name: 'Это мой кабинет — привязать', exact: true }).click();
+    await page.getByRole('heading', { name: 'Привязать существующий кабинет', exact: true }).waitFor({ state: 'hidden' });
+    assert.equal(linkClaims, 1);
     assert.deepEqual(pageErrors, []);
     await page.close();
     await bulkApi.close();
