@@ -16,8 +16,18 @@ Platform login uses only `SUPERADMIN_EMAIL` and `SUPERADMIN_PASSWORD` from the s
 
 Old locally cached login data is not a server session: sign in again after updating. Save a verified backup before updating. Rolling back to an older build will not restore plaintext passwords; password verification changes must remain in any rollback build.
 
-## Still pending — not a complete API security boundary
+## Telegram and operational access
 
-Operational package/customer/trip APIs, the aggregate `/all` response, per-branch permissions, MiniApp authentication and Telegram webhook verification still require the next implementation stages. Existing personal-data access through those routes is not yet closed. Financial endpoint role checks do not yet replace transaction/idempotency or branch isolation.
+Operational company APIs now require a staff session or a specifically permitted, signed MiniApp operation. Staff are bound to their company. Operators, cashiers and warehouse staff are limited to their assigned location; unassigned staff are denied access. Branch employees use the working sections; company-wide dashboard/finance summaries and deletion require management access. Customer registration/editing and package receipt are allowed to the relevant operational roles; cashier issuance uses WMS. Bulk administrative intake remains a management operation.
+
+MiniApp sends Telegram `initData` with requests; HMAC verification follows https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app. Data older than 24 hours is rejected: reopen the MiniApp. A separate public bootstrap contains company information and locations; personal records are added only for the verified Telegram user. Client bulk intake cannot overwrite existing shipment statuses, weights or ownership. Arbitrary cargo codes and Telegram IDs no longer authenticate a customer.
+
+Customers without a linked Telegram user ID need a verified administrative link before using their existing client account. The old cargo-code/last-four-phone-digit lookup is no longer a way to access another account. Opening the MiniApp outside Telegram shows public information but does not allow registration or personal operations.
+
+Deploy frontend/backend together and restart the backend. Startup configures a per-bot webhook secret and keeps pending Telegram updates. Webhook requests without that secret are rejected; check that startup webhook registration succeeds. This document does not run any server commands.
+
+## Still pending
+
+Financial transactions/idempotency, comprehensive server-authoritative tariffs/status transitions, and verified administrative linking of legacy customers need further implementation and integration checks. This is not a completed resilience rollout.
 
 PostgreSQL migration, off-server backups, restore drills, monitoring, the production Compose bundle and the remaining business protections are also pending.

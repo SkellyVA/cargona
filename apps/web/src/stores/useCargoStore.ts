@@ -682,6 +682,7 @@ export const useCargoStore = defineStore('cargo', () => {
     return { total: invited, active, inactive };
   }
 
+  const clientReferralStats = ref<{ cargoCode: string; total: number; active: number } | null>(null);
   function getCustomerLoyaltyInfo(customerIdOrCode: string) {
     const cust = rawCustomers.value.find(
       (c) => c.id === customerIdOrCode || c.cargoCode.toUpperCase() === customerIdOrCode.toUpperCase()
@@ -718,10 +719,13 @@ export const useCargoStore = defineStore('cargo', () => {
     }
 
     const { total, active } = getCustomerReferrals(cust.cargoCode);
-    const isMember = isLoyaltyActive && active.length >= loyalty.requiredActiveReferralsForSpecialRate;
+    const serverStats = clientReferralStats.value?.cargoCode === cust.cargoCode ? clientReferralStats.value : null;
+    const activeCount = serverStats?.active ?? active.length;
+    const totalCount = serverStats?.total ?? total.length;
+    const isMember = isLoyaltyActive && activeCount >= loyalty.requiredActiveReferralsForSpecialRate;
     const progressPercent = Math.min(
       100,
-      Math.round((active.length / (loyalty.requiredActiveReferralsForSpecialRate || 1)) * 100)
+      Math.round((activeCount / (loyalty.requiredActiveReferralsForSpecialRate || 1)) * 100)
     );
 
     const standardRate = deliveryRatesForBranch(cust.preferredBranchId).autoRatePerKg;
@@ -731,8 +735,8 @@ export const useCargoStore = defineStore('cargo', () => {
       enabled: isLoyaltyActive,
       clubName: loyalty.clubName,
       isMember,
-      activeReferralsCount: active.length,
-      totalReferralsCount: total.length,
+      activeReferralsCount: activeCount,
+      totalReferralsCount: totalCount,
       bonusBalance: cust.bonusBalance || 0,
       currentRatePerKg: effectiveRate,
       specialRatePerKg: loyalty.specialRatePerKg,
@@ -1088,10 +1092,12 @@ export const useCargoStore = defineStore('cargo', () => {
       isDataLoading.value = true;
     }
     try {
-      const res = await fetch(`/api/o/${slug}/all`);
+      const clientMode = typeof window !== 'undefined' && /\/app\/?$/.test(window.location.pathname);
+      const res = await fetch(clientMode ? `/api/app/${slug}/bootstrap` : `/api/o/${slug}/all`);
       if (!res.ok) return;
       const data = (await res.json()) as any;
       if (!data) return;
+      clientReferralStats.value = clientMode ? data.referralStats || null : null;
 
       lastSyncTime = Date.now();
       lastSyncedSlug = slug;

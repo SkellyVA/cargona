@@ -2048,6 +2048,7 @@ async function fetchTenantInfo(slug: string) {
     const res = await fetch(`/api/app/${cleanSlug}/me${queryParams}`);
     if (res.ok) {
       const data = await res.json();
+      if (!data.customer) isRegistered.value = false;
       if (data.tenant) {
         serverTenant.value = data.tenant;
         store.settings.companyName = data.tenant.name;

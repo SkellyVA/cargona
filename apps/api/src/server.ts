@@ -7,9 +7,11 @@ import { callTelegram, escapeTelegramHtml, startReferral } from './telegram.js';
 import { shippingDate } from './shipping-date.js';
 import { registerBroadcasts } from './broadcasts.js';
 import { registerAuthentication } from './authentication.js';
+import { registerClientSecurity } from './client-security.js';
+import { webhookSecret } from './telegram-identity.js';
 
 const fastify = Fastify({
-  logger: { redact: ['req.headers.cookie', 'req.headers.authorization', 'req.headers.x-cargona-csrf', 'res.headers.set-cookie'] },
+  logger: { redact: ['req.headers.cookie', 'req.headers.authorization', 'req.headers.x-cargona-csrf', 'req.headers.x-telegram-init-data', 'req.headers.x-telegram-bot-api-secret-token', 'res.headers.set-cookie'] },
 });
 fastify.addHook('onRequest', async (request, reply) => {
   if (store.persistenceError && !request.url.split('?')[0].startsWith('/health')) {
@@ -17,6 +19,7 @@ fastify.addHook('onRequest', async (request, reply) => {
   }
 });
 registerAuthentication(fastify, store);
+registerClientSecurity(fastify, store);
 registerBroadcasts(fastify, store);
 
 await fastify.register(compress, {
@@ -2017,7 +2020,8 @@ async function setupTelegramBotWebhook(token: string, tenantSlug: string, tenant
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         url: webhookUrl,
-        drop_pending_updates: true,
+        secret_token: webhookSecret(cleanToken),
+        drop_pending_updates: false,
         allowed_updates: ['message', 'callback_query'],
       }),
       signal: AbortSignal.timeout(12000),

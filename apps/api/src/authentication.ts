@@ -78,6 +78,9 @@ export function registerAuthentication(app: any, store: any, environment = proce
     session = { ...session, tokenHash: digest(token), csrfHash: digest(csrf), expiresAt: now + 12 * 60 * 60 * 1000 };
     const oldToken = cookie(request, 'cargona_session');
     store.sessions = store.sessions.filter((s: any) => s.expiresAt > now && (!oldToken || s.tokenHash !== digest(oldToken)));
+    const sameAccount = store.sessions.filter((s: any) => s.kind === session.kind && s.userId === session.userId && s.tenantId === session.tenantId);
+    const expiredTokens = new Set(sameAccount.slice(0, Math.max(0, sameAccount.length - 9)).map((s: any) => s.tokenHash));
+    store.sessions = store.sessions.filter((s: any) => !expiredTokens.has(s.tokenHash));
     store.sessions.push(session);
     store.saveToFile();
     attempts.delete(key);
@@ -93,8 +96,9 @@ export function registerAuthentication(app: any, store: any, environment = proce
   });
   app.post('/api/auth/logout', async (request: any, reply: any) => {
     const token = cookie(request, 'cargona_session');
+    const previousCount = store.sessions.length;
     store.sessions = store.sessions.filter((s: any) => !token || s.tokenHash !== digest(token));
-    store.saveToFile();
+    if (store.sessions.length !== previousCount) store.saveToFile();
     reply.header('set-cookie', cookieHeaders('', '', 0));
     return { success: true };
   });

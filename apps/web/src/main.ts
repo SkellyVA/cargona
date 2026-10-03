@@ -12,6 +12,8 @@ window.fetch = (input, init) => {
     new Headers(init?.headers).forEach((value, key) => headers.set(key, value));
     const csrf = document.cookie.split(';').map(item => item.trim()).find(item => item.startsWith('cargona_csrf='))?.slice('cargona_csrf='.length);
     if (csrf) headers.set('x-cargona-csrf', csrf);
+    const initData = (window as any).Telegram?.WebApp?.initData;
+    if (/\/app\/?$/.test(window.location.pathname) && initData) headers.set('x-telegram-init-data', initData);
     return originalFetch(input, { ...init, headers });
   }
   return originalFetch(input, init);
