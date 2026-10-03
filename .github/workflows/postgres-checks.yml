@@ -51,5 +51,13 @@ jobs:
           node scripts/handover.test.mjs
           node scripts/broadcasts.test.mjs
           node scripts/api-client-regression.test.mjs
-          for script in release.sh update.sh cargona; do bash -n "$script"; done
+          for script in release.sh update.sh offsite-backup.sh cargona; do bash -n "$script"; done
           node scripts/release.test.mjs
+          node scripts/offsite-backup.test.mjs
+      - name: Encrypted backup round trip
+        env:
+          RESTIC_ROUNDTRIP: 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y restic
+          node scripts/offsite-backup.test.mjs

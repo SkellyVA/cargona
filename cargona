@@ -556,6 +556,7 @@ case "$1" in
   loyalty|"club") cmd_loyalty ;;
   "backup:create"|"backup") cmd_backup_create ;;
   "backup:restore") cmd_backup_restore ;;
+  offsite:*) bash "${APP_DIR}/offsite-backup.sh" "${1#offsite:}" ;;
   update) cmd_update "${2:-}" ;;
   rollback) bash "${APP_DIR}/release.sh" rollback "${2:-}" ;;
   "rollback:list") bash "${APP_DIR}/release.sh" list ;;
@@ -583,6 +584,8 @@ case "$1" in
     echo -e "  loyalty          - Управление программой лояльности (NOOR CLUB)"
     echo -e "  backup           - Создать резервную копию базы"
     echo -e "  backup:restore   - Восстановить базу из бэкапа"
+    echo -e "  offsite:configure - Настроить зашифрованные копии в B2"
+    echo -e "  offsite:init|run|enable|disable|status|list|check|prune - Автобэкапы"
     echo -e "  update SHA       - Обновить на конкретную версию Docker-образов"
     echo -e "  rollback:list    - Список сохранённых версий и бэкапов"
     echo -e "  rollback ID      - Вернуть образы приложения, сохранив актуальную базу"
