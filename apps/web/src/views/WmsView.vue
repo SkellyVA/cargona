@@ -239,11 +239,11 @@
 
             <button
               @click="completeHandover"
-              :disabled="selectedPackagesCount === 0"
+              :disabled="selectedPackagesCount === 0 || isHandingOver"
               class="w-full sm:w-auto px-5 py-2.5 sm:py-3 rounded-xl bg-accent-blue hover:bg-accent-blue/90 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold shadow-glow-blue flex items-center justify-center gap-2 transition cursor-pointer whitespace-nowrap"
             >
               <CheckCircle2 class="w-4 h-4" />
-              <span>Выдать ({{ selectedPackagesCount }})</span>
+              <span>{{ isHandingOver ? 'Сохранение…' : `Выдать (${selectedPackagesCount})` }}</span>
             </button>
           </div>
         </div>
@@ -544,6 +544,7 @@
           </div>
 
           <!-- Итоговая кнопка подтверждения выдачи -->
+          <p v-if="handoverError" role="alert" class="text-sm text-accent-coral">{{ handoverError }}</p>
           <div class="pt-4 border-t border-white/[0.06] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
             <div class="text-xs text-text-secondary">
               Выбрано к выдаче: <b class="text-white">{{ selectedPackagesCount }}</b> из {{ activeHandover.readyPackages.length }} шт.
@@ -552,6 +553,7 @@
             <div class="flex items-center gap-2">
               <button
                 @click="activeHandover = null"
+                :disabled="isHandingOver"
                 class="px-5 py-3 rounded-2xl bg-white/[0.05] hover:bg-white/[0.1] text-xs font-bold text-text-secondary hover:text-white transition cursor-pointer whitespace-nowrap"
               >
                 Отмена
@@ -559,11 +561,11 @@
 
               <button
                 @click="completeHandover"
-                :disabled="selectedPackagesCount === 0"
+                :disabled="selectedPackagesCount === 0 || isHandingOver"
                 class="flex-1 sm:flex-initial px-6 sm:px-8 py-3.5 rounded-2xl bg-accent-emerald hover:bg-accent-emerald/90 disabled:opacity-50 text-white font-black text-sm shadow-glow-emerald flex items-center justify-center gap-2 transition cursor-pointer whitespace-nowrap"
               >
                 <CheckCircle2 class="w-5 h-5" />
-                <span>Выдать ({{ store.formatMoney(selectedTotalAmountUSD) }})</span>
+                <span>{{ isHandingOver ? 'Сохранение…' : `Выдать (${store.formatMoney(selectedTotalAmountUSD)})` }}</span>
               </button>
             </div>
           </div>
@@ -1124,6 +1126,7 @@ const isLocationDropdownOpen = ref(false);
 const locationDropdownRef = ref<HTMLElement | null>(null);
 
 function selectLocation(id: string) {
+  if (isHandingOver.value) return;
   selectedBranchId.value = id;
   isLocationDropdownOpen.value = false;
   onLocationChange();
@@ -1403,10 +1406,11 @@ const selectedPackages = computed(() => {
 const selectedPackagesCount = computed(() => selectedPackages.value.length);
 
 const selectedTotalAmountUSD = computed(() => {
-  return selectedPackages.value.reduce((sum: number, p: any) => sum + p.costUSD, 0);
+  return selectedPackages.value.reduce((sum: number, p: any) => sum + (p.isPaidOnline ? 0 : p.costUSD), 0);
 });
 
 function togglePackageSelection(pkgId: string) {
+  if (isHandingOver.value) return;
   const idx = selectedPackageIds.value.indexOf(pkgId);
   if (idx !== -1) {
     selectedPackageIds.value.splice(idx, 1);
@@ -1473,22 +1477,30 @@ function copyHandoverCardNumber() {
   }, 2000);
 }
 
-function completeHandover() {
-  if (selectedPackagesCount.value === 0) return;
-  playChime(1046);
-  const cargoCode = activeHandover.value?.customer?.cargoCode || store.customers[0]?.cargoCode || 'CARGO-1';
-  const branchId = selectedBranchId.value || 'b-1';
+const isHandingOver = ref(false);
+const handoverError = ref('');
+async function completeHandover() {
+  if (selectedPackagesCount.value === 0 || isHandingOver.value) return;
+  const cargoCode = activeHandover.value?.customer?.cargoCode;
+  const branchId = selectedBranchId.value;
+  if (!cargoCode || !branchId) { handoverError.value = 'Выберите клиента и ПВЗ'; return; }
   const idsToRelease = [...selectedPackageIds.value];
   const photo = handoverPhotoPreview.value || undefined;
   const payMethod = handoverPayMethod.value;
 
-  const sumUSD = store.handoverClientPackages(cargoCode, branchId, idsToRelease, photo, payMethod);
-  const curName = currentBranch.value?.name || 'ПВЗ';
-  const payDesc = payMethod === 'TRANSFER' ? 'оплачено переводом на карту' : 'внесено в кассу ПВЗ';
-  successToast.value = `Выдано ${idsToRelease.length} посылок клиенту ${cargoCode} в «${curName}»${photo ? ' (фото сохранено)' : ''}. Сумма ${store.formatMoney(sumUSD)} (${payDesc}).`;
-  activeHandover.value = null;
-  selectedPackageIds.value = [];
-  handoverPhotoPreview.value = '';
+  isHandingOver.value = true;
+  handoverError.value = '';
+  try {
+    const sumUSD = await store.handoverClientPackages(cargoCode, branchId, idsToRelease, photo, payMethod);
+    playChime(1046);
+    const curName = currentBranch.value?.name || 'ПВЗ';
+    const payDesc = payMethod === 'TRANSFER' ? 'оплачено переводом на карту' : 'внесено в кассу ПВЗ';
+    successToast.value = `Выдано ${idsToRelease.length} посылок клиенту ${cargoCode} в «${curName}»${photo ? ' (фото сохранено)' : ''}. Сумма ${store.formatMoney(sumUSD)} (${payDesc}).`;
+    activeHandover.value = null;
+    selectedPackageIds.value = [];
+    handoverPhotoPreview.value = '';
+  } catch (error) { handoverError.value = error instanceof Error ? error.message : 'Не удалось выдать посылки'; }
+  finally { isHandingOver.value = false; }
 }
 
 // ПРИЕМКА ТОВАРА (INTAKE)
@@ -1514,6 +1526,7 @@ function getBranchName(branchId: string) {
 }
 
 function switchToBranch(branchId: string) {
+  if (isHandingOver.value) return;
   selectedBranchId.value = branchId;
   if (activeHandover.value?.customer) {
     const custCode = activeHandover.value.customer.cargoCode;
@@ -1522,6 +1535,8 @@ function switchToBranch(branchId: string) {
 }
 
 function handleHandoverScan(query: string) {
+  if (isHandingOver.value) return;
+  handoverError.value = '';
   let targetCode = query.trim();
   if (targetCode.includes('c=')) {
     const matchCode = targetCode.match(/[?&]c=([^&]+)/i);
@@ -1539,15 +1554,17 @@ function handleHandoverScan(query: string) {
   // 2. Поиск клиента по карго-коду или телефону
   const cust = store.customers.find(
     (c) => c.cargoCode.toUpperCase() === targetCode.toUpperCase() || c.phone.replace(/\s+/g, '') === targetCode.replace(/\s+/g, '')
-  ) || store.customers.find((c) => c.cargoCode.toUpperCase().includes(targetCode.toUpperCase())) || store.customers[0];
+  );
 
   if (!cust) {
+    activeHandover.value = null;
+    selectedPackageIds.value = [];
     playChime(350, 'sawtooth');
     successToast.value = `Клиент с кодом "${targetCode}" не найден в системе. Добавьте клиента в разделе «Клиенты».`;
     return;
   }
 
-  const currentTerminalBranchId = selectedBranchId.value || 'b-1';
+  const currentTerminalBranchId = selectedBranchId.value;
   const curName = currentBranch.value?.name || 'ПВЗ';
   const allCustPkgs = store.packages.filter(
     (p) => p.customerCargoCode.toUpperCase() === cust.cargoCode.toUpperCase()
@@ -1555,7 +1572,7 @@ function handleHandoverScan(query: string) {
 
   // Готовые к выдаче именно в текущем ПВЗ
   const readyAtThisBranch = allCustPkgs.filter(
-    (p) => p.status === 'READY_FOR_PICKUP' && (p.branchId === currentTerminalBranchId || (!p.branchId && currentTerminalBranchId === 'b-1'))
+    (p) => p.status === 'READY_FOR_PICKUP' && p.branchId === currentTerminalBranchId
   );
 
   // Готовые к выдаче в других филиалах

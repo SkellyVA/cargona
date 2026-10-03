@@ -63,6 +63,7 @@ class CargonaDataStore {
   public botBroadcasts: any[] = [];
   public sessions: any[] = [];
   public clientLinks: any[] = [];
+  public handoverReceipts: any[] = [];
   private packageSnapshots = new Map<string, Record<string, unknown>>();
   /** Generate next sequential ID like "tenant-001", "branch-042" etc. */
   public nextId(prefix: string, existing: { id: string }[]): string {
@@ -209,6 +210,7 @@ class CargonaDataStore {
         if (Array.isArray(data.botBroadcasts)) this.botBroadcasts = data.botBroadcasts;
         if (Array.isArray(data.sessions)) this.sessions = data.sessions;
         if (Array.isArray(data.clientLinks)) this.clientLinks = data.clientLinks;
+        if (Array.isArray(data.handoverReceipts)) this.handoverReceipts = data.handoverReceipts;
         this.packageSnapshots = new Map(this.packages.map(pkg => [`${pkg.tenantId}:${pkg.id}`, packageSnapshot(pkg)]));
         if (Array.isArray(data.sacks)) this.sacks = data.sacks;
         if (Array.isArray(data.trips)) this.trips = data.trips;
@@ -272,6 +274,7 @@ class CargonaDataStore {
         botBroadcasts: this.botBroadcasts,
         sessions: this.sessions,
         clientLinks: this.clientLinks,
+        handoverReceipts: this.handoverReceipts,
         sacks: this.sacks,
         trips: this.trips,
         payments: this.payments,

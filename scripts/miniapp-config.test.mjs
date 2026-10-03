@@ -7,6 +7,7 @@ import { chromium } from 'playwright';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { shippingDate } from '../apps/api/src/shipping-date.ts';
+import { registerHandover } from '../apps/api/src/handover.ts';
 const require = createRequire(new URL('../apps/web/package.json', import.meta.url));
 const { RGBLuminanceSource, HybridBinarizer, BinaryBitmap, QRCodeReader } = require('@zxing/library');
 
@@ -49,6 +50,10 @@ try {
     const bulkStart = apiSource.indexOf('// Bulk Package Intake');
     const bulkEnd = apiSource.indexOf('// Package movement history', bulkStart);
     const fixtureStore = { tenants: [data.tenant], customers: [{ ...customer, tenantId: 't' }], packages: data.packages, originWarehouses: warehouses.map(w => ({ ...w, tenantId: 't' })), auditLogs: [], nextId: (prefix, items) => `${prefix}-${items.length + 1}`, saveToFile() {} };
+    const handoverApi = apiRequire('fastify')();
+    Object.assign(fixtureStore, { branches: data.branches.map(b => ({ ...b, tenantId: 't', cashBalance: 0 })), payments: [], handoverReceipts: [] });
+    handoverApi.addHook('preHandler', async request => { request.authUser = { id: 'owner', role: 'OWNER', name: 'Owner' }; });
+    registerHandover(handoverApi, fixtureStore);
     vm.runInNewContext(ts.transpileModule(apiSource.slice(bulkStart, bulkEnd), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, { fastify: bulkApi, store: fixtureStore, shippingDate });
     let bulkRequest;
     let failBulk = false;
@@ -57,8 +62,20 @@ try {
     let broadcastStarts = 0;
     let broadcastPayload;
     let linkClaims = 0;
+    let handoverAttempts = 0;
+    const handoverKeys = [];
     await page.route('**/api/**', route => {
       const requestUrl = new URL(route.request().url());
+      if (requestUrl.pathname === '/api/wms/handover') {
+        handoverAttempts++;
+        const key = route.request().headers()['idempotency-key'];
+        handoverKeys.push(key);
+        return handoverApi.inject({ method: 'POST', url: '/api/wms/handover', headers: { 'idempotency-key': key }, payload: route.request().postDataJSON() }).then(response => {
+          assert.equal(response.statusCode, 200, response.body);
+          if (handoverAttempts === 1) return route.abort('failed'); // Saved operation, lost response.
+          return route.fulfill({ status: response.statusCode, json: response.json() });
+        });
+      }
       if (requestUrl.pathname.endsWith('/telegram-link')) return route.fulfill({ json: { url: 'https://t.me/AcmeTestBot?startapp=link_test', expiresAt: new Date(Date.now() + 1800000).toISOString() } });
       if (requestUrl.pathname.endsWith('/customer/link/preview')) return route.fulfill({ json: { fullName: customer.fullName, cargoCode: customer.cargoCode } });
       if (requestUrl.pathname.endsWith('/customer/link')) {
@@ -186,6 +203,22 @@ try {
     await page.goto(`http://127.0.0.1:${server.address().port}/o/acme/app`);
     await page.getByText('4.25 USD/кг', { exact: true }).waitFor();
     assert.deepEqual(pageErrors, []);
+    fixtureStore.packages.find(p => p.id === 'pkg').tenantId = 't';
+    await page.goto(`http://127.0.0.1:${server.address().port}/o/acme/pvz`);
+    const scanner = page.getByPlaceholder('QR выдачи или карго-код...');
+    await scanner.fill('UNKNOWN-CUSTOMER'); await scanner.press('Enter');
+    await page.getByText('Ожидание QR-кода клиента или ввода кода', { exact: true }).waitFor();
+    await scanner.fill(customer.cargoCode); await scanner.press('Enter');
+    await page.getByRole('button', { name: /^Выдать \(.*USD/ }).click();
+    await page.getByRole('alert').waitFor();
+    assert.equal(fixtureStore.payments.length, 1);
+    await page.getByRole('button', { name: /^Выдать \(.*USD/ }).waitFor();
+    await page.getByRole('button', { name: /^Выдать \(.*USD/ }).click();
+    await page.getByText(/Выдано 1 посылок клиенту ACME\/S123/).waitFor();
+    assert.equal(handoverAttempts, 2);
+    assert.equal(handoverKeys[0], handoverKeys[1], 'Retry after response loss must reuse the key');
+    assert.equal(fixtureStore.payments.length, 1);
+    assert.equal(fixtureStore.branches[0].cashBalance, 12);
     await page.goto(`http://127.0.0.1:${server.address().port}/o/acme/customers`);
     await page.getByText('Test Customer', { exact: true }).filter({ visible: true }).first().click();
     await page.getByRole('button', { name: 'Привязать Telegram', exact: true }).click();
@@ -223,6 +256,7 @@ try {
     assert.deepEqual(pageErrors, []);
     await page.close();
     await bulkApi.close();
+    await handoverApi.close();
   }
   console.log('Mini App configuration checks passed: custom tenant, zero settings, warehouse, payment details');
 } finally {

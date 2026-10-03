@@ -26,9 +26,10 @@ export function registerClientSecurity(app: any, store: any) {
         if (!store.branches.some((b: any) => b.id === branchId && b.tenantId === tenant.id)) return reply.status(400).send({ error: 'ПВЗ не найден' });
         const customer = store.customers.find((c: any) => c.tenantId === tenant.id && (c.id === request.body.customerId || c.cargoCode === request.body.customerId));
         if (!customer) return reply.status(400).send({ error: 'Клиент не найден' });
+        const replay = store.handoverReceipts?.some((r: any) => r.tenantId === tenant.id && r.actorId === staff.id && r.key === request.headers['idempotency-key']);
         if (!Array.isArray(request.body.packageIds) || !request.body.packageIds.length || request.body.packageIds.some((id: string) => {
-          const pkg = store.packages.find((p: any) => p.id === id || p.trackingNumber === id);
-          return !owns(pkg, customer) || pkg.currentBranchId !== branchId || pkg.status !== 'READY_FOR_PICKUP';
+          const pkg = store.packages.find((p: any) => p.tenantId === tenant.id && (p.id === id || p.trackingNumber === id));
+          return !owns(pkg, customer) || pkg.currentBranchId !== branchId || (!replay && pkg.status !== 'READY_FOR_PICKUP');
         })) return reply.status(409).send({ error: 'Посылки должны принадлежать клиенту и быть готовы к выдаче в этом ПВЗ' });
         if (!Number.isFinite(request.body.amountPaid) || request.body.amountPaid < 0) return reply.status(400).send({ error: 'Некорректная сумма' });
         if (new Set(request.body.packageIds).size !== request.body.packageIds.length || !['CASH', 'CARD', 'ONLINE_QR', 'TRANSFER'].includes(request.body.paymentMethod)) return reply.status(400).send({ error: 'Некорректный список посылок или способ оплаты' });

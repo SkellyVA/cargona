@@ -2376,77 +2376,45 @@ export const useCargoStore = defineStore('cargo', () => {
   }
 
   // Подтверждение выдачи и оплаты клиенту (с поддержкой выбора конкретных посылок, фото-фиксации и способа оплаты)
-  function handoverClientPackages(
-    cargoCode: string,
-    branchId: string = 'b-1',
-    packageIds?: string[],
-    handoverPhoto?: string,
+  const handoversInFlight = new Set<string>();
+  async function handoverClientPackages(
+    cargoCode: string, branchId: string, packageIds: string[], handoverPhoto?: string,
     paymentMethod: 'CASH' | 'TRANSFER' | 'CARD' = 'CASH'
-  ): number {
-    const clientPkgs = rawPackages.value.filter((p) => {
-      const isClient = p.customerCargoCode.toUpperCase() === cargoCode.toUpperCase();
-      const isReady = p.status === 'READY_FOR_PICKUP';
-      const isMatch = packageIds && packageIds.length > 0 ? packageIds.includes(p.id) : true;
-      return isClient && isReady && isMatch;
-    });
-    if (clientPkgs.length === 0) return 0;
-
-    let totalSumUSD = 0;
-    const nowIso = new Date().toISOString();
-    const pkgIdList: string[] = [];
-    clientPkgs.forEach((p) => {
-      p.status = 'RELEASED';
-      p.shelfLocation = '';
-      p.releasedAt = nowIso;
-      if (handoverPhoto) {
-        p.handoverPhoto = handoverPhoto;
-        if (!p.photos) p.photos = [];
-        p.photos.push(handoverPhoto);
-      }
-      totalSumUSD += p.costUSD;
-      pkgIdList.push(p.id);
-    });
-
-    const branch = rawBranches.value.find((b) => b.id === branchId) || rawBranches.value[0];
-    if (branch && paymentMethod === 'CASH') {
-      branch.cashBalanceUSD = Math.round(((branch.cashBalanceUSD || 0) + totalSumUSD) * 100) / 100;
-    }
-
-    safeStorageSet('cargona_packages', rawPackages.value);
-    safeStorageSet('cargona_branches', rawBranches.value);
-
-    const payLabel = paymentMethod === 'TRANSFER' || paymentMethod === 'CARD' ? 'Перевод на карту' : 'Наличные в кассу';
-    addAudit(
-      'HANDOVER',
-      'Выдача по QR',
-      cargoCode,
-      `Выдано ${clientPkgs.length} посылок на сумму ${formatMoney(totalSumUSD)} (${payLabel}). ПВЗ «${branch?.name || ''}»${handoverPhoto ? ' (с фото-фиксацией)' : ''}`,
-      currentUser.value?.name || 'operator',
-      branch?.id || branchId,
-      branch?.name
-    );
-
+  ): Promise<number> {
+    const slug = activeTenantSlug.value;
+    const customer = rawCustomers.value.find(c => c.tenantSlug === slug && c.cargoCode.toUpperCase() === cargoCode.toUpperCase());
+    if (!slug || !customer || !branchId || !packageIds.length) throw new Error('Выберите клиента, ПВЗ и посылки');
+    const lock = slug + ':' + customer.id;
+    if (handoversInFlight.has(lock)) throw new Error('Выдача уже выполняется');
+    handoversInFlight.add(lock);
     try {
-      const cust = rawCustomers.value.find((c) => c.cargoCode.toUpperCase() === cargoCode.toUpperCase());
-      const slug = activeTenantSlug.value;
-      fetch('/api/wms/handover', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerId: cust?.id || 'cust-direct',
-          packageIds: pkgIdList,
-          amountPaid: totalSumUSD,
-          paymentMethod,
-          branchId: branch?.id || branchId,
-          handoverPhoto: handoverPhoto || undefined,
-          tenantSlug: slug || undefined,
-        }),
-      });
-    } catch {}
-
-    checkReferralRewardForCustomer(cargoCode);
-
-    return totalSumUSD;
+      const packages = packageIds.map(id => rawPackages.value.find(p => p.id === id && p.tenantSlug === slug));
+      if (packages.some(p => !p || p.customerCargoCode.toUpperCase() !== cargoCode.toUpperCase())) throw new Error('Посылки клиента не найдены');
+      const amountPaid = Math.round(packages.reduce((sum, p) => sum + (p!.isPaidOnline ? 0 : p!.costUSD), 0) * 100) / 100;
+      const body = { customerId: customer.id, packageIds: [...packageIds].sort(), amountPaid, paymentMethod, branchId, handoverPhoto, tenantSlug: slug };
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(body)));
+      const signature = Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, '0')).join('');
+      const storageKey = 'cargona_handover_' + slug + '_' + currentUser.value.id;
+      let pending: { signature: string; key: string } | null = null;
+      try { pending = JSON.parse(localStorage.getItem(storageKey) || 'null'); } catch {}
+      if (pending?.signature !== signature) pending = { signature, key: crypto.randomUUID() };
+      // Keep the key across response loss and reload; retrying this exact operation is safe.
+      localStorage.setItem(storageKey, JSON.stringify(pending));
+      const response = await fetch('/api/wms/handover', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': pending!.key }, body: JSON.stringify(body) });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Не удалось выдать посылки');
+      for (const pkg of packages) {
+        pkg!.status = 'RELEASED'; pkg!.releasedAt = data.releasedAt; pkg!.shelfLocation = '';
+        if (handoverPhoto) { pkg!.handoverPhoto = handoverPhoto; pkg!.photos = [...(pkg!.photos || []), handoverPhoto]; }
+      }
+      const branch = rawBranches.value.find(b => b.id === branchId && b.tenantSlug === slug);
+      if (branch && Number.isFinite(data.branchCashBalanceUSD)) branch.cashBalanceUSD = data.branchCashBalanceUSD;
+      safeStorageSet('cargona_packages', rawPackages.value);
+      safeStorageSet('cargona_branches', rawBranches.value);
+      if (!data.replayed) checkReferralRewardForCustomer(cargoCode);
+      syncTenantData(slug, true).catch(() => {});
+      return data.amountUSD;
+    } finally { handoversInFlight.delete(lock); }
   }
 
   // Массовая приемка списком трек-номеров

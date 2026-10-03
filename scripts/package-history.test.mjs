@@ -30,8 +30,10 @@ store.customers.push({ id: 'sequence-customer', tenantId: tenant.id, cargoCode: 
 assert.equal(store.nextCargoCode(tenant), 'TEST-2501');
 assert.equal(store.nextCargoCode({ id: 'other-test', slug: 'other', codePrefix: 'OTHER' }), 'OTHER-001');
 store.clientLinks.push({ tenantId: 't', customerId: 'legacy', tokenHash: 'hashed-token', expiresAt: '2026-10-03T12:00:00Z', usedAt: '2026-10-03T11:00:00Z' });
+store.handoverReceipts.push({ tenantId: 't', actorId: 'cashier', key: 'retry-key', response: { paymentId: 'pay-1' } });
 store.saveToFile();
 assert.equal(loadStore().clientLinks[0].usedAt, '2026-10-03T11:00:00Z', 'Used customer links must survive restart');
+assert.equal(loadStore().handoverReceipts[0].response.paymentId, 'pay-1', 'Handover receipt must survive restart');
 assert.equal(loadStore().nextCargoCode(tenant), 'TEST-2501', 'Start setting and existing IDs must survive restart');
 assert.equal(store.packageHistory.length, 0, 'Loading old packages must not invent events');
 store.packages.push({ id: 'new', tenantId: 't', trackingNumber: 'NEW', status: 'RECEIVED_AT_ORIGIN' });

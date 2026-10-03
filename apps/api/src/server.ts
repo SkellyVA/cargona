@@ -9,6 +9,7 @@ import { registerBroadcasts } from './broadcasts.js';
 import { registerAuthentication } from './authentication.js';
 import { registerClientSecurity } from './client-security.js';
 import { registerCustomerLinks } from './customer-links.js';
+import { registerHandover } from './handover.js';
 import { webhookSecret } from './telegram-identity.js';
 
 const fastify = Fastify({
@@ -22,6 +23,7 @@ fastify.addHook('onRequest', async (request, reply) => {
 registerAuthentication(fastify, store);
 registerClientSecurity(fastify, store);
 registerCustomerLinks(fastify, store);
+registerHandover(fastify, store);
 registerBroadcasts(fastify, store);
 
 await fastify.register(compress, {
@@ -2629,93 +2631,6 @@ fastify.post<{
     readyPackages,
     totalAmountToPay,
     currency: readyPackages[0]?.currency || 'TJS',
-  };
-});
-
-// Handover packages & accept payment at PVZ
-fastify.post<{
-  Body: {
-    customerId?: string;
-    packageIds: string[];
-    amountPaid: number;
-    paymentMethod: 'CASH' | 'CARD' | 'ONLINE_QR' | 'TRANSFER';
-    branchId?: string;
-    handoverPhoto?: string;
-    tenantSlug?: string;
-  };
-}>('/api/wms/handover', async (request, reply) => {
-  const { customerId, packageIds, amountPaid, paymentMethod, branchId, tenantSlug } = request.body;
-
-  let tenant = tenantSlug ? store.tenants.find((t) => t.slug === tenantSlug) : null;
-  const customer = store.customers.find(
-    (c) =>
-      (customerId && c.id === customerId) ||
-      (customerId && c.cargoCode.toUpperCase() === customerId.toUpperCase())
-  );
-  if (customer && !tenant) {
-    tenant = store.tenants.find((t) => t.id === customer.tenantId) || null;
-  }
-
-  // Update package statuses to RELEASED
-  let updatedCount = 0;
-  for (const pkgId of packageIds || []) {
-    const pkg = store.packages.find((p) => p.id === pkgId || p.trackingNumber === pkgId);
-    if (pkg) {
-      pkg.status = 'RELEASED';
-      pkg.releasedAt = new Date().toISOString();
-      pkg.storageCellId = null;
-      if (!tenant) {
-        tenant = store.tenants.find((t) => t.id === pkg.tenantId) || null;
-      }
-      updatedCount++;
-    }
-  }
-
-  // Update branch cash desk
-  const branch = store.branches.find((b) => b.id === branchId || b.name === branchId);
-  if (branch && paymentMethod === 'CASH') {
-    branch.cashBalance = Math.round(((branch.cashBalance || 0) + (amountPaid || 0)) * 100) / 100;
-  }
-
-  // Record payment
-  const activeTenantId = tenant?.id || customer?.tenantId || store.tenants[0]?.id || 'tenant-noor';
-  const activeBranchId = branch?.id || branchId || store.branches[0]?.id || 'branch-main';
-  const payment = {
-    id: store.nextId('pay', store.payments),
-    tenantId: activeTenantId,
-    branchId: activeBranchId,
-    customerId: customer?.id || customerId || 'cust-direct',
-    cashierUserId: 'user-cashier-001',
-    amount: amountPaid || 0,
-    currency: 'TJS',
-    method: paymentMethod || 'CASH',
-    type: 'DELIVERY_PAYMENT' as const,
-    createdAt: new Date().toISOString(),
-  };
-  store.payments.push(payment);
-
-  // Add audit log
-  store.auditLogs.push({
-    id: store.nextId('audit', store.auditLogs),
-    tenantId: activeTenantId,
-    branchId: activeBranchId,
-    userId: 'user-cashier-001',
-    userName: 'Кассир ПВЗ',
-    userRole: 'PVZ_OPERATOR',
-    entityType: 'PACKAGE',
-    entityId: packageIds?.[0] || customerId || 'handover',
-    action: 'HANDOVER',
-    details: `Выдано ${packageIds?.length || 0} посылок клиенту ${customer?.cargoCode || customerId || '—'}. Принято: ${amountPaid || 0} (${paymentMethod || 'CASH'})`,
-    createdAt: new Date().toISOString(),
-  });
-
-  store.saveToFile();
-
-  return {
-    success: true,
-    message: 'Посылки успешно выданы',
-    releasedCount: updatedCount || packageIds?.length || 0,
-    paymentId: payment.id,
   };
 });
 

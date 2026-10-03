@@ -30,6 +30,14 @@ Deploy frontend/backend together and restart the backend. Startup configures a p
 
 Financial transactions/idempotency and comprehensive server-authoritative tariffs/status transitions need further implementation and integration checks. This is not a completed resilience rollout.
 
+## WMS issuance and payment retries
+
+WMS waits for the API before showing success or changing local parcel/cash state. Errors preserve the selected parcels and form. The request uses a persisted operation key; if the response is lost, retrying the same request returns its saved result without creating another payment, audit entry or cash increase. Reusing a key with another payload is rejected. A different key cannot reissue a released parcel. Exact client lookup replaces the fallback to the first customer.
+
+The API validates company, client, location, ready status, unique parcel IDs (including tracking aliases), weighing and stored costs. Payment is the server's rounded USD sum; parcels already marked as paid online are excluded from the amount collected. Existing panel `package.cost` and branch cash values are USD, so new WMS payments explicitly record USD and the authenticated cashier. Transfer payments do not increase cash. Photos are persisted with the issuance.
+
+Issuance, cash update, payment, audit and retry receipt are saved in the same atomic JSON snapshot. A failed write returns an error and the existing storage-failure guard blocks subsequent API operations. This is supported for the current single API process; concurrent processes sharing JSON are not supported. PostgreSQL transactions remain pending. Other finance operations, refunds and collections are not yet covered by this retry mechanism. Deploy backend/frontend together; the new WMS endpoint requires the operation key provided by the updated interface.
+
 PostgreSQL migration, off-server backups, restore drills, monitoring, the production Compose bundle and the remaining business protections are also pending.
 
 ## Link an existing customer to Telegram
