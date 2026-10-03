@@ -2,8 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { callTelegram } from './telegram.js';
 
 export function registerBroadcasts(app: any, store: any, send = callTelegram, pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))) {
+  const exclusive = (action: () => Promise<void>) => store.exclusive ? store.exclusive(action) : action();
   store.botBroadcasts ||= [];
-  for (const job of store.botBroadcasts) if (job.status === 'RUNNING') job.status = 'INTERRUPTED';
+  let interrupted = false;
+  for (const job of store.botBroadcasts) if (job.status === 'RUNNING') { job.status = 'INTERRUPTED'; interrupted = true; }
+  app.addHook('onReady', async () => { if (interrupted) await store.saveToFile(); });
   const audience = (tenantId: string, branchId?: string) => {
     const customers = store.customers.filter((c: any) => c.tenantId === tenantId && (!branchId || c.preferredBranchId === branchId));
     const recipients = [...new Set<number>(customers.filter((c: any) => !c.isBlocked).map((c: any) => Number(c.telegramUserId)).filter((id: number) => Number.isSafeInteger(id) && id > 0))];
@@ -39,9 +42,12 @@ export function registerBroadcasts(app: any, store: any, send = callTelegram, pa
     if (!recipients.length) return reply.status(400).send({ error: 'Нет клиентов с доступным личным чатом Telegram' });
     const job = { id: randomUUID(), tenantId: tenant.id, text: text.trim(), branchId: branchId || null, status: 'RUNNING', total: recipients.length, sent: 0, failed: 0, skipped, errors: [] as any[], createdAt: new Date().toISOString(), completedAt: null as string | null };
     store.botBroadcasts.push(job);
-    store.saveToFile();
+    await store.saveToFile();
+    const actor = request.authUser;
     void (async () => {
       for (const chatId of recipients) {
+        if (store.persistenceError) throw new Error('Storage unavailable');
+        let failure: unknown;
         try {
           try { await send(token, 'sendMessage', { chat_id: chatId, text: job.text }); }
           catch (error: any) {
@@ -49,19 +55,27 @@ export function registerBroadcasts(app: any, store: any, send = callTelegram, pa
             await pause(error.retryAfter * 1000);
             await send(token, 'sendMessage', { chat_id: chatId, text: job.text });
           }
-          job.sent++;
         } catch (error) {
-          job.failed++;
-          job.errors.push({ chatId, error: error instanceof Error ? error.message : 'Ошибка отправки' });
+          failure = error;
         }
-        store.saveToFile();
+        await exclusive(async () => {
+          if (failure) {
+            job.failed++;
+            job.errors.push({ chatId, error: failure instanceof Error ? failure.message : 'Ошибка отправки' });
+          } else job.sent++;
+          await store.saveToFile();
+        });
         await pause(1000);
       }
-      job.status = 'COMPLETED';
-      job.completedAt = new Date().toISOString();
-      store.auditLogs.unshift({ id: randomUUID(), tenantId: tenant.id, entityType: 'TENANT', entityId: job.id, action: 'BROADCAST', details: `Рассылка: отправлено ${job.sent}, ошибок ${job.failed}`, createdAt: job.completedAt, userId: 'user-admin', userName: 'Администратор', userRole: 'TENANT_OWNER' });
-      store.saveToFile();
-    })().catch(() => { job.status = 'INTERRUPTED'; store.saveToFile(); });
+      await exclusive(async () => {
+        job.status = 'COMPLETED';
+        job.completedAt = new Date().toISOString();
+        store.auditLogs.unshift({ id: randomUUID(), tenantId: tenant.id, entityType: 'TENANT', entityId: job.id, action: 'BROADCAST', details: `Рассылка: отправлено ${job.sent}, ошибок ${job.failed}`, createdAt: job.completedAt, userId: actor?.id, userName: actor?.fullName, userRole: actor?.role });
+        await store.saveToFile();
+      });
+    })().catch(async () => {
+      if (!store.persistenceError) await exclusive(async () => { job.status = 'INTERRUPTED'; await store.saveToFile(); });
+    }).catch(() => { console.error('[Broadcast] Storage unavailable; broadcast interrupted'); });
     return reply.status(202).send(job);
   });
 }

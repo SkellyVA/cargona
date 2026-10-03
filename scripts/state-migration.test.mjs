@@ -26,6 +26,7 @@ let corrupt = false;
 let commits = 0;
 function sql(strings, ...values) {
   const query = strings.join('?');
+  if (query.includes('advisory')) return Promise.resolve([{ acquired: true }]);
   if (query.includes('SELECT id FROM')) return Promise.resolve(stored ? [{ id: 1 }] : []);
   if (query.includes('INSERT INTO')) { stored = { document: structuredClone(values[0]), source_sha256: values[1] }; return Promise.resolve([]); }
   if (query.includes('SELECT document')) return Promise.resolve(stored ? [{ ...stored, document: corrupt ? { ...stored.document, customers: [] } : stored.document }] : []);

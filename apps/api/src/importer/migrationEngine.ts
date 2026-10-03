@@ -605,7 +605,7 @@ export async function runSmartMigration(
     }
 
     // 12.7 Save store to persistent file
-    store.saveToFile();
+    await store.saveToFile();
   }
 
   return {

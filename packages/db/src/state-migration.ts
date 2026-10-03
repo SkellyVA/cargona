@@ -39,7 +39,8 @@ export async function transferState(sql: ReturnType<typeof postgres>, state: unk
   const rollback = new Error('CARGONA_TRIAL_ROLLBACK');
   try {
     await sql.begin(async tx => {
-      await tx`SELECT pg_advisory_xact_lock(1128354383, 1)`;
+      const [lock] = await tx`SELECT pg_try_advisory_xact_lock(1128354383, 1) AS acquired`;
+      if (!lock.acquired) throw new Error('State writer is running; stop it before migration');
       await tx`CREATE TABLE IF NOT EXISTS cargona_legacy_state (
         id smallint PRIMARY KEY CHECK (id = 1),
         revision bigint NOT NULL DEFAULT 1,

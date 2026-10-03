@@ -1,0 +1,54 @@
+name: PostgreSQL persistence checks
+
+on:
+  workflow_call:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cargona_test
+          POSTGRES_PASSWORD: local_ci_only
+          POSTGRES_DB: cargona_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cargona_test -d cargona_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.5.1
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm --filter @cargona/types build && pnpm --filter @cargona/db build && pnpm --filter @cargona/api build
+      - name: Trial migration and PostgreSQL runtime
+        env:
+          MIGRATION_TEST_DATABASE_URL: postgres://cargona_test:local_ci_only@127.0.0.1:5432/cargona_test
+        run: |
+          node scripts/state-migration.test.mjs
+          node scripts/postgres-runtime.test.mjs
+      - name: Financial and client regressions
+        run: |
+          node scripts/package-history.test.mjs
+          node scripts/authentication.test.mjs
+          node scripts/customer-links.test.mjs
+          node scripts/client-security.test.mjs
+          node scripts/finance.test.mjs
+          node scripts/handover.test.mjs
+          node scripts/broadcasts.test.mjs
+          node scripts/api-client-regression.test.mjs

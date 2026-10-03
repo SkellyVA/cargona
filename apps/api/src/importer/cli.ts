@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { runSmartMigration } from './migrationEngine.js';
+import { store } from '../store.js';
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -116,6 +117,7 @@ async function main() {
   }
 
   try {
+    await store.initialize();
     const result = await runSmartMigration(source, {
       tenantSlug,
       dryRun,
@@ -172,7 +174,9 @@ async function main() {
     }
   } catch (err: any) {
     console.error('\n❌ Ошибка миграции:', err.message || err);
-    process.exit(1);
+    process.exitCode = 1;
+  } finally {
+    await store.close();
   }
 }
 

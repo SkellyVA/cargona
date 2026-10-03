@@ -16,7 +16,10 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  postgres-checks:
+    uses: ./.github/workflows/postgres-checks.yml
   build-and-push:
+    needs: postgres-checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

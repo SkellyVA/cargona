@@ -82,7 +82,7 @@ export function registerAuthentication(app: any, store: any, environment = proce
     const expiredTokens = new Set(sameAccount.slice(0, Math.max(0, sameAccount.length - 9)).map((s: any) => s.tokenHash));
     store.sessions = store.sessions.filter((s: any) => !expiredTokens.has(s.tokenHash));
     store.sessions.push(session);
-    store.saveToFile();
+    await store.saveToFile();
     attempts.delete(key);
     reply.header('set-cookie', cookieHeaders(token, csrf, 12 * 60 * 60));
     const user = identity(session);
@@ -98,7 +98,7 @@ export function registerAuthentication(app: any, store: any, environment = proce
     const token = cookie(request, 'cargona_session');
     const previousCount = store.sessions.length;
     store.sessions = store.sessions.filter((s: any) => !token || s.tokenHash !== digest(token));
-    if (store.sessions.length !== previousCount) store.saveToFile();
+    if (store.sessions.length !== previousCount) await store.saveToFile();
     reply.header('set-cookie', cookieHeaders('', '', 0));
     return { success: true };
   });

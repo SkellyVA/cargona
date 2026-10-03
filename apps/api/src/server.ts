@@ -12,15 +12,14 @@ import { registerCustomerLinks } from './customer-links.js';
 import { registerHandover } from './handover.js';
 import { registerFinance, ensureDefaultCashAccounts as ensureFinanceAccounts } from './finance.js';
 import { webhookSecret } from './telegram-identity.js';
+import { registerStorageLifecycle } from './storage-lifecycle.js';
+
+await store.initialize();
 
 const fastify = Fastify({
   logger: { redact: ['req.headers.cookie', 'req.headers.authorization', 'req.headers.x-cargona-csrf', 'req.headers.x-telegram-init-data', 'req.headers.x-telegram-bot-api-secret-token', 'res.headers.set-cookie'] },
 });
-fastify.addHook('onRequest', async (request, reply) => {
-  if (store.persistenceError && !request.url.split('?')[0].startsWith('/health')) {
-    return reply.status(503).send({ error: 'Хранилище недоступно. Изменения временно заблокированы.' });
-  }
-});
+registerStorageLifecycle(fastify, store);
 registerAuthentication(fastify, store);
 registerClientSecurity(fastify, store);
 registerCustomerLinks(fastify, store);
@@ -64,8 +63,9 @@ fastify.get('/health', async () => ({
   timestamp: new Date().toISOString(),
 }));
 fastify.get('/health/ready', async (_request, reply) => {
-  if (store.persistenceError) return reply.status(503).send({ status: 'unavailable', storage: 'failed' });
-  return { status: 'ok', storage: 'ready' };
+  try { await store.checkStorage(); }
+  catch { return reply.status(503).send({ status: 'unavailable', storage: 'failed' }); }
+  return { status: 'ok', storage: 'ready', backend: store.storageMode };
 });
 
 // ==========================================
@@ -156,7 +156,7 @@ fastify.post<{
     (existing as any).ownerEmail = ownerEmail.toLowerCase().trim();
     if (ownerPassword) (existing as any).ownerPassword = ownerPassword.trim();
     if (baseCurrency) existing.baseCurrency = baseCurrency;
-    store.saveToFile();
+    await store.saveToFile();
     return { success: true, tenant: existing };
   }
 
@@ -201,7 +201,7 @@ fastify.post<{
   };
   store.users.push(ownerUser);
 
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, tenant: newTenant, owner: ownerUser };
 });
 
@@ -237,7 +237,7 @@ fastify.put<{
   }
   tenant.updatedAt = new Date().toISOString();
 
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, tenant };
 });
 
@@ -283,7 +283,7 @@ fastify.put<{
     if (request.body.ownerEmail) ownerUser.email = request.body.ownerEmail.toLowerCase().trim();
   }
 
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, tenant };
 });
 
@@ -302,7 +302,7 @@ fastify.delete<{ Params: { id: string } }>('/api/admin/tenants/:id', async (requ
   store.users = store.users.filter((u) => u.tenantId !== tenant.id);
   store.auditLogs = store.auditLogs.filter((a) => a.tenantId !== tenant.id);
 
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, message: `Tenant ${tenant.name} and related records purged successfully` };
 });
 
@@ -385,7 +385,7 @@ fastify.get<{ Params: { slug: string } }>('/api/o/:slug/all', async (request, re
     botUsername: rawTenantSettings.botUsername || botConfig?.botUsername || '',
   };
 
-  ensureDefaultCashAccounts(tenant.id);
+  await ensureDefaultCashAccounts(tenant.id);
   const tenantCashAccounts = (store.cashAccounts || []).filter((a) => a.tenantId === tenant.id);
   const tenantTransactions = (store.financialTransactions || []).filter((t) => t.tenantId === tenant.id);
   const tenantCollections = (store.cashCollections || []).filter((c) => c.tenantId === tenant.id);
@@ -479,7 +479,7 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/settings', a
   if (request.body.codePrefix) tenant.codePrefix = request.body.codePrefix.toUpperCase().trim();
   if (request.body.baseCurrency) tenant.baseCurrency = request.body.baseCurrency;
 
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, settings: store.tenantSettings[tenant.id] };
 });
 
@@ -533,7 +533,7 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/loyalty', as
     isModuleAllowed: true,
   };
 
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, loyalty: store.tenantSettings[tenant.id].loyaltySettings };
 });
 
@@ -643,7 +643,7 @@ fastify.post<{
   }
 
   (newBranch as any).cells = createdCells;
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, branch: newBranch };
 });
 
@@ -663,7 +663,7 @@ fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/b
   }
   Object.assign(branch, request.body);
   branch.updatedAt = new Date().toISOString();
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, branch };
 });
 
@@ -679,7 +679,7 @@ fastify.delete<{ Params: { slug: string; id: string } }>('/api/o/:slug/branches/
 
   const removed = store.branches.splice(idx, 1)[0];
   store.storageCells = store.storageCells.filter((c) => c.branchId !== id);
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, message: 'Branch deleted', branch: removed };
 });
 
@@ -719,7 +719,7 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/warehouses',
   };
 
   store.originWarehouses.push(newWh as any);
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, warehouse: newWh };
 });
 
@@ -733,7 +733,7 @@ fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/w
 
   Object.assign(wh, request.body);
   (wh as any).updatedAt = new Date().toISOString();
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, warehouse: wh };
 });
 
@@ -746,7 +746,7 @@ fastify.delete<{ Params: { slug: string; id: string } }>('/api/o/:slug/warehouse
   if (idx === -1) return reply.status(404).send({ error: 'Warehouse not found' });
 
   const removed = store.originWarehouses.splice(idx, 1)[0];
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, message: 'Warehouse deleted', warehouse: removed };
 });
 
@@ -774,7 +774,7 @@ fastify.post<{
   };
 
   store.storageCells.push(newCell);
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, cell: newCell };
 });
 
@@ -789,7 +789,7 @@ fastify.delete<{ Params: { slug: string; id: string; cellId: string } }>('/api/o
     if (cIdx !== -1) (branch as any).cells.splice(cIdx, 1);
   }
   store.storageCells = store.storageCells.filter((c) => !(c.branchId === id && c.id === cellId));
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, message: 'Cell deleted' };
 });
 
@@ -803,7 +803,7 @@ fastify.delete<{ Params: { slug: string; id: string; cellId: string } }>('/api/o
     const cIdx = (wh as any).cells.findIndex((c: any) => c.id === cellId);
     if (cIdx !== -1) (wh as any).cells.splice(cIdx, 1);
   }
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, message: 'Warehouse cell deleted' };
 });
 
@@ -836,7 +836,7 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/staff', asyn
     if (role) existing.role = role;
     if (phone) existing.phone = phone;
     if (branchId) existing.assignedBranchId = branchId;
-    store.saveToFile();
+    await store.saveToFile();
     return { success: true, employee: existing };
   }
 
@@ -858,7 +858,7 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/staff', asyn
   };
 
   store.users.push(newEmployee as any);
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, employee: newEmployee };
 });
 
@@ -886,7 +886,7 @@ fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/s
     if (request.body.password) (tenant as any).ownerPassword = request.body.password;
   }
 
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, employee: user || request.body };
 });
 
@@ -899,7 +899,7 @@ fastify.delete<{ Params: { slug: string; id: string } }>('/api/o/:slug/staff/:id
   if (idx === -1) return reply.status(404).send({ error: 'Staff member not found' });
 
   store.users.splice(idx, 1);
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, message: 'Staff member removed' };
 });
 
@@ -1013,7 +1013,7 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/customers', 
     }
   }
 
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, customer: newCustomer };
 });
 
@@ -1038,7 +1038,7 @@ fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/c
   if (request.body.preferredBranchId) cust.preferredBranchId = request.body.preferredBranchId;
   if (request.body.notes) cust.notes = request.body.notes;
 
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, customer: cust };
 });
 
@@ -1058,7 +1058,7 @@ fastify.delete<{ Params: { slug: string; id: string } }>('/api/o/:slug/customers
     details: `Удалён клиент ${removed.fullName} (${removed.cargoCode}). История посылок и платежей сохранена.`,
     createdAt: new Date().toISOString(),
   });
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, message: 'Customer deleted' };
 });
 
@@ -1104,7 +1104,7 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/packages', a
   if (existing) {
     Object.assign(existing, request.body);
     existing.updatedAt = new Date().toISOString();
-    store.saveToFile();
+    await store.saveToFile();
     return { success: true, package: existing };
   }
 
@@ -1135,7 +1135,7 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/packages', a
   };
 
   store.packages.unshift(newPackage as any);
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, package: newPackage };
 });
 
@@ -1253,7 +1253,7 @@ fastify.post<{
     createdAt: new Date().toISOString(),
   });
 
-  store.saveToFile();
+  await store.saveToFile();
   return {
     success: true,
     totalReceived: createdPackages.length + updatedPackages.length,
@@ -1302,7 +1302,7 @@ fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/p
     (pkg as any).readyAt = new Date().toISOString();
   }
   pkg.updatedAt = new Date().toISOString();
-  store.saveToFile();
+  await store.saveToFile();
 
   // Send ready for pickup notification if applicable
   if (pkg.status === 'READY_FOR_PICKUP' && oldStatus !== 'READY_FOR_PICKUP') {
@@ -1340,7 +1340,7 @@ fastify.delete<{ Params: { slug: string; id: string } }>('/api/o/:slug/packages/
   if (idx === -1) return reply.status(404).send({ error: 'Package not found' });
 
   store.packages.splice(idx, 1);
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, message: 'Package deleted' };
 });
 
@@ -1380,7 +1380,7 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/trips', asyn
   };
 
   store.trips.unshift(newTrip as any);
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, trip: newTrip };
 });
 
@@ -1395,7 +1395,7 @@ fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/t
   const oldStatus = trip.status;
   Object.assign(trip, request.body);
   trip.updatedAt = new Date().toISOString();
-  store.saveToFile();
+  await store.saveToFile();
 
   // Notify clients and auto-post to Telegram news channel
   const botConfig = store.botConfigs.find((b) => b.tenantId === tenant.id && b.isActive && b.botToken);
@@ -1489,7 +1489,7 @@ fastify.delete<{ Params: { slug: string; id: string } }>('/api/o/:slug/trips/:id
   if (idx === -1) return reply.status(404).send({ error: 'Trip not found' });
 
   store.trips.splice(idx, 1);
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, message: 'Trip deleted' };
 });
 
@@ -1498,8 +1498,8 @@ fastify.delete<{ Params: { slug: string; id: string } }>('/api/o/:slug/trips/:id
 // ==========================================
 
 // Helper: Ensure default cash accounts for a tenant (Safe, Bank, PVZ accounts)
-function ensureDefaultCashAccounts(tenantId: string) {
-  if (ensureFinanceAccounts(store, tenantId)) store.saveToFile();
+async function ensureDefaultCashAccounts(tenantId: string) {
+  if (ensureFinanceAccounts(store, tenantId)) await store.saveToFile();
   return store.cashAccounts.filter(a => a.tenantId === tenantId);
 }
 
@@ -1509,7 +1509,7 @@ fastify.get<{ Params: { slug: string } }>('/api/o/:slug/finance/summary', async 
   const tenant = store.tenants.find((t) => t.slug === slug);
   if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
 
-  ensureDefaultCashAccounts(tenant.id);
+  await ensureDefaultCashAccounts(tenant.id);
 
   const accounts = store.cashAccounts.filter((a) => a.tenantId === tenant.id);
   const transactions = store.financialTransactions.filter((t) => t.tenantId === tenant.id);
@@ -1612,16 +1612,7 @@ async function setupTelegramBotWebhook(token: string, tenantSlug: string, tenant
 
   const botUsername = meData.result.username;
 
-  // 2. Clear old webhook / conflicts before setting new webhook
-  try {
-    await fetch(`https://api.telegram.org/bot${cleanToken}/deleteWebhook?drop_pending_updates=true`, {
-      signal: AbortSignal.timeout(8000),
-    });
-  } catch (e) {
-    console.warn(`[Bot Webhook] Failed deleteWebhook for ${botUsername}:`, e);
-  }
-
-  // 3. Set Telegram Webhook
+  // Preserve queued updates when configuring the webhook.
   try {
     const hookRes = await fetch(`https://api.telegram.org/bot${cleanToken}/setWebhook`, {
       method: 'POST',
@@ -1782,7 +1773,7 @@ fastify.post<{
       if (managerUsername !== undefined) (existing as any).managerUsername = managerUsername || null;
       existing.updatedAt = new Date().toISOString();
     }
-    store.saveToFile();
+    await store.saveToFile();
     return { success: true, message: 'Настройки каналов и контактов сохранены' };
   }
 
@@ -1843,7 +1834,7 @@ fastify.post<{
       createdAt: new Date().toISOString(),
     });
 
-    store.saveToFile();
+    await store.saveToFile();
 
     return {
       success: true,
@@ -1889,7 +1880,7 @@ fastify.post<{
     pkg.updatedAt = new Date().toISOString();
   }
 
-  store.saveToFile();
+  await store.saveToFile();
   let published = false;
   let publicationError: string | undefined;
   const checkedTelegramFetch = async (url: string, options: any) => {
@@ -1964,7 +1955,7 @@ fastify.post<{
     }
   }
 
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, published, publicationError, message: 'Review recorded' };
 });
 
@@ -2074,7 +2065,7 @@ fastify.post<{
     );
     if (matchCust && !(matchCust as any).telegramUserId) {
       (matchCust as any).telegramUserId = Number(fromUser.id);
-      store.saveToFile();
+      await store.saveToFile();
     }
   }
 
@@ -2262,7 +2253,7 @@ fastify.get<{ Params: { slug: string }; Querystring: { tgUserId?: string; cargoC
     }
     if (customer && tgUserId && !(customer as any).telegramUserId) {
       (customer as any).telegramUserId = Number(tgUserId);
-      store.saveToFile();
+      await store.saveToFile();
     }
     const customerPackages = customer
       ? store.packages.filter((p) => p.tenantId === tenant.id && (p.customerId === customer.id || p.customerCargoCode === customer.cargoCode))
@@ -2492,7 +2483,7 @@ fastify.post<{
         (p as any).branchId = branchId;
       }
     });
-    store.saveToFile();
+    await store.saveToFile();
     return { success: true, preferredBranchId: branchId, customer: cust };
   }
 
@@ -2538,7 +2529,7 @@ fastify.post<{
   };
 
   store.packages.unshift(newPackage);
-  store.saveToFile();
+  await store.saveToFile();
   return { success: true, package: newPackage };
 });
 
@@ -2625,27 +2616,30 @@ fastify.post<{
 async function initBotWebhooksOnStartup() {
   const envToken = process.env.TELEGRAM_BOT_TOKEN?.trim();
   if (envToken && !envToken.startsWith('MOCK_')) {
-    const primaryTenant = store.tenants[0] || { id: 'tenant-noor', name: 'NOOR CARGO', slug: 'noor' };
-    let botCfg = store.botConfigs.find((b) => b.tenantId === primaryTenant.id);
-    if (!botCfg) {
-      botCfg = {
-        id: store.nextId('bot', store.botConfigs),
-        tenantId: primaryTenant.id,
-        botToken: envToken,
-        botUsername: '',
-        welcomeMessage: `Добро пожаловать в ${primaryTenant.name}!`,
-        channelIdForPosting: null,
-        reviewsChannelId: null,
-        managerUsername: null,
-        isActive: true,
-        webhookSecret: `sec_${Date.now()}`,
-        updatedAt: new Date().toISOString(),
-      };
-      store.botConfigs.push(botCfg);
-    } else {
-      botCfg.botToken = envToken;
-      botCfg.isActive = true;
-    }
+    await store.exclusive(async () => {
+      const primaryTenant = store.tenants[0] || { id: 'tenant-noor', name: 'NOOR CARGO', slug: 'noor' };
+      let botCfg = store.botConfigs.find((b) => b.tenantId === primaryTenant.id);
+      if (!botCfg) {
+        botCfg = {
+          id: store.nextId('bot', store.botConfigs),
+          tenantId: primaryTenant.id,
+          botToken: envToken,
+          botUsername: '',
+          welcomeMessage: `Добро пожаловать в ${primaryTenant.name}!`,
+          channelIdForPosting: null,
+          reviewsChannelId: null,
+          managerUsername: null,
+          isActive: true,
+          webhookSecret: `sec_${Date.now()}`,
+          updatedAt: new Date().toISOString(),
+        };
+        store.botConfigs.push(botCfg);
+      } else {
+        botCfg.botToken = envToken;
+        botCfg.isActive = true;
+      }
+      await store.saveToFile();
+    });
   }
 
   for (const botCfg of store.botConfigs) {
@@ -2668,7 +2662,7 @@ const start = async () => {
   try {
     await fastify.listen({ port: PORT, host: '0.0.0.0' });
     console.log(`🚀 CargonaOS API Gateway & Bot Engine running at http://0.0.0.0:${PORT}`);
-    initBotWebhooksOnStartup();
+    void initBotWebhooksOnStartup().catch(() => { console.error('[Startup] Bot initialization or storage unavailable'); });
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
@@ -2676,3 +2670,8 @@ const start = async () => {
 };
 
 start();
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.once(signal, () => {
+    void fastify.close().then(() => { process.exit(0); }).catch(() => { process.exit(1); });
+  });
+}

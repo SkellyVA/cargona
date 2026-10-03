@@ -31,6 +31,7 @@ services:
       PORT: 4000
       HOST: 0.0.0.0
       DATA_DIR: /app/data
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-json}
       DATABASE_URL: postgres://${DB_USER:-cargona}:${DB_PASSWORD:-cargona_sec_db_2026}@postgres:5432/${DB_NAME:-cargona_db}
       JWT_SECRET: ${JWT_SECRET:-cargona_super_secret_jwt_key_2026}
       APP_DOMAIN: ${APP_DOMAIN:-cargona.akii.world}

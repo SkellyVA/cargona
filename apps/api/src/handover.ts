@@ -55,7 +55,7 @@ export function registerHandover(app: any, store: any) {
       details: `Выдано ${packages.length} посылок клиенту ${customer.cargoCode}. Принято: ${amountUSD} USD (${payment.method})`, createdAt: now });
     const response = { success: true, message: 'Посылки успешно выданы', releasedCount: packages.length, paymentId: payment.id, amountUSD, releasedAt: now, branchCashBalanceUSD: branch.cashBalance };
     store.handoverReceipts.push({ tenantId: tenant.id, actorId: actor.id, key, fingerprint, response, createdAt: now });
-    store.saveToFile();
+    await store.saveToFile();
     return response;
   });
 }

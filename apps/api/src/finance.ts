@@ -72,7 +72,7 @@ export function registerFinance(app: any, store: any) {
       // ponytail: synchronous mutations and one atomic snapshot; replace with a DB transaction for multi-process PostgreSQL.
       const response = action(request, tenant, actor);
       store.financialReceipts.push({ tenantId: tenant.id, actorId: actor.id, key, fingerprint, response: JSON.parse(JSON.stringify(response)), createdAt: new Date().toISOString() });
-      store.saveToFile(); return response;
+      await store.saveToFile(); return response;
     } catch (error: any) { if (error.statusCode) return reply.status(error.statusCode).send({ error: error.message }); throw error; }
   });
   const scoped = (list: any[], id: string, tenantId: string, label: string) => {

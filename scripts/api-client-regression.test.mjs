@@ -10,6 +10,19 @@ import { parseTrackList } from '../apps/web/src/utils/trackList.mjs';
 const require = createRequire(new URL('../apps/api/package.json', import.meta.url));
 const app = require('fastify')();
 const source = (await readFile(new URL('../apps/api/src/server.ts', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+const webhookCalls = [];
+const webhookContext = {
+  APP_DOMAIN: 'test.example', AbortSignal, webhookSecret: () => 'test-secret',
+  console: { log() {}, warn() {}, error() {} },
+  fetch: async (url, options) => {
+    webhookCalls.push({ url, body: options?.body ? JSON.parse(options.body) : null });
+    return { status: 200, text: async () => JSON.stringify({ ok: true, result: { username: 'TestBot' } }), json: async () => ({ ok: true }) };
+  },
+};
+vm.runInNewContext(ts.transpileModule(source.slice(source.indexOf('async function setupTelegramBotWebhook'), source.indexOf('// Get Tenant Bot Settings')), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText, webhookContext);
+await webhookContext.setupTelegramBotWebhook('fixture-token', 'test', 'Test');
+assert.ok(webhookCalls.every(call => !call.url.includes('deleteWebhook')));
+assert.equal(webhookCalls.find(call => call.url.includes('setWebhook')).body.drop_pending_updates, false);
 const messages = [];
 const errors = [];
 let telegramFailure = false;

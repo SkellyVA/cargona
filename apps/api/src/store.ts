@@ -58,6 +58,53 @@ const { dataDir: DATA_DIR, storeFile: STORE_FILE } = resolveStorePaths();
  * Automatically syncs with disk so restarts/recreates never reset state.
  */
 class CargonaDataStore {
+  public storageMode = (process.env.STORAGE_BACKEND || 'json').trim();
+  private database?: Awaited<ReturnType<typeof import('@cargona/db').openPostgresState>>;
+  private extraState: Record<string, unknown> = {};
+  private pending: Promise<void> = Promise.resolve();
+  private gate: Promise<void> = Promise.resolve();
+  public async acquire() {
+    const previous = this.gate;
+    let release!: () => void;
+    this.gate = new Promise<void>(resolve => { release = resolve; });
+    await previous;
+    return release;
+  }
+  public async exclusive<T>(action: () => Promise<T>) {
+    const release = await this.acquire();
+    try {
+      if (this.persistenceError) throw new Error('Storage unavailable');
+      return await action();
+    } finally { release(); }
+  }
+  public async initialize() {
+    if (this.storageMode !== 'postgres' || this.database) return;
+    if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required for PostgreSQL storage');
+    const { openPostgresState } = await import('@cargona/db');
+    this.database = await openPostgresState(process.env.DATABASE_URL);
+    const data = this.database.document;
+    this.extraState = data;
+    for (const key of ['plans', 'tenants', 'branches', 'storageCells', 'customers', 'packages',
+      'packageHistory', 'botBroadcasts', 'sessions', 'clientLinks', 'handoverReceipts', 'financialReceipts',
+      'sacks', 'trips', 'payments', 'auditLogs', 'botConfigs', 'users', 'originWarehouses', 'cashAccounts',
+      'financialTransactions', 'cashCollections', 'tripExpenses', 'expenseCategories']) {
+      if (Array.isArray(data[key])) (this as any)[key] = data[key];
+    }
+    if (data.tenantSettings && typeof data.tenantSettings === 'object') this.tenantSettings = data.tenantSettings;
+    this.packageSnapshots = new Map(this.packages.map(pkg => [`${pkg.tenantId}:${pkg.id}`, packageSnapshot(pkg)]));
+    protectCredentials(this);
+  }
+  public flush() { return this.pending; }
+  public async checkStorage() {
+    if (this.persistenceError) throw new Error('Storage unavailable');
+    try { await this.database?.check(); }
+    catch { this.persistenceError = true; throw new Error('Storage unavailable'); }
+  }
+  public async close() {
+    try { await this.pending; }
+    catch { /* Failed persistence already blocks requests; closing still releases the writer. */ }
+    await this.database?.close();
+  }
   public persistenceError = false;
   public packageHistory: any[] = [];
   public botBroadcasts: any[] = [];
@@ -189,13 +236,14 @@ class CargonaDataStore {
   public expenseCategories: ExpenseCategory[] = [];
 
   constructor() {
-    this.loadFromFile();
+    if (!['json', 'postgres'].includes(this.storageMode)) throw new Error('Invalid STORAGE_BACKEND');
+    if (this.storageMode === 'json') this.loadFromFile();
     protectCredentials(this);
   }
 
   public loadFromFile() {
     try {
-      if (!fs.existsSync(DATA_DIR)) {
+      if (this.storageMode === 'json' && !fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
       }
       if (fs.existsSync(STORE_FILE)) {
@@ -262,10 +310,11 @@ class CargonaDataStore {
         }
         nextSnapshots.set(key, snapshot);
       }
-      if (!fs.existsSync(DATA_DIR)) {
+      if (this.storageMode === 'json' && !fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
       }
       const data = {
+        ...this.extraState,
         plans: this.plans,
         tenants: this.tenants,
         branches: this.branches,
@@ -292,6 +341,18 @@ class CargonaDataStore {
         tripExpenses: this.tripExpenses,
         expenseCategories: this.expenseCategories,
       };
+      if (this.storageMode === 'postgres') {
+        if (!this.database) throw new Error('PostgreSQL storage has not been initialized');
+        const snapshot = JSON.parse(JSON.stringify(data));
+        this.pending = this.pending.then(() => this.database!.save(snapshot)).catch(() => {
+          this.persistenceError = true;
+          throw new Error('Cannot save PostgreSQL state; changes are blocked until restart and recovery');
+        });
+        // Legacy callers are covered by the HTTP response barrier; background jobs await this promise.
+        void this.pending.catch(() => {});
+        this.packageSnapshots = nextSnapshots;
+        return this.pending;
+      }
       writeState(STORE_FILE, data);
       this.packageSnapshots = nextSnapshots;
     } catch (err) {

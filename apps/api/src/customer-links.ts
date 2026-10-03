@@ -23,7 +23,7 @@ export function registerCustomerLinks(app: any, store: any) {
     const expiresAt = new Date(now + 30 * 60 * 1000).toISOString();
     store.clientLinks.push({ tenantId: tenant.id, customerId: customer.id, tokenHash: hash(token), expiresAt, createdBy: actor.id });
     audit(tenant.id, customer, actor, 'TELEGRAM_LINK_CREATED', 'Создана одноразовая ссылка привязки Telegram на 30 минут');
-    store.saveToFile();
+    await store.saveToFile();
     return { url: `https://t.me/${username}?startapp=link_${token}`, expiresAt };
   });
   const resolve = (request: any, reply: any) => {
@@ -53,7 +53,7 @@ export function registerCustomerLinks(app: any, store: any) {
     customer.telegramUsername = request.telegramUser.username || '';
     link.usedAt = new Date().toISOString();
     audit(tenant.id, customer, request.telegramUser, 'TELEGRAM_LINKED', `Подтверждена привязка Telegram ${request.telegramUser.id}, карго-код сохранён`);
-    store.saveToFile();
+    await store.saveToFile();
     return { success: true, cargoCode: customer.cargoCode };
   });
 }
