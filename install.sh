@@ -69,8 +69,8 @@ run_with_spinner() {
     sleep 0.1
   done
 
-  wait "$pid" || true
-  local exit_code=$?
+  local exit_code=0
+  wait "$pid" || exit_code=$?
 
   if [ $exit_code -eq 0 ]; then
     printf "\r  \033[0;32m[✓]\033[0m %s \033[0;32m(Готово)\033[0m          \n" "$title"

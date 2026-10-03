@@ -41,8 +41,8 @@ run_with_spinner() {
     sleep 0.1
   done
 
-  wait "$pid" || true
-  local exit_code=$?
+  local exit_code=0
+  wait "$pid" || exit_code=$?
 
   if [ $exit_code -eq 0 ]; then
     printf "\r  \033[0;32m[✓]\033[0m %s \033[0;32m(Готово)\033[0m          \n" "$title"
@@ -85,6 +85,8 @@ git_pull_cmd() {
   fi
 }
 run_with_spinner "Синхронизация с репозиторием GitHub..." git_pull_cmd
+chmod +x "${APP_DIR}/cargona" "${APP_DIR}/install.sh" "${APP_DIR}/update.sh"
+ln -sfn "${APP_DIR}/cargona" /usr/local/bin/cargona
 
 # 3. Rebuild and restart containers
 echo -e "\n${CYAN}[3/3] Пересборка и запуск обновленных контейнеров...${NC}"

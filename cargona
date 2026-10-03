@@ -293,6 +293,8 @@ cmd_update() {
     if [ -d .git ]; then
       git pull
     fi
+    chmod +x "${APP_DIR}/cargona" "${APP_DIR}/install.sh"
+    ln -sfn "${APP_DIR}/cargona" /usr/local/bin/cargona
     dc_cmd up -d --build
     echo -e "${GREEN}✓ Обновление завершено!${NC}\n"
   fi

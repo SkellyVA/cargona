@@ -12,12 +12,13 @@ const storeSource = await readFile(new URL('../apps/api/src/store.ts', import.me
 const compiled = ts.transpileModule(storeSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
 const original = { id: 'old', tenantId: 't', trackingNumber: 'OLD', status: 'IN_TRANSIT', weightKg: 1, createdAt: '2025-01-01T00:00:00Z' };
 let saved = JSON.stringify({ packages: [original] });
+let writeFailure = false;
 const fakeFs = { existsSync: () => true, readFileSync: () => saved, mkdirSync() {}, writeFileSync: (_file, contents) => { saved = contents; } };
 function loadStore() {
   const exports = {};
   vm.runInNewContext(compiled, {
-    exports, require: name => name === 'node:fs' ? fakeFs : name === 'node:path' ? path : name === './package-history.js' ? helpers.exports : {},
-    process: { env: { DATA_DIR: '/isolated-test' } }, console: { log() {}, error: error => { throw error; } }, crypto: { randomUUID },
+    exports, require: name => name === 'node:fs' ? fakeFs : name === 'node:path' ? path : name === './package-history.js' ? helpers.exports : name === './persistence.js' ? { writeState: (_file, state) => { if (writeFailure) throw new Error('disk full'); saved = JSON.stringify(state); } } : {},
+    process: { env: { DATA_DIR: '/isolated-test' } }, console: { log() {}, error() {} }, crypto: { randomUUID },
   });
   return exports.store;
 }
@@ -58,3 +59,13 @@ store.saveToFile();
 assert.ok(store.packageHistory.at(-1).changes.some(change => change.field === 'weightPending' && change.after === false));
 assert.ok(store.packageHistory.at(-1).changes.some(change => change.field === 'weightKg' && change.after === 2));
 console.log('Package history checks passed: creation, movement, no duplicate events, persistence, issuance');
+const lastSaved = saved;
+writeFailure = true;
+assert.throws(() => store.saveToFile(), /Cannot save persistent state/);
+assert.equal(store.persistenceError, true);
+assert.equal(saved, lastSaved);
+writeFailure = false;
+assert.throws(() => store.saveToFile(), /changes are blocked/);
+saved = 'broken JSON';
+assert.throws(() => loadStore(), /Cannot load persistent state/);
+console.log('Store checks passed: failed writes block changes, corrupt storage prevents startup');

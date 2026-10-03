@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { packageSnapshot, packageChanges } from './package-history.js';
+import { writeState } from './persistence.js';
 import {
   Tenant,
   Branch,
@@ -56,6 +57,7 @@ const { dataDir: DATA_DIR, storeFile: STORE_FILE } = resolveStorePaths();
  * Automatically syncs with disk so restarts/recreates never reset state.
  */
 class CargonaDataStore {
+  public persistenceError = false;
   public packageHistory: any[] = [];
   public botBroadcasts: any[] = [];
   private packageSnapshots = new Map<string, Record<string, unknown>>();
@@ -221,10 +223,12 @@ class CargonaDataStore {
       }
     } catch (err) {
       console.error('[Store] Failed to load state from disk:', err);
+      throw new Error('Cannot load persistent state; restore a verified backup before starting', { cause: err });
     }
   }
 
   public saveToFile() {
+    if (this.persistenceError) throw new Error('Storage unavailable; changes are blocked until restart and recovery');
     try {
       const now = new Date().toISOString();
       const nextSnapshots = new Map<string, Record<string, unknown>>();
@@ -273,10 +277,12 @@ class CargonaDataStore {
         tripExpenses: this.tripExpenses,
         expenseCategories: this.expenseCategories,
       };
-      fs.writeFileSync(STORE_FILE, JSON.stringify(data, null, 2), 'utf8');
+      writeState(STORE_FILE, data);
       this.packageSnapshots = nextSnapshots;
     } catch (err) {
+      this.persistenceError = true;
       console.error('[Store] Failed to save state to disk:', err);
+      throw new Error('Cannot save persistent state; changes are blocked until restart and recovery', { cause: err });
     }
   }
 }

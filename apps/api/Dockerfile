@@ -1,4 +1,4 @@
-FROM node:22-alpine
+FROM node:22-alpine AS builder
 RUN corepack enable && corepack prepare pnpm@12.5.1 --activate
 WORKDIR /app
 
@@ -12,9 +12,14 @@ RUN pnpm install --ignore-scripts
 RUN pnpm --filter @cargona/types build && \
     pnpm --filter @cargona/db build && \
     pnpm --filter @cargona/api build
+RUN pnpm --filter @cargona/api deploy --prod --legacy --ignore-scripts /runtime
 
 # Strip all source code files to protect IP
-RUN rm -rf apps/api/src packages/types/src packages/db/src
+FROM node:22-alpine AS runtime
+WORKDIR /app
+COPY --from=builder /runtime/node_modules ./apps/api/node_modules
+COPY --from=builder /runtime/dist ./apps/api/dist
+COPY --from=builder /runtime/package.json ./apps/api/package.json
 
 ENV NODE_ENV=production
 ENV PORT=4000

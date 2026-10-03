@@ -10,6 +10,11 @@ import { registerBroadcasts } from './broadcasts.js';
 const fastify = Fastify({
   logger: true,
 });
+fastify.addHook('onRequest', async (request, reply) => {
+  if (store.persistenceError && !request.url.split('?')[0].startsWith('/health')) {
+    return reply.status(503).send({ error: 'Хранилище недоступно. Изменения временно заблокированы.' });
+  }
+});
 registerBroadcasts(fastify, store);
 
 await fastify.register(compress, {
@@ -48,6 +53,10 @@ fastify.get('/health', async () => ({
   domain: APP_DOMAIN,
   timestamp: new Date().toISOString(),
 }));
+fastify.get('/health/ready', async (_request, reply) => {
+  if (store.persistenceError) return reply.status(503).send({ status: 'unavailable', storage: 'failed' });
+  return { status: 'ok', storage: 'ready' };
+});
 
 // ==========================================
 // 1.5 Authentication Routes (/api/auth)
