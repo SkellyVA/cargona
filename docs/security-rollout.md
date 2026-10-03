@@ -28,7 +28,7 @@ Deploy frontend/backend together and restart the backend. Startup configures a p
 
 ## Still pending
 
-Financial transactions/idempotency and comprehensive server-authoritative tariffs/status transitions need further implementation and integration checks. This is not a completed resilience rollout.
+Comprehensive server-authoritative tariffs/status transitions need further implementation and integration checks. This is not a completed resilience rollout.
 
 ## WMS issuance and payment retries
 
@@ -36,7 +36,21 @@ WMS waits for the API before showing success or changing local parcel/cash state
 
 The API validates company, client, location, ready status, unique parcel IDs (including tracking aliases), weighing and stored costs. Payment is the server's rounded USD sum; parcels already marked as paid online are excluded from the amount collected. Existing panel `package.cost` and branch cash values are USD, so new WMS payments explicitly record USD and the authenticated cashier. Transfer payments do not increase cash. Photos are persisted with the issuance.
 
-Issuance, cash update, payment, audit and retry receipt are saved in the same atomic JSON snapshot. A failed write returns an error and the existing storage-failure guard blocks subsequent API operations. This is supported for the current single API process; concurrent processes sharing JSON are not supported. PostgreSQL transactions remain pending. Other finance operations, refunds and collections are not yet covered by this retry mechanism. Deploy backend/frontend together; the new WMS endpoint requires the operation key provided by the updated interface.
+Issuance, cash update, payment, audit and retry receipt are saved in the same atomic JSON snapshot. A failed write returns an error and the existing storage-failure guard blocks subsequent API operations. This is supported for the current single API process; concurrent processes sharing JSON are not supported. PostgreSQL transactions remain pending. Deploy backend/frontend together; the new WMS endpoint requires the operation key provided by the updated interface.
+
+## Finance, collections, refunds and reconciliation
+
+Financial writes use persisted operation keys. Errors keep the forms open; the panel waits for API confirmation, then refreshes the actual accounts, transactions, collections and balances. Account IDs come from the API; the panel no longer invents accounts. Positive finite amounts with at most two decimal places are required. Transfers require two distinct active accounts in the same company; outgoing operations cannot exceed the available balance. Explicit foreign currency amounts are converted by the API using the supplied positive exchange rate and the rate is stored in the transaction. This is a recorded staff-supplied rate, not a live market rate service.
+
+Account and branch cash values continue to use the existing panel's USD convention. Old balances and old currency labels are not automatically converted. New WMS payments update the actual cash or bank account, with a per-package payment allocation. A difference between a PVZ branch's cash and its account blocks monetary operations until the owner performs a documented reconciliation. The owner can record the actual counted balance and reason through «Сверка кассы»; both representations then update in one write.
+
+Collections have a one-way state machine: REQUESTED -> CONFIRMED or REJECTED. Requesting reserves/debits the exact PVZ cash; confirming credits the selected safe once; rejecting returns it to the source PVZ once. Cash in transit is displayed separately and remains included in total assets until confirmation or rejection. Repeating the same terminal action returns success without another money movement, even with a new key. Attempting the opposite terminal action is rejected. Confirmation and rejection require the owner. The old direct branch-cash-zeroing endpoint is removed: the branch action creates a normal collection pending acceptance.
+
+Refunds require an original company payment or a new verified customer-payment transaction. The sum of refunds, including parcel-linked refunds, cannot exceed that payment's remaining USD amount. Old ambiguous payment/currency records require manual audit and cannot be automatically refunded. A refund of a customer balance payment reverses the corresponding balance increase. Physical parcel returns are separate: the parcel-return forms default to zero money and direct the owner to «Возврат оплаты» in Finance. A parcel refund through the API also requires a verified per-parcel payment allocation. Direct PUT balance/cash/refund fields are rejected.
+
+Income, expenses, transfers, collection transitions, customer balance movements, trip costs, refunds and reconciliation are recorded with the authenticated actor. Monetary audit records retain balances before/after; the journal shows the source balance change. Customer debt payments increase the customer's balance toward zero. A separate owner-only charge can increase debt without pretending to receive cash. The weekly revenue chart now uses actual dated records instead of fabricated percentages.
+
+Existing money and historical transactions are preserved. Deploy API and web together. Retry receipts, ledger records and balance changes use the same atomic JSON write and survive restart; only one API process may write this JSON store. No server commands or real payment transfers are performed by these changes.
 
 PostgreSQL migration, off-server backups, restore drills, monitoring, the production Compose bundle and the remaining business protections are also pending.
 

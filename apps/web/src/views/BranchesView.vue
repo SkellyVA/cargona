@@ -1362,9 +1362,11 @@ async function createBranch() {
   finally { isCreatingBranch.value = false; }
 }
 
-function collectCash(branch: any) {
-  const sum = store.collectBranchCash(branch.id);
-  toastMessage.value = `Инкассация: ${store.formatMoney(sum)} изъято из кассы ${branch.name}. Запись внесена в аудит.`;
+async function collectCash(branch: any) {
+  try {
+    const sum = await store.collectBranchCash(branch.id);
+    toastMessage.value = `Заявка на инкассацию ${store.formatMoney(sum)} из кассы ${branch.name} создана. Приём в сейф подтвердите в «Финансах».`;
+  } catch (error) { toastMessage.value = error instanceof Error ? error.message : 'Не удалось создать инкассацию'; }
 }
 
 function openAddCellModal(branch: any) {

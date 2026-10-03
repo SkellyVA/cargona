@@ -51,7 +51,7 @@ for (const [start, end] of [
   ['// --- Settings & Delivery Rates ---', '// --- Loyalty & Referral System (NOOR CLUB) ---'],
   ["fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/packages/:id'", "fastify.delete<{ Params: { slug: string; id: string } }>('/api/o/:slug/packages/:id'"],
   ["fastify.delete<{ Params: { slug: string; id: string } }>('/api/o/:slug/customers/:id'", '// --- Packages Management ---'],
-  ["fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/branches/:id'", "fastify.post<{ Params: { slug: string; id: string } }>('/api/o/:slug/branches/:id/collection'"],
+  ["fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/branches/:id'", "fastify.delete<{ Params: { slug: string; id: string } }>('/api/o/:slug/branches/:id'"],
   ['// Save Tenant Bot Settings (Set BYOB token & register webhook)', '// Submit Package Review & Post to Reviews Channel'],
   ['// Submit Package Review & Post to Reviews Channel', '// Telegram Webhook Handler'],
   ['// Bulk Package Intake', "fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/packages/:id'"],

@@ -7,7 +7,10 @@ import { chromium } from 'playwright';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { shippingDate } from '../apps/api/src/shipping-date.ts';
-import { registerHandover } from '../apps/api/src/handover.ts';
+import { ensureDefaultCashAccounts, registerFinance } from '../apps/api/src/finance.ts';
+const handoverExports = {};
+vm.runInNewContext(ts.transpileModule(await readFile(new URL('../apps/api/src/handover.ts', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText, { exports: handoverExports, require: name => name === './finance.js' ? { ensureDefaultCashAccounts } : createRequire(import.meta.url)(name) });
+const { registerHandover } = handoverExports;
 const require = createRequire(new URL('../apps/web/package.json', import.meta.url));
 const { RGBLuminanceSource, HybridBinarizer, BinaryBitmap, QRCodeReader } = require('@zxing/library');
 
@@ -51,9 +54,10 @@ try {
     const bulkEnd = apiSource.indexOf('// Package movement history', bulkStart);
     const fixtureStore = { tenants: [data.tenant], customers: [{ ...customer, tenantId: 't' }], packages: data.packages, originWarehouses: warehouses.map(w => ({ ...w, tenantId: 't' })), auditLogs: [], nextId: (prefix, items) => `${prefix}-${items.length + 1}`, saveToFile() {} };
     const handoverApi = apiRequire('fastify')();
-    Object.assign(fixtureStore, { branches: data.branches.map(b => ({ ...b, tenantId: 't', cashBalance: 0 })), payments: [], handoverReceipts: [] });
-    handoverApi.addHook('preHandler', async request => { request.authUser = { id: 'owner', role: 'OWNER', name: 'Owner' }; });
+    Object.assign(fixtureStore, { branches: data.branches.map(b => ({ ...b, tenantId: 't', cashBalance: 0 })), payments: [], handoverReceipts: [], financialReceipts: [], cashCollections: [], financialTransactions: [], tripExpenses: [], trips: [], tenantSettings: {} });
+    handoverApi.addHook('preHandler', async request => { request.authUser = { id: 'owner', role: 'OWNER', name: 'Owner', organizationSlug: 'acme' }; });
     registerHandover(handoverApi, fixtureStore);
+    registerFinance(handoverApi, fixtureStore);
     vm.runInNewContext(ts.transpileModule(apiSource.slice(bulkStart, bulkEnd), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, { fastify: bulkApi, store: fixtureStore, shippingDate });
     let bulkRequest;
     let failBulk = false;
@@ -64,8 +68,18 @@ try {
     let linkClaims = 0;
     let handoverAttempts = 0;
     const handoverKeys = [];
+    const financeKeys = [];
+    let failFirstExpense = true;
     await page.route('**/api/**', route => {
       const requestUrl = new URL(route.request().url());
+      if (requestUrl.pathname.includes('/finance/')) {
+        const key = route.request().headers()['idempotency-key'];
+        if (key) financeKeys.push(key);
+        return handoverApi.inject({ method: route.request().method(), url: requestUrl.pathname, headers: key ? { 'idempotency-key': key } : {}, ...(route.request().method() === 'POST' ? { payload: route.request().postDataJSON() } : {}) }).then(response => {
+          if (failFirstExpense && requestUrl.pathname.endsWith('/transactions') && route.request().postDataJSON()?.type === 'EXPENSE' && response.statusCode === 200) { failFirstExpense = false; return route.abort('failed'); }
+          return route.fulfill({ status: response.statusCode, json: response.json() });
+        });
+      }
       if (requestUrl.pathname === '/api/wms/handover') {
         handoverAttempts++;
         const key = route.request().headers()['idempotency-key'];
@@ -106,6 +120,11 @@ try {
         if (failBulk) return route.fulfill({ status: 500, json: { error: 'Ошибка сохранения' } });
         return bulkApi.inject({ method: 'POST', url: '/api/o/acme/packages/bulk', payload: bulkRequest }).then(response => route.fulfill({ status: response.statusCode, json: response.json() }));
       }
+      data.cashAccounts = fixtureStore.cashAccounts || [];
+      data.financialTransactions = fixtureStore.financialTransactions;
+      data.cashCollections = fixtureStore.cashCollections;
+      data.tripExpenses = fixtureStore.tripExpenses;
+      for (const branch of data.branches) branch.cashBalance = fixtureStore.branches.find(b => b.id === branch.id)?.cashBalance || 0;
       return route.fulfill({ json: data });
     });
     await page.route('https://telegram.org/**', route => route.abort());
@@ -219,6 +238,52 @@ try {
     assert.equal(handoverKeys[0], handoverKeys[1], 'Retry after response loss must reuse the key');
     assert.equal(fixtureStore.payments.length, 1);
     assert.equal(fixtureStore.branches[0].cashBalance, 12);
+    await page.goto(`http://127.0.0.1:${server.address().port}/o/acme/finance`);
+    await page.getByRole('button', { name: 'Расход', exact: true }).click();
+    const expenseModal = page.getByRole('heading', { name: 'Внесение расхода компании', exact: true }).locator('../..');
+    await expenseModal.getByPlaceholder('150').fill('2');
+    await expenseModal.getByRole('button', { name: /Главный сейф/ }).click();
+    await expenseModal.getByRole('button', { name: /^Касса: Configured pickup/ }).click();
+    await expenseModal.getByRole('button', { name: 'Провести расход', exact: true }).click();
+    await expenseModal.getByRole('alert').waitFor();
+    assert.equal(fixtureStore.financialTransactions.length, 1);
+    await expenseModal.getByRole('button', { name: 'Провести расход', exact: true }).click();
+    await page.getByText('Расход успешно проведен', { exact: true }).waitFor();
+    assert.equal(financeKeys[0], financeKeys[1]);
+    assert.equal(fixtureStore.financialTransactions.length, 1);
+    assert.equal(fixtureStore.branches[0].cashBalance, 10);
+    await page.getByRole('button', { name: 'Кассы и Инкассация', exact: true }).click();
+    await page.getByRole('button', { name: 'Инкассировать', exact: true }).click();
+    const collectionModal = page.getByRole('heading', { name: 'Инкассация кассы ПВЗ', exact: true }).locator('../..');
+    await collectionModal.locator('input[type="number"]').fill('3');
+    await collectionModal.getByRole('button', { name: /Создать|инкассацию|Сформировать/ }).last().click();
+    await page.getByText('Заявка на инкассацию сформирована', { exact: true }).waitFor();
+    assert.equal(fixtureStore.branches[0].cashBalance, 7);
+    assert.ok((await page.getByText(/На инкассации:/).textContent()).includes('3,00 USD'));
+    await page.getByRole('button', { name: 'Принять', exact: true }).click();
+    await page.getByText('Инкассация подтверждена и зачислена в Главный сейф', { exact: true }).waitFor();
+    assert.equal(fixtureStore.cashAccounts.find(a => a.type === 'SAFE').balance, 3);
+    assert.ok((await page.getByText(/На инкассации:/).textContent()).includes('0,00 USD'));
+    await page.getByRole('button', { name: 'Возврат оплаты', exact: true }).click();
+    const refundModal = page.getByRole('heading', { name: 'Возврат подтверждённой оплаты', exact: true }).locator('../..');
+    await refundModal.getByRole('button', { name: 'Исходная оплата', exact: true }).click();
+    await refundModal.getByRole('button', { name: /pay-1 · остаток/ }).click();
+    await refundModal.getByRole('button', { name: 'Счёт возврата', exact: true }).click();
+    await refundModal.getByRole('button', { name: 'Касса: Configured pickup', exact: true }).click();
+    await refundModal.locator('#refund-amount').fill('13'); await refundModal.locator('#refund-comment').fill('Test refund');
+    await refundModal.getByRole('button', { name: 'Записать возврат', exact: true }).click();
+    await refundModal.getByText('Возврат превышает остаток исходной оплаты', { exact: true }).waitFor();
+    await refundModal.locator('#refund-amount').fill('1');
+    await refundModal.getByRole('button', { name: 'Записать возврат', exact: true }).click();
+    await page.getByText('Возврат оплаты записан', { exact: true }).waitFor();
+    assert.equal(fixtureStore.branches[0].cashBalance, 6);
+    const cashCard = page.locator('div.bg-surface').filter({ has: page.getByRole('button', { name: 'Инкассировать', exact: true }) });
+    await cashCard.getByRole('button', { name: 'Сверка кассы', exact: true }).click();
+    await page.locator('#reconcile-amount').fill('5'); await page.locator('#reconcile-reason').fill('Actual cash count');
+    await page.getByRole('button', { name: 'Подтвердить сверку', exact: true }).click();
+    await page.getByText('Сверка сохранена в аудите', { exact: true }).waitFor();
+    assert.equal(fixtureStore.branches[0].cashBalance, 5);
+    assert.deepEqual(pageErrors, []);
     await page.goto(`http://127.0.0.1:${server.address().port}/o/acme/customers`);
     await page.getByText('Test Customer', { exact: true }).filter({ visible: true }).first().click();
     await page.getByRole('button', { name: 'Привязать Telegram', exact: true }).click();

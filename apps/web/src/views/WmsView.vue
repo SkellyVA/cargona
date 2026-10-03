@@ -904,6 +904,7 @@
 
     <!-- Модальное окно оформления возврата на месте при выдаче -->
     <AppModal v-model="showHandoverReturnModal" title="Оформление возврата товара при выдаче">
+      <p v-if="returnError" role="alert" class="text-sm text-accent-coral">{{ returnError }}</p>
       <div class="space-y-4 text-xs">
         <div class="p-3.5 rounded-2xl bg-rose-950/20 border border-rose-500/30 flex items-center justify-between">
           <div>
@@ -928,12 +929,7 @@
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="text-text-secondary mb-1 block">Сумма возврата ({{ store.activeCurrency }})</label>
-            <input
-              type="number"
-              v-model.number="handoverReturnForm.refundAmount"
-              class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white text-xs focus:border-rose-400 focus:outline-none font-mono"
-            />
+            <p class="text-xs text-text-secondary">Возврат денег оформляется владельцем в «Финансах» по исходной оплате.</p>
           </div>
           <div>
             <label class="text-text-secondary mb-1 block">Трек обратной отправки</label>
@@ -954,7 +950,7 @@
           Отмена
         </button>
         <button
-          @click="confirmHandoverReturn"
+          @click="confirmHandoverReturn" :disabled="returnSaving"
           class="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-[0_0_15px_rgba(225,29,72,0.4)] transition cursor-pointer flex items-center gap-1.5"
         >
           <RotateCcw class="w-3.5 h-3.5" />
@@ -1433,35 +1429,43 @@ function openHandoverReturnModal(pkg: any) {
   const activeRate = store.ratesToUSD[store.activeCurrency] || 1;
   handoverReturnForm.value = {
     reason: 'Отказ клиента при осмотре',
-    refundAmount: Math.round(pkg.costUSD * activeRate * 100) / 100,
+    refundAmount: 0,
     returnTracking: `RET-${pkg.trackingNumber}`,
   };
   showHandoverReturnModal.value = true;
 }
 
-function confirmHandoverReturn() {
-  if (!returnTargetPkg.value) return;
-  const activeRate = store.ratesToUSD[store.activeCurrency] || 1;
-  const refundUSD = handoverReturnForm.value.refundAmount / activeRate;
+const returnSaving = ref(false);
+const returnError = ref('');
+async function confirmHandoverReturn() {
+  if (returnSaving.value) return;
+  returnSaving.value = true; returnError.value = "";
+  try {
+    if (!returnTargetPkg.value) return;
+    const activeRate = store.ratesToUSD[store.activeCurrency] || 1;
+    const refundUSD = handoverReturnForm.value.refundAmount / activeRate;
 
-  store.processPackageReturn(
-    returnTargetPkg.value.id,
-    handoverReturnForm.value.reason,
-    refundUSD,
-    handoverReturnForm.value.returnTracking
-  );
-
-  // Удаляем из списка готовых к выдаче
-  if (activeHandover.value) {
-    activeHandover.value.readyPackages = activeHandover.value.readyPackages.filter(
-      (p: any) => p.id !== returnTargetPkg.value.id
+    await store.processPackageReturn(
+      returnTargetPkg.value.id,
+      handoverReturnForm.value.reason,
+      refundUSD,
+      handoverReturnForm.value.returnTracking
     );
-    selectedPackageIds.value = selectedPackageIds.value.filter((id) => id !== returnTargetPkg.value.id);
-  }
 
-  showHandoverReturnModal.value = false;
-  successToast.value = `Посылка ${returnTargetPkg.value.trackingNumber} переведена в возврат (${handoverReturnForm.value.reason})`;
-  playChime(660);
+    // Удаляем из списка готовых к выдаче
+    if (activeHandover.value) {
+      activeHandover.value.readyPackages = activeHandover.value.readyPackages.filter(
+        (p: any) => p.id !== returnTargetPkg.value.id
+      );
+      selectedPackageIds.value = selectedPackageIds.value.filter((id) => id !== returnTargetPkg.value.id);
+    }
+
+    showHandoverReturnModal.value = false;
+    successToast.value = `Посылка ${returnTargetPkg.value.trackingNumber} переведена в возврат (${handoverReturnForm.value.reason})`;
+    playChime(660);
+
+  } catch(error) { returnError.value = error instanceof Error ? error.message : "Не удалось оформить возврат"; }
+  finally { returnSaving.value = false; }
 }
 
 const handoverPayMethod = ref<'CASH' | 'TRANSFER'>('CASH');

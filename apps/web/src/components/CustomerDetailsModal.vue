@@ -38,22 +38,27 @@
           <input
             type="number"
             v-model.number="balanceDelta"
-            placeholder="Сумма в TJS..."
+            :placeholder="`Сумма в ${store.activeCurrency}...`"
             class="flex-1 h-9 px-3 rounded-xl bg-[#13151B] border border-white/[0.08] text-white font-mono text-xs focus:outline-none focus:border-accent-cyan"
           />
           <button
             @click="applyBalanceChange(true)"
+            :disabled="balanceSaving"
             class="px-3 h-9 rounded-xl bg-accent-emerald/20 hover:bg-accent-emerald/30 text-accent-emerald font-bold text-xs transition"
           >
             + Пополнить
           </button>
           <button
+            v-if="store.isOwner"
             @click="applyBalanceChange(false)"
+            :disabled="balanceSaving"
             class="px-3 h-9 rounded-xl bg-accent-coral/20 hover:bg-accent-coral/30 text-accent-coral font-bold text-xs transition"
           >
-            - Списать долг
+            − Начислить услуги
           </button>
         </div>
+        <AppDropdown v-model="balanceAccountId" :options="store.cashAccounts.map(a => ({ value: a.id, label: a.name }))" placeholder="Счёт приёма оплаты" class="w-full" />
+        <p v-if="balanceError" role="alert" class="text-accent-coral text-xs">{{ balanceError }}</p>
       </div>
 
       <!-- Список всех посылок этого клиента -->
@@ -134,6 +139,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import AppModal from './ui/AppModal.vue';
+import AppDropdown from './ui/AppDropdown.vue';
 import { useCargoStore } from '../stores/useCargoStore';
 
 const props = defineProps<{
@@ -188,6 +194,9 @@ async function confirmDeleteCustomer() {
   } finally { isDeleting.value = false; }
 }
 const balanceDelta = ref<number | null>(null);
+const balanceSaving = ref(false);
+const balanceError = ref('');
+const balanceAccountId = ref('');
 
 const isOpen = computed({
   get: () => props.modelValue,
@@ -203,12 +212,18 @@ const readyCount = computed(() => {
   return clientPackages.value.filter((p) => p.status === 'READY_FOR_PICKUP').length;
 });
 
-function applyBalanceChange(isPositive: boolean) {
-  if (!balanceDelta.value || !props.customer) return;
+async function applyBalanceChange(isPositive: boolean) {
+  if (!balanceDelta.value || !props.customer || balanceSaving.value) return;
   const deltaTJS = isPositive ? Math.abs(balanceDelta.value) : -Math.abs(balanceDelta.value);
-  const deltaUSD = deltaTJS / store.ratesToUSD.TJS;
-  store.adjustCustomerBalance(props.customer.id, deltaUSD, isPositive ? 'Ручное пополнение' : 'Списание за услуги');
-  balanceDelta.value = null;
+  const deltaUSD = Math.round(deltaTJS / (store.ratesToUSD[store.activeCurrency] || 1) * 100) / 100;
+  balanceSaving.value = true; balanceError.value = '';
+  try {
+    const customerId = props.customer.id;
+    const result = await store.adjustCustomerBalance(customerId, deltaUSD, isPositive ? 'Ручное пополнение' : 'Начисление за услуги', balanceAccountId.value);
+    if (props.customer?.id === customerId) props.customer.balanceUSD = result.customer.balance;
+    balanceDelta.value = null;
+  } catch (error) { balanceError.value = error instanceof Error ? error.message : 'Не удалось изменить баланс'; }
+  finally { balanceSaving.value = false; }
 }
 
 function getStatusLabel(status: string) {

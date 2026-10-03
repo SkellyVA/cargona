@@ -129,7 +129,9 @@ export interface FinancialTransaction {
   id: string;
   accountId: string;
   accountName?: string;
-  type: 'INCOME' | 'EXPENSE' | 'TRANSFER' | 'COLLECTION' | 'CUSTOMER_PAYMENT' | 'CUSTOMER_REFUND';
+  type: 'INCOME' | 'EXPENSE' | 'TRANSFER' | 'COLLECTION' | 'CUSTOMER_PAYMENT' | 'CUSTOMER_REFUND' | 'CUSTOMER_CHARGE' | 'RECONCILIATION';
+  balanceBeforeUSD?: number;
+  balanceAfterUSD?: number;
   category: string;
   amountUSD: number;
   amountLocal?: number;
@@ -1142,6 +1144,7 @@ export const useCargoStore = defineStore('cargo', () => {
           fullName: c.fullName,
           phone: c.phone || '',
           telegramUsername: c.telegramUsername || '',
+          telegramUserId: c.telegramUserId,
           balanceUSD: typeof c.balance === 'number' ? c.balance : (c.balanceUSD || 0),
           isBlocked: c.isBlocked || false,
           preferredBranchId: c.preferredBranchId || '',
@@ -1273,6 +1276,11 @@ export const useCargoStore = defineStore('cargo', () => {
         safeStorageSet('cargona_warehouses', rawOriginWarehouses.value);
       }
 
+      const scopedFinance = (old: any[], incoming: any[], map: (item: any) => any) => [...old.filter(item => item.tenantSlug && item.tenantSlug !== slug), ...incoming.map(item => ({ ...map(item), tenantSlug: slug }))];
+      if (Array.isArray(data.cashAccounts)) rawCashAccounts.value = scopedFinance(rawCashAccounts.value, data.cashAccounts, a => ({ ...a, balanceUSD: a.balance }));
+      if (Array.isArray(data.financialTransactions)) rawFinancialTransactions.value = scopedFinance(rawFinancialTransactions.value, data.financialTransactions, t => ({ ...t, amountLocal: t.amount }));
+      if (Array.isArray(data.cashCollections)) rawCashCollections.value = scopedFinance(rawCashCollections.value, data.cashCollections, c => ({ ...c, sourceBranchName: data.branches?.find((b: any) => b.id === c.sourceBranchId)?.name }));
+      if (Array.isArray(data.tripExpenses)) rawTripExpenses.value = scopedFinance(rawTripExpenses.value, data.tripExpenses, e => e);
       if (Array.isArray(data.auditLogs)) {
         const tenantAudit: AuditEntry[] = data.auditLogs.map((a: any) => ({
           id: a.id,
@@ -1668,71 +1676,23 @@ export const useCargoStore = defineStore('cargo', () => {
     return rawAuditLogs.value.filter((a) => (!a.tenantSlug || a.tenantSlug === slug));
   });
 
-  const cashAccounts = computed<CashAccount[]>(() => {
-    const slug = activeTenantSlug.value;
-    const baseList = slug ? rawCashAccounts.value.filter((a) => !a.tenantSlug || a.tenantSlug === slug) : rawCashAccounts.value;
-    const list = [...baseList];
-
-    // Ensure Safe account exists
-    if (!list.some((a) => a.type === 'SAFE')) {
-      list.unshift({
-        id: `acc-safe-${slug || 'cargona'}`,
-        name: 'Главный сейф (Офис)',
-        type: 'SAFE',
-        currency: activeCurrency.value,
-        balanceUSD: 0,
-        isActive: true,
-        tenantSlug: slug,
-      });
-    }
-
-    // Ensure Bank account exists
-    if (!list.some((a) => a.type === 'BANK')) {
-      list.unshift({
-        id: `acc-bank-${slug || 'cargona'}`,
-        name: 'Расчетный счет / Эквайринг',
-        type: 'BANK',
-        currency: activeCurrency.value,
-        balanceUSD: 0,
-        isActive: true,
-        tenantSlug: slug,
-      });
-    }
-
-    // Ensure account for each PVZ branch
-    for (const b of branches.value) {
-      if (!list.some((a) => a.branchId === b.id || a.id === `acc-pvz-${b.id}`)) {
-        list.push({
-          id: `acc-pvz-${b.id}`,
-          name: `Касса: ${b.name}`,
-          type: 'CASH_PVZ',
-          branchId: b.id,
-          currency: activeCurrency.value,
-          balanceUSD: b.cashBalanceUSD || 0,
-          isActive: true,
-          tenantSlug: slug,
-        });
-      }
-    }
-
-    return list;
-  });
+  const cashAccounts = computed<CashAccount[]>(() => rawCashAccounts.value.filter(a => a.tenantSlug === activeTenantSlug.value));
 
   const financialTransactions = computed<FinancialTransaction[]>(() => {
     const slug = activeTenantSlug.value;
-    const list = slug ? rawFinancialTransactions.value.filter((t) => !t.tenantSlug || t.tenantSlug === slug) : rawFinancialTransactions.value;
+    const list = slug ? rawFinancialTransactions.value.filter((t) => t.tenantSlug === slug) : rawFinancialTransactions.value;
     return [...list].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   });
 
   const cashCollections = computed<CashCollection[]>(() => {
     const slug = activeTenantSlug.value;
-    const list = slug ? rawCashCollections.value.filter((c) => !c.tenantSlug || c.tenantSlug === slug) : rawCashCollections.value;
+    const list = slug ? rawCashCollections.value.filter((c) => c.tenantSlug === slug) : rawCashCollections.value;
     return [...list].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   });
 
   const tripExpenses = computed<TripExpense[]>(() => {
     const slug = activeTenantSlug.value;
-    return slug ? rawTripExpenses.value.filter((e) => !e.tenantSlug || e.tenantSlug === slug) : rawTripExpenses.value;
+    return slug ? rawTripExpenses.value.filter((e) => e.tenantSlug === slug) : rawTripExpenses.value;
   });
 
   const expenseCategories = computed<ExpenseCategory[]>(() => rawExpenseCategories.value);
@@ -1747,7 +1707,8 @@ export const useCargoStore = defineStore('cargo', () => {
     const bankAccount = cashAccounts.value.find((a) => a.type === 'BANK');
     const safeUSD = safeAccount ? (safeAccount.balanceUSD || 0) : 0;
     const bankUSD = bankAccount ? (bankAccount.balanceUSD || 0) : 0;
-    const totalCashUSD = pvzUSD + safeUSD + bankUSD;
+    const inTransitUSD = cashCollections.value.filter(c => c.status === 'REQUESTED').reduce((sum, c) => sum + c.amountUSD, 0);
+    const totalCashUSD = pvzUSD + safeUSD + bankUSD + inTransitUSD;
 
     const deliveredPkgs = packages.value.filter((p) => p.status === 'RELEASED' || p.status === 'READY_FOR_PICKUP');
     const deliveredRevenueUSD = deliveredPkgs.reduce((acc, p) => acc + (p.costUSD || 0), 0);
@@ -1766,6 +1727,7 @@ export const useCargoStore = defineStore('cargo', () => {
 
     return {
       totalCashUSD,
+      inTransitUSD,
       pvzUSD,
       safeUSD,
       bankUSD,
@@ -2014,34 +1976,8 @@ export const useCargoStore = defineStore('cargo', () => {
   }
 
   // Оформление возврата товара (Return of goods)
-  function processPackageReturn(pkgId: string, reason: string, refundAmountUSD: number = 0, returnTrackingNumber: string = '') {
-    const pkg = rawPackages.value.find((p) => p.id === pkgId);
-    if (!pkg) return;
-    const oldStatus = pkg.status;
-    pkg.status = 'RETURNED';
-    pkg.returnReason = reason;
-    pkg.refundAmountUSD = refundAmountUSD;
-    pkg.returnTrackingNumber = returnTrackingNumber;
-
-    if (refundAmountUSD > 0 && pkg.customerCargoCode) {
-      const cust = rawCustomers.value.find((c) => c.cargoCode === pkg.customerCargoCode);
-      if (cust) {
-        cust.balanceUSD += refundAmountUSD;
-      }
-    }
-
-    addAudit('RETURN', 'Возврат товара', pkg.trackingNumber, `Причина: ${reason}. Возврат средств клиенту: ${formatMoney(refundAmountUSD)}`, currentUser.value?.name || 'operator', pkg.branchId);
-
-    try {
-      const slug = activeTenantSlug.value;
-      if (slug) {
-        fetch(`/api/o/${slug}/packages/${pkgId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'RETURNED', returnReason: reason, refundAmountUSD, returnTrackingNumber }),
-        });
-      }
-    } catch {}
+  async function processPackageReturn(pkgId: string, reason: string, refundAmountUSD = 0, returnTrackingNumber = '', payment?: { originalPaymentId?: string; originalTransactionId?: string; accountId: string }) {
+    return financePost('/packages/' + encodeURIComponent(pkgId) + '/return', { reason, refundAmountUSD, returnTrackingNumber, ...payment });
   }
 
   // Изменение статуса посылки
@@ -2092,23 +2028,11 @@ export const useCargoStore = defineStore('cargo', () => {
   }
 
   // Инкассация ПВЗ
-  function collectBranchCash(branchId: string): number {
-    const branch = rawBranches.value.find((b) => b.id === branchId);
-    if (!branch) return 0;
-    const collectedUSD = branch.cashBalanceUSD;
-    branch.cashBalanceUSD = 0;
-    addAudit('CASH_COLLECT', 'Инкассация', branch.name, `Изъято ${formatMoney(collectedUSD)}. Касса обнулена`, currentUser.value?.name || 'Владелец', branch.id, branch.name);
-
-    try {
-      const slug = activeTenantSlug.value;
-      if (slug) {
-        fetch(`/api/o/${slug}/branches/${branchId}/collection`, {
-          method: 'POST',
-        });
-      }
-    } catch {}
-
-    return collectedUSD;
+  async function collectBranchCash(branchId: string): Promise<number> {
+    const branch = branches.value.find(b => b.id === branchId);
+    if (!branch || !(branch.cashBalanceUSD > 0)) throw new Error('В кассе нет средств для инкассации');
+    const result = await requestCashCollection({ branchId, amount: branch.cashBalanceUSD });
+    return result.collection.amountUSD;
   }
 
   // Добавление ячейки на ПВЗ или склад
@@ -2357,22 +2281,8 @@ export const useCargoStore = defineStore('cargo', () => {
   }
 
   // Корректировка баланса клиента (пополнение или списание)
-  function adjustCustomerBalance(customerId: string, deltaUSD: number, reason: string) {
-    const c = rawCustomers.value.find((cust) => cust.id === customerId);
-    if (!c) return;
-    c.balanceUSD += deltaUSD;
-    addAudit('PAYMENT', 'Баланс клиента', c.cargoCode, `${deltaUSD >= 0 ? '+' : ''}${formatMoney(deltaUSD)} (${reason})`);
-
-    try {
-      const slug = activeTenantSlug.value;
-      if (slug) {
-        fetch(`/api/o/${slug}/customers/${customerId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ balanceUSD: c.balanceUSD }),
-        });
-      }
-    } catch {}
+  async function adjustCustomerBalance(customerId: string, deltaUSD: number, reason: string, accountId?: string) {
+    return financePost('/customers/' + encodeURIComponent(customerId) + '/balance', { amount: Math.abs(deltaUSD), type: deltaUSD >= 0 ? 'TOP_UP' : 'CHARGE', accountId, comment: reason });
   }
 
   // Подтверждение выдачи и оплаты клиенту (с поддержкой выбора конкретных посылок, фото-фиксации и способа оплаты)
@@ -2883,411 +2793,60 @@ export const useCargoStore = defineStore('cargo', () => {
   // 10. Financial Actions & Accounting Logic
   // ==========================================
 
-  // Внесение расхода (OPEX)
-  function addExpense(data: {
-    accountId?: string;
-    category: string;
-    amount: number;
-    currency?: string;
-    branchId?: string;
-    comment?: string;
-    receiptUrl?: string;
-  }) {
-    const curr = data.currency || activeCurrency.value;
-    const rate = ratesToUSD.value[curr] || 1;
-    const amountUSD = Math.round((data.amount / rate) * 100) / 100;
-
-    const safeAcc = cashAccounts.value.find((a) => a.type === 'SAFE');
-    const targetAccountId = data.accountId || safeAcc?.id || 'acc-safe';
-
-    const account = rawCashAccounts.value.find((a) => a.id === targetAccountId);
-    if (account) {
-      account.balanceUSD = Number(((account.balanceUSD || 0) - amountUSD).toFixed(2));
-    }
-    if (data.branchId) {
-      const branch = rawBranches.value.find((b) => b.id === data.branchId);
-      if (branch && targetAccountId.includes(data.branchId)) {
-        branch.cashBalanceUSD = Math.max(0, Number(((branch.cashBalanceUSD || 0) - amountUSD).toFixed(2)));
-      }
-    }
-
-    const tx: FinancialTransaction = {
-      id: nextSeqId('tx', rawFinancialTransactions.value),
-      accountId: targetAccountId,
-      type: 'EXPENSE',
-      category: data.category || 'Прочие расходы',
-      amountUSD,
-      amountLocal: data.amount,
-      currency: curr,
-      relatedBranchId: data.branchId || null,
-      comment: data.comment || null,
-      receiptUrl: data.receiptUrl || null,
-      createdBy: currentUser.value?.name || 'Бухгалтер',
-      createdAt: new Date().toISOString(),
-      tenantSlug: activeTenantSlug.value,
-    };
-
-    rawFinancialTransactions.value.unshift(tx);
-
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('cargona_fin_transactions', JSON.stringify(rawFinancialTransactions.value));
-      localStorage.setItem('cargona_cash_accounts', JSON.stringify(rawCashAccounts.value));
-      localStorage.setItem('cargona_branches', JSON.stringify(rawBranches.value));
-    }
-
-    addAudit('PAYMENT', 'Расход компании', data.category, `Списано ${formatMoney(amountUSD)} (${data.category})${data.comment ? `: ${data.comment}` : ''}`);
-
+  const financialRequestsInFlight = new Set<string>();
+  async function financePost(path: string, body: Record<string, any>) {
+    const slug = activeTenantSlug.value;
+    if (!slug) throw new Error('Выберите компанию');
+    const endpoint = '/api/o/' + slug + '/finance' + path;
+    if (financialRequestsInFlight.has(endpoint)) throw new Error('Операция уже выполняется');
+    financialRequestsInFlight.add(endpoint);
     try {
-      const slug = activeTenantSlug.value;
-      if (slug) {
-        fetch(`/api/o/${slug}/finance/transactions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            accountId: targetAccountId,
-            type: 'EXPENSE',
-            category: data.category,
-            amount: data.amount,
-            currency: curr,
-            amountUSD,
-            relatedBranchId: data.branchId,
-            comment: data.comment,
-            receiptUrl: data.receiptUrl,
-            createdBy: currentUser.value?.name || 'Бухгалтер',
-          }),
-        });
-      }
-    } catch {}
-
-    return tx;
+      const payload = JSON.stringify(body);
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(endpoint + payload));
+      const signature = Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, '0')).join('');
+      const storageKey = 'cargona_finance_' + slug + '_' + currentUser.value.id + '_' + path;
+      let pending: { signature: string; key: string } | null = null;
+      try { pending = JSON.parse(localStorage.getItem(storageKey) || 'null'); } catch {}
+      if (pending?.signature !== signature) pending = { signature, key: crypto.randomUUID() };
+      localStorage.setItem(storageKey, JSON.stringify(pending));
+      const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': pending!.key }, body: payload });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Не удалось сохранить финансовую операцию');
+      localStorage.removeItem(storageKey);
+      await syncTenantData(slug, true);
+      return data;
+    } finally { financialRequestsInFlight.delete(endpoint); }
   }
-
-  // Внесение прочего дохода (Доп. услуги, выкуп, аренда)
-  function addIncome(data: {
-    accountId?: string;
-    category: string;
-    amount: number;
-    currency?: string;
-    branchId?: string;
-    comment?: string;
-  }) {
-    const curr = data.currency || activeCurrency.value;
-    const rate = ratesToUSD.value[curr] || 1;
-    const amountUSD = Math.round((data.amount / rate) * 100) / 100;
-
-    const safeAcc = cashAccounts.value.find((a) => a.type === 'SAFE');
-    const targetAccountId = data.accountId || safeAcc?.id || 'acc-safe';
-
-    const account = rawCashAccounts.value.find((a) => a.id === targetAccountId);
-    if (account) {
-      account.balanceUSD = Number(((account.balanceUSD || 0) + amountUSD).toFixed(2));
-    }
-
-    const tx: FinancialTransaction = {
-      id: nextSeqId('tx', rawFinancialTransactions.value),
-      accountId: targetAccountId,
-      type: 'INCOME',
-      category: data.category || 'Прочий доход',
-      amountUSD,
-      amountLocal: data.amount,
-      currency: curr,
-      relatedBranchId: data.branchId || null,
-      comment: data.comment || null,
-      createdBy: currentUser.value?.name || 'Бухгалтер',
-      createdAt: new Date().toISOString(),
-      tenantSlug: activeTenantSlug.value,
-    };
-
-    rawFinancialTransactions.value.unshift(tx);
-
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('cargona_fin_transactions', JSON.stringify(rawFinancialTransactions.value));
-      localStorage.setItem('cargona_cash_accounts', JSON.stringify(rawCashAccounts.value));
-    }
-
-    addAudit('PAYMENT', 'Доход компании', data.category, `Поступило ${formatMoney(amountUSD)} (${data.category})${data.comment ? `: ${data.comment}` : ''}`);
-
-    try {
-      const slug = activeTenantSlug.value;
-      if (slug) {
-        fetch(`/api/o/${slug}/finance/transactions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            accountId: targetAccountId,
-            type: 'INCOME',
-            category: data.category,
-            amount: data.amount,
-            currency: curr,
-            amountUSD,
-            relatedBranchId: data.branchId,
-            comment: data.comment,
-            createdBy: currentUser.value?.name || 'Бухгалтер',
-          }),
-        });
-      }
-    } catch {}
-
-    return tx;
+  function financialAmount(value: number, currency = activeCurrency.value) {
+    return { amount: value, currency, exchangeRate: ratesToUSD.value[currency] || 1 };
   }
-
-  // Перемещение денег между счетами / кассами
-  function transferFunds(data: {
-    sourceAccountId: string;
-    targetAccountId: string;
-    amount: number;
-    currency?: string;
-    comment?: string;
-  }) {
-    const curr = data.currency || activeCurrency.value;
-    const rate = ratesToUSD.value[curr] || 1;
-    const amountUSD = Math.round((data.amount / rate) * 100) / 100;
-
-    const source = rawCashAccounts.value.find((a) => a.id === data.sourceAccountId);
-    const target = rawCashAccounts.value.find((a) => a.id === data.targetAccountId);
-
-    if (source) source.balanceUSD = Number(((source.balanceUSD || 0) - amountUSD).toFixed(2));
-    if (target) target.balanceUSD = Number(((target.balanceUSD || 0) + amountUSD).toFixed(2));
-
-    const tx: FinancialTransaction = {
-      id: nextSeqId('tx', rawFinancialTransactions.value),
-      accountId: data.sourceAccountId,
-      targetAccountId: data.targetAccountId,
-      type: 'TRANSFER',
-      category: 'Перемещение средств',
-      amountUSD,
-      amountLocal: data.amount,
-      currency: curr,
-      comment: data.comment || null,
-      createdBy: currentUser.value?.name || 'Бухгалтер',
-      createdAt: new Date().toISOString(),
-      tenantSlug: activeTenantSlug.value,
-    };
-
-    rawFinancialTransactions.value.unshift(tx);
-
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('cargona_fin_transactions', JSON.stringify(rawFinancialTransactions.value));
-      localStorage.setItem('cargona_cash_accounts', JSON.stringify(rawCashAccounts.value));
-    }
-
-    addAudit('PAYMENT', 'Перемещение средств', `${source?.name || 'Счет 1'} → ${target?.name || 'Счет 2'}`, `Переведено ${formatMoney(amountUSD)}`);
-
-    try {
-      const slug = activeTenantSlug.value;
-      if (slug) {
-        fetch(`/api/o/${slug}/finance/transactions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            accountId: data.sourceAccountId,
-            targetAccountId: data.targetAccountId,
-            type: 'TRANSFER',
-            category: 'Перемещение средств',
-            amount: data.amount,
-            currency: curr,
-            amountUSD,
-            comment: data.comment,
-            createdBy: currentUser.value?.name || 'Бухгалтер',
-          }),
-        });
-      }
-    } catch {}
-
-    return tx;
+  async function addExpense(data: { accountId?: string; category: string; amount: number; currency?: string; branchId?: string; comment?: string; receiptUrl?: string }) {
+    return financePost('/transactions', { accountId: data.accountId, type: 'EXPENSE', category: data.category, ...financialAmount(data.amount, data.currency), relatedBranchId: data.branchId, comment: data.comment, receiptUrl: data.receiptUrl });
   }
-
-  // Создание заявки на инкассацию из ПВЗ в Главный сейф
-  function requestCashCollection(data: {
-    branchId: string;
-    amount?: number;
-    notes?: string;
-  }) {
-    const branch = rawBranches.value.find((b) => b.id === data.branchId);
-    if (!branch) return null;
-
-    const amountUSD = data.amount !== undefined ? data.amount : (branch.cashBalanceUSD || 0);
-    if (amountUSD <= 0) return null;
-
-    // Списываем баланс с кассы ПВЗ
-    branch.cashBalanceUSD = Math.max(0, Number(((branch.cashBalanceUSD || 0) - amountUSD).toFixed(2)));
-
-    const pvzAccount = rawCashAccounts.value.find((a) => a.branchId === data.branchId && a.type === 'CASH_PVZ');
-    if (pvzAccount) {
-      pvzAccount.balanceUSD = Math.max(0, Number(((pvzAccount.balanceUSD || 0) - amountUSD).toFixed(2)));
-    }
-
-    const safeAcc = cashAccounts.value.find((a) => a.type === 'SAFE');
-    const receiptNumber = `COL-${new Date().getFullYear()}-${String(rawCashCollections.value.length + 1).padStart(4, '0')}`;
-
-    const collection: CashCollection = {
-      id: nextSeqId('col', rawCashCollections.value),
-      receiptNumber,
-      sourceBranchId: branch.id,
-      sourceBranchName: branch.name,
-      sourceAccountId: pvzAccount?.id || `acc-pvz-${branch.id}`,
-      targetAccountId: safeAcc?.id || 'acc-safe',
-      amountUSD,
-      status: 'REQUESTED',
-      requestedBy: currentUser.value?.name || 'Оператор ПВЗ',
-      notes: data.notes || null,
-      createdAt: new Date().toISOString(),
-      tenantSlug: activeTenantSlug.value,
-    };
-
-    rawCashCollections.value.unshift(collection);
-
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('cargona_cash_collections', JSON.stringify(rawCashCollections.value));
-      localStorage.setItem('cargona_branches', JSON.stringify(rawBranches.value));
-      localStorage.setItem('cargona_cash_accounts', JSON.stringify(rawCashAccounts.value));
-    }
-
-    addAudit('CASH_COLLECT', 'Заявка на инкассацию', branch.name, `Создана заявка №${receiptNumber} на сумму ${formatMoney(amountUSD)}. Деньги переданы курьеру-инкассатору.`);
-
-    try {
-      const slug = activeTenantSlug.value;
-      if (slug) {
-        fetch(`/api/o/${slug}/finance/collections`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sourceBranchId: branch.id,
-            amount: amountUSD,
-            notes: data.notes,
-            requestedBy: currentUser.value?.name || 'Оператор ПВЗ',
-          }),
-        });
-      }
-    } catch {}
-
-    return collection;
+  async function addIncome(data: { accountId?: string; category: string; amount: number; currency?: string; branchId?: string; comment?: string }) {
+    return financePost('/transactions', { accountId: data.accountId, type: 'INCOME', category: data.category, ...financialAmount(data.amount, data.currency), relatedBranchId: data.branchId, comment: data.comment });
   }
-
-  // Подтверждение приемки инкассации в Главный сейф
-  function confirmCashCollection(collectionId: string) {
-    const col = rawCashCollections.value.find((c) => c.id === collectionId);
-    if (!col || col.status !== 'REQUESTED') return;
-
-    col.status = 'CONFIRMED';
-    col.confirmedBy = currentUser.value?.name || 'Главный кассир / Владелец';
-    col.confirmedAt = new Date().toISOString();
-
-    // Зачисляем в Главный сейф
-    const safeAccount = rawCashAccounts.value.find((a) => a.type === 'SAFE' || a.id === col.targetAccountId);
-    if (safeAccount) {
-      safeAccount.balanceUSD = Number(((safeAccount.balanceUSD || 0) + col.amountUSD).toFixed(2));
-    }
-
-    // Записываем проводку в журнал
-    rawFinancialTransactions.value.unshift({
-      id: nextSeqId('tx', rawFinancialTransactions.value),
-      accountId: col.targetAccountId,
-      type: 'COLLECTION',
-      category: 'Инкассация в сейф',
-      amountUSD: col.amountUSD,
-      comment: `Приемка инкассации №${col.receiptNumber} (${col.sourceBranchName || 'ПВЗ'})`,
-      createdBy: col.confirmedBy,
-      createdAt: new Date().toISOString(),
-      tenantSlug: activeTenantSlug.value,
-    });
-
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('cargona_cash_collections', JSON.stringify(rawCashCollections.value));
-      localStorage.setItem('cargona_cash_accounts', JSON.stringify(rawCashAccounts.value));
-      localStorage.setItem('cargona_fin_transactions', JSON.stringify(rawFinancialTransactions.value));
-    }
-
-    addAudit('PAYMENT', 'Приемка инкассации', col.receiptNumber, `Сумма ${formatMoney(col.amountUSD)} успешно оприходована в Главный сейф.`);
-
-    try {
-      const slug = activeTenantSlug.value;
-      if (slug) {
-        fetch(`/api/o/${slug}/finance/collections/${collectionId}/confirm`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ confirmedBy: col.confirmedBy }),
-        });
-      }
-    } catch {}
+  async function transferFunds(data: { sourceAccountId: string; targetAccountId: string; amount: number; currency?: string; comment?: string }) {
+    return financePost('/transactions', { accountId: data.sourceAccountId, targetAccountId: data.targetAccountId, type: 'TRANSFER', category: 'Перемещение средств', ...financialAmount(data.amount, data.currency), comment: data.comment });
   }
-
-  // Отклонение инкассации (возврат средств на баланс кассы ПВЗ)
-  function rejectCashCollection(collectionId: string, reason: string = 'Отклонено кассиром') {
-    const col = rawCashCollections.value.find((c) => c.id === collectionId);
-    if (!col || col.status !== 'REQUESTED') return;
-
-    col.status = 'REJECTED';
-    col.rejectionReason = reason;
-
-    // Возвращаем баланс в ПВЗ
-    const branch = rawBranches.value.find((b) => b.id === col.sourceBranchId);
-    if (branch) {
-      branch.cashBalanceUSD = Number(((branch.cashBalanceUSD || 0) + col.amountUSD).toFixed(2));
-    }
-    const pvzAccount = rawCashAccounts.value.find((a) => a.id === col.sourceAccountId);
-    if (pvzAccount) {
-      pvzAccount.balanceUSD = Number(((pvzAccount.balanceUSD || 0) + col.amountUSD).toFixed(2));
-    }
-
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('cargona_cash_collections', JSON.stringify(rawCashCollections.value));
-      localStorage.setItem('cargona_branches', JSON.stringify(rawBranches.value));
-      localStorage.setItem('cargona_cash_accounts', JSON.stringify(rawCashAccounts.value));
-    }
-
-    addAudit('PAYMENT', 'Инкассация отклонена', col.receiptNumber, `Инкассация на сумму ${formatMoney(col.amountUSD)} отклонена: ${reason}. Средства возвращены в кассу ПВЗ.`);
+  async function requestCashCollection(data: { branchId: string; amount?: number; notes?: string }) {
+    const branch = branches.value.find(b => b.id === data.branchId);
+    return financePost('/collections', { sourceBranchId: data.branchId, amount: data.amount ?? branch?.cashBalanceUSD, notes: data.notes });
   }
-
-  // Внесение прямого расхода на рейс (Себестоимость перевозки / COGS)
-  function addTripExpense(data: {
-    tripId: string;
-    category: string;
-    amount: number;
-    currency?: string;
-    comment?: string;
-  }) {
-    const curr = data.currency || 'USD';
-    const rate = ratesToUSD.value[curr] || 1;
-    const amountUSD = Math.round((data.amount / rate) * 100) / 100;
-
-    const te: TripExpense = {
-      id: nextSeqId('te', rawTripExpenses.value),
-      tripId: data.tripId,
-      category: data.category,
-      amountUSD,
-      comment: data.comment || null,
-      createdAt: new Date().toISOString(),
-      tenantSlug: activeTenantSlug.value,
-    };
-
-    rawTripExpenses.value.unshift(te);
-
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('cargona_trip_expenses', JSON.stringify(rawTripExpenses.value));
-    }
-
-    const trip = trips.value.find((t) => t.id === data.tripId);
-    addAudit('PAYMENT', 'Расход на рейс', trip?.tripCode || data.tripId, `Внесен расход: ${formatMoney(amountUSD)} (${data.category})`);
-
-    try {
-      const slug = activeTenantSlug.value;
-      if (slug) {
-        fetch(`/api/o/${slug}/finance/trip-expenses`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            tripId: data.tripId,
-            category: data.category,
-            amount: data.amount,
-            currency: curr,
-            comment: data.comment,
-          }),
-        });
-      }
-    } catch {}
-
-    return te;
+  async function confirmCashCollection(id: string) { return financePost('/collections/' + id + '/confirm', {}); }
+  async function rejectCashCollection(id: string, reason = 'Отклонено владельцем') { return financePost('/collections/' + id + '/reject', { reason }); }
+  async function addTripExpense(data: { tripId: string; category: string; amount: number; currency?: string; comment?: string }) {
+    const rate = ratesToUSD.value[data.currency || 'USD'] || 1;
+    return financePost('/trip-expenses', { ...data, amount: Math.round(data.amount / rate * 100) / 100, currency: 'USD' });
+  }
+  async function refundPayment(data: { originalPaymentId?: string; originalTransactionId?: string; accountId: string; amountUSD: number; comment?: string }) {
+    return financePost('/transactions', { ...data, amount: data.amountUSD, currency: 'USD', type: 'CUSTOMER_REFUND', category: 'Возврат оплаты' });
+  }
+  async function reconcileAccount(id: string, observedAmountUSD: number, reason: string) { return financePost('/accounts/' + id + '/reconcile', { observedAmountUSD, reason }); }
+  async function getRefundOptions() {
+    const response = await fetch('/api/o/' + activeTenantSlug.value + '/finance/refund-options');
+    const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Не удалось загрузить оплаты');
+    return data.payments;
   }
 
   // Экспорт финансового отчета в CSV (Excel-ready)
@@ -3468,6 +3027,7 @@ export const useCargoStore = defineStore('cargo', () => {
     expenseCategories,
     financialSummary,
     tripFinancials,
+    refundPayment, reconcileAccount, getRefundOptions,
     addExpense,
     addIncome,
     transferFunds,

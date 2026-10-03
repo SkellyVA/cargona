@@ -1,5 +1,6 @@
 <template>
   <div class="space-y-6 max-w-full min-w-0 overflow-x-hidden">
+    <p v-if="financialError" role="alert" class="text-sm text-accent-coral">{{ financialError }}</p>
     <!-- Шапка раздела и Быстрые действия -->
     <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
       <div>
@@ -8,6 +9,7 @@
       </div>
 
       <div class="flex items-center gap-2 flex-wrap">
+        <button v-if="store.isOwner" @click="openRefundModal" class="px-3.5 py-2.5 rounded-xl bg-accent-coral/15 text-accent-coral border border-accent-coral/30 text-xs font-semibold">Возврат оплаты</button>
         <button
           @click="openExpenseModal"
           class="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs font-semibold transition cursor-pointer"
@@ -331,6 +333,7 @@
     <!-- ВКЛАДКА 2: КАССЫ И ИНКАССАЦИЯ (ДДС) -->
     <!-- ========================================== -->
     <div v-else-if="activeTab === 'CASHBOXES'" class="space-y-6">
+      <p class="text-xs text-text-secondary">На инкассации: <span class="font-mono text-accent-cyan">{{ store.formatMoney(store.financialSummary.inTransitUSD) }}</span>. Эти средства включены в общий остаток до приёмки в сейф.</p>
       <!-- Счета и кассы -->
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div
@@ -366,6 +369,7 @@
           </div>
 
           <div class="pt-2 border-t border-white/[0.06] flex items-center justify-between">
+            <button v-if="store.isOwner" @click="openReconcileModal(acc)" class="px-3 py-1.5 rounded-xl bg-white/[0.06] text-accent-cyan text-xs">Сверка кассы</button>
             <div>
               <div class="text-[10px] text-text-tertiary">Текущий баланс</div>
               <div class="text-lg font-black text-white font-mono mt-0.5">
@@ -434,13 +438,13 @@
                 <td class="p-3 text-right">
                   <div v-if="col.status === 'REQUESTED'" class="flex items-center justify-end gap-1.5">
                     <button
-                      @click="confirmCollection(col.id)"
+                      @click="confirmCollection(col.id)" :disabled="isFinanceSaving"
                       class="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-semibold text-[11px] border border-emerald-500/30 transition cursor-pointer"
                     >
                       Принять
                     </button>
                     <button
-                      @click="rejectCollection(col.id)"
+                      @click="rejectCollection(col.id)" :disabled="isFinanceSaving"
                       class="px-2 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-semibold text-[11px] border border-rose-500/30 transition cursor-pointer"
                     >
                       Отклонить
@@ -510,7 +514,7 @@
                       ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
                       : 'bg-accent-blue/15 text-accent-cyan border border-accent-blue/30'"
                   >
-                    {{ t.type === 'INCOME' ? 'Доход' : t.type === 'CUSTOMER_PAYMENT' ? 'Оплата' : t.type === 'EXPENSE' ? 'Расход' : t.type === 'CUSTOMER_REFUND' ? 'Возврат' : 'Перевод' }}
+                    {{ t.type === 'INCOME' ? 'Доход' : t.type === 'CUSTOMER_PAYMENT' ? 'Оплата' : t.type === 'EXPENSE' ? 'Расход' : t.type === 'CUSTOMER_REFUND' ? 'Возврат' : t.type === 'RECONCILIATION' ? 'Сверка' : t.type === 'CUSTOMER_CHARGE' ? 'Начисление' : t.type === 'COLLECTION' ? 'Инкассация' : 'Перевод' }}
                   </span>
                 </td>
                 <td class="p-3 font-semibold text-white">{{ t.category }}</td>
@@ -519,6 +523,7 @@
                 </td>
                 <td class="p-3 text-text-secondary text-[11px]">{{ getAccountName(t.accountId) }}</td>
                 <td class="p-3 text-text-secondary text-[11px] max-w-xs truncate">
+                  <div v-if="t.balanceBeforeUSD !== undefined && t.balanceAfterUSD !== undefined" class="font-mono text-accent-cyan">{{ store.formatMoney(t.balanceBeforeUSD) }} → {{ store.formatMoney(t.balanceAfterUSD) }}</div>
                   {{ t.comment || getBranchName(t.relatedBranchId) || '-' }}
                 </td>
                 <td class="p-3 text-right text-text-tertiary text-[11px]">{{ t.createdBy }}</td>
@@ -667,6 +672,7 @@
 
     <!-- 1. Модалка внесения расхода (OPEX) -->
     <AppModal v-model="showExpenseModal" title="Внесение расхода компании">
+      <p v-if="financialError" role="alert" class="text-sm text-accent-coral">{{ financialError }}</p>
       <div class="space-y-4 text-xs">
         <div>
           <label class="text-text-secondary mb-1 block">Категория расхода</label>
@@ -728,7 +734,7 @@
           Отмена
         </button>
         <button
-          @click="submitExpense"
+          @click="submitExpense" :disabled="isFinanceSaving"
           class="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-[0_0_15px_rgba(225,29,72,0.3)] transition cursor-pointer flex items-center gap-1.5"
         >
           <Check class="w-3.5 h-3.5" />
@@ -739,6 +745,7 @@
 
     <!-- 2. Модалка внесения дохода -->
     <AppModal v-model="showIncomeModal" title="Внесение прочего дохода">
+      <p v-if="financialError" role="alert" class="text-sm text-accent-coral">{{ financialError }}</p>
       <div class="space-y-4 text-xs">
         <div>
           <label class="text-text-secondary mb-1 block">Категория дохода</label>
@@ -789,7 +796,7 @@
           Отмена
         </button>
         <button
-          @click="submitIncome"
+          @click="submitIncome" :disabled="isFinanceSaving"
           class="px-5 py-2 rounded-xl bg-accent-emerald hover:bg-accent-emerald/90 text-white font-bold text-xs shadow-glow-emerald transition cursor-pointer flex items-center gap-1.5"
         >
           <Check class="w-3.5 h-3.5" />
@@ -800,6 +807,7 @@
 
     <!-- 3. Модалка перевода между счетами -->
     <AppModal v-model="showTransferModal" title="Перемещение средств между счетами">
+      <p v-if="financialError" role="alert" class="text-sm text-accent-coral">{{ financialError }}</p>
       <div class="space-y-4 text-xs">
         <div class="grid grid-cols-2 gap-3">
           <div>
@@ -849,7 +857,7 @@
           Отмена
         </button>
         <button
-          @click="submitTransfer"
+          @click="submitTransfer" :disabled="isFinanceSaving"
           class="px-5 py-2 rounded-xl bg-accent-blue hover:bg-accent-blue/90 text-white font-bold text-xs shadow-glow-blue transition cursor-pointer flex items-center gap-1.5"
         >
           <Check class="w-3.5 h-3.5" />
@@ -860,6 +868,7 @@
 
     <!-- 4. Модалка заявки на инкассацию -->
     <AppModal v-model="showCollectionModal" title="Инкассация кассы ПВЗ">
+      <p v-if="financialError" role="alert" class="text-sm text-accent-coral">{{ financialError }}</p>
       <div class="space-y-4 text-xs">
         <div class="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-300 space-y-1">
           <div class="font-bold">Филиал: {{ selectedCollectionBranch?.name }}</div>
@@ -896,7 +905,7 @@
           Отмена
         </button>
         <button
-          @click="submitCollectionRequest"
+          @click="submitCollectionRequest" :disabled="isFinanceSaving"
           class="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs shadow-[0_0_15px_rgba(245,158,11,0.3)] transition cursor-pointer flex items-center gap-1.5"
         >
           <Wallet class="w-3.5 h-3.5" />
@@ -907,6 +916,7 @@
 
     <!-- 5. Модалка расхода на рейс -->
     <AppModal v-model="showTripExpenseModal" title="Прямой расход на рейс (COGS)">
+      <p v-if="financialError" role="alert" class="text-sm text-accent-coral">{{ financialError }}</p>
       <div class="space-y-4 text-xs">
         <div>
           <label class="text-text-secondary mb-1 block">Категория логистического расхода</label>
@@ -946,7 +956,7 @@
           Отмена
         </button>
         <button
-          @click="submitTripExpense"
+          @click="submitTripExpense" :disabled="isFinanceSaving"
           class="px-5 py-2 rounded-xl bg-accent-blue hover:bg-accent-blue/90 text-white font-bold text-xs shadow-glow-blue transition cursor-pointer flex items-center gap-1.5"
         >
           <Check class="w-3.5 h-3.5" />
@@ -957,7 +967,9 @@
 
     <!-- 6. Модалка погашения долга клиента -->
     <AppModal v-model="showCustomerBalanceModal" title="Погашение задолженности клиента">
+      <p v-if="financialError" role="alert" class="text-sm text-accent-coral">{{ financialError }}</p>
       <div class="space-y-4 text-xs">
+        <AppDropdown v-model="debtorAccountId" :options="store.cashAccounts.map(a => ({ value: a.id, label: a.name }))" placeholder="Счёт приёма оплаты" />
         <div class="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 space-y-1">
           <div class="font-bold flex items-center justify-between">
             <span>{{ selectedDebtor?.fullName }}</span>
@@ -987,7 +999,7 @@
           Отмена
         </button>
         <button
-          @click="submitDebtorPayment"
+          @click="submitDebtorPayment" :disabled="isFinanceSaving"
           class="px-5 py-2 rounded-xl bg-accent-emerald hover:bg-accent-emerald/90 text-white font-bold text-xs shadow-glow-emerald transition cursor-pointer flex items-center gap-1.5"
         >
           <Check class="w-3.5 h-3.5" />
@@ -997,6 +1009,31 @@
     </AppModal>
 
     <!-- 7. Модалка тарифов доставки -->
+    <AppModal v-model="showRefundModal" title="Возврат подтверждённой оплаты">
+      <div class="space-y-3 text-xs">
+        <p class="text-text-secondary">Выберите исходную оплату и счёт, из которого возвращаете деньги. Повторный запрос не создаст второй возврат.</p>
+        <AppDropdown v-model="refundForm.payment" :options="refundOptions.map(p => ({ value: p.reference + ':' + p.id, label: p.id + ' · остаток ' + store.formatMoney(p.remainingUSD) }))" placeholder="Исходная оплата" class="w-full" />
+        <AppDropdown v-model="refundForm.accountId" :options="store.cashAccounts.map(a => ({ value: a.id, label: a.name }))" placeholder="Счёт возврата" class="w-full" />
+        <label class="block text-text-secondary" for="refund-amount">Сумма возврата (USD)</label>
+        <input id="refund-amount" v-model.number="refundForm.amountUSD" type="number" min="0.01" step="0.01" class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none" />
+        <label class="block text-text-secondary" for="refund-comment">Причина</label>
+        <input id="refund-comment" v-model="refundForm.comment" class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none" />
+        <p v-if="financialError" role="alert" class="text-accent-coral">{{ financialError }}</p>
+      </div>
+      <template #footer><button @click="submitRefund" :disabled="isFinanceSaving" class="px-4 py-2.5 rounded-xl bg-accent-coral text-white text-xs font-semibold disabled:opacity-50">Записать возврат</button></template>
+    </AppModal>
+    <AppModal v-model="showReconcileModal" title="Сверка остатка счёта">
+      <div class="space-y-3 text-xs">
+        <p>{{ reconcileAccountName }}. Записанный остаток: {{ store.formatMoney(reconcileBeforeUSD) }}.</p>
+        <p class="text-text-secondary">Укажите фактически пересчитанную сумму. Изменение остатка и причина сохранятся в аудите.</p>
+        <label class="block text-text-secondary" for="reconcile-amount">Фактический остаток (USD)</label>
+        <input id="reconcile-amount" v-model.number="reconcileForm.observedAmountUSD" type="number" min="0" step="0.01" class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none" />
+        <label class="block text-text-secondary" for="reconcile-reason">Причина расхождения или результат проверки</label>
+        <input id="reconcile-reason" v-model="reconcileForm.reason" class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none" />
+        <p v-if="financialError" role="alert" class="text-accent-coral">{{ financialError }}</p>
+      </div>
+      <template #footer><button @click="submitReconcile" :disabled="isFinanceSaving" class="px-4 py-2.5 rounded-xl bg-accent-cyan text-bg-primary text-xs font-semibold disabled:opacity-50">Подтвердить сверку</button></template>
+    </AppModal>
     <AppModal v-model="showTariffModal" :title="`Настройка тарифов доставки (${store.activeCurrency}/кг)`">
       <div class="space-y-4 text-xs">
         <div class="p-3 rounded-xl bg-accent-cyan/10 border border-accent-cyan/20 text-accent-cyan text-[11px] leading-relaxed">
@@ -1106,6 +1143,46 @@ const store = useCargoStore();
 const { t } = useI18n();
 
 const toastMessage = ref('');
+const financialError = ref('');
+const isFinanceSaving = ref(false);
+async function runFinanceAction(action: () => Promise<void>) {
+  if (isFinanceSaving.value) return;
+  financialError.value = ''; isFinanceSaving.value = true;
+  try { await action(); } catch (error) { financialError.value = error instanceof Error ? error.message : 'Не удалось сохранить операцию'; }
+  finally { isFinanceSaving.value = false; }
+}
+const debtorAccountId = ref('');
+const showRefundModal = ref(false);
+const refundOptions = ref<any[]>([]);
+const refundForm = ref({ payment: '', accountId: '', amountUSD: 0, comment: '' });
+async function openRefundModal() {
+  refundForm.value = { payment: '', accountId: '', amountUSD: 0, comment: '' };
+  financialError.value = ''; showRefundModal.value = true;
+  try { refundOptions.value = await store.getRefundOptions(); }
+  catch (error) { financialError.value = error instanceof Error ? error.message : 'Не удалось загрузить оплаты'; }
+}
+async function submitRefund() {
+  await runFinanceAction(async () => {
+      const payment = refundOptions.value.find(p => p.reference + ':' + p.id === refundForm.value.payment);
+      if (!payment || !refundForm.value.comment.trim()) throw new Error('Выберите исходную оплату и укажите причину');
+      await store.refundPayment({ [payment.reference]: payment.id, accountId: refundForm.value.accountId, amountUSD: refundForm.value.amountUSD, comment: refundForm.value.comment });
+      showRefundModal.value = false; toastMessage.value = 'Возврат оплаты записан';
+  });
+}
+const showReconcileModal = ref(false);
+const reconcileAccountName = ref('');
+const reconcileBeforeUSD = ref(0);
+const reconcileForm = ref({ id: '', observedAmountUSD: 0, reason: '' });
+function openReconcileModal(account: any) {
+  financialError.value = ''; reconcileAccountName.value = account.name; reconcileBeforeUSD.value = account.balanceUSD;
+  reconcileForm.value = { id: account.id, observedAmountUSD: account.balanceUSD, reason: '' }; showReconcileModal.value = true;
+}
+async function submitReconcile() {
+  await runFinanceAction(async () => {
+      await store.reconcileAccount(reconcileForm.value.id, reconcileForm.value.observedAmountUSD, reconcileForm.value.reason);
+      showReconcileModal.value = false; toastMessage.value = 'Сверка сохранена в аудите';
+  });
+}
 const isExportMenuOpen = ref(false);
 const exportMenuRef = ref<HTMLElement | null>(null);
 
@@ -1127,15 +1204,13 @@ const tabs = computed(() => [
 
 // 7-дневный график выручки
 const chartData = computed(() => {
-  const days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-  const todayIdx = (new Date().getDay() + 6) % 7;
-  const totalRev = store.financialSummary.deliveredRevenueUSD;
-
-  return days.map((day, idx) => {
-    const isToday = idx === todayIdx;
-    const factor = isToday ? 0.35 : idx < todayIdx ? 0.15 : 0.05;
-    const amountUSD = Math.round(totalRev * factor * 100) / 100;
-    return { day, amountUSD: Math.max(0, amountUSD) };
+  return Array.from({ length: 7 }, (_, index) => {
+    const start = new Date(); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - 6 + index);
+    const end = new Date(start); end.setDate(end.getDate() + 1);
+    const within = (date?: string) => !!date && Date.parse(date) >= start.getTime() && Date.parse(date) < end.getTime();
+    const delivered = store.packages.filter(p => p.status === 'RELEASED' && within(p.releasedAt)).reduce((sum, p) => sum + p.costUSD, 0);
+    const income = store.financialTransactions.filter(t => t.type === 'INCOME' && within(t.createdAt)).reduce((sum, t) => sum + t.amountUSD, 0);
+    return { day: start.toLocaleDateString('ru-RU', { weekday: 'short' }), amountUSD: Math.round((delivered + income) * 100) / 100 };
   });
 });
 
@@ -1239,20 +1314,23 @@ function openExpenseModal() {
   showExpenseModal.value = true;
 }
 
-function submitExpense() {
-  if (!expenseForm.value.amount || expenseForm.value.amount <= 0) {
-    toastMessage.value = 'Укажите корректную сумму расхода';
-    return;
-  }
-  store.addExpense({
-    accountId: expenseForm.value.accountId,
-    category: expenseForm.value.category,
-    amount: expenseForm.value.amount,
-    branchId: expenseForm.value.branchId || undefined,
-    comment: expenseForm.value.comment,
+async function submitExpense() {
+  await runFinanceAction(async () => {
+    if (!expenseForm.value.amount || expenseForm.value.amount <= 0) {
+      toastMessage.value = 'Укажите корректную сумму расхода';
+      return;
+    }
+    await store.addExpense({
+      accountId: expenseForm.value.accountId,
+      category: expenseForm.value.category,
+      amount: expenseForm.value.amount,
+      branchId: expenseForm.value.branchId || undefined,
+      comment: expenseForm.value.comment,
+    });
+    showExpenseModal.value = false;
+    toastMessage.value = 'Расход успешно проведен';
+
   });
-  showExpenseModal.value = false;
-  toastMessage.value = 'Расход успешно проведен';
 }
 
 // 2. Внесение дохода
@@ -1274,19 +1352,22 @@ function openIncomeModal() {
   showIncomeModal.value = true;
 }
 
-function submitIncome() {
-  if (!incomeForm.value.amount || incomeForm.value.amount <= 0) {
-    toastMessage.value = 'Укажите корректную сумму дохода';
-    return;
-  }
-  store.addIncome({
-    accountId: incomeForm.value.accountId,
-    category: incomeForm.value.category,
-    amount: incomeForm.value.amount,
-    comment: incomeForm.value.comment,
+async function submitIncome() {
+  await runFinanceAction(async () => {
+    if (!incomeForm.value.amount || incomeForm.value.amount <= 0) {
+      toastMessage.value = 'Укажите корректную сумму дохода';
+      return;
+    }
+    await store.addIncome({
+      accountId: incomeForm.value.accountId,
+      category: incomeForm.value.category,
+      amount: incomeForm.value.amount,
+      comment: incomeForm.value.comment,
+    });
+    showIncomeModal.value = false;
+    toastMessage.value = 'Доход успешно зачислен';
+
   });
-  showIncomeModal.value = false;
-  toastMessage.value = 'Доход успешно зачислен';
 }
 
 // 3. Перевод между счетами
@@ -1309,23 +1390,26 @@ function openTransferModal() {
   showTransferModal.value = true;
 }
 
-function submitTransfer() {
-  if (!transferForm.value.amount || transferForm.value.amount <= 0) {
-    toastMessage.value = 'Укажите сумму для перевода';
-    return;
-  }
-  if (transferForm.value.sourceAccountId === transferForm.value.targetAccountId) {
-    toastMessage.value = 'Выберите два разных счета для перевода';
-    return;
-  }
-  store.transferFunds({
-    sourceAccountId: transferForm.value.sourceAccountId,
-    targetAccountId: transferForm.value.targetAccountId,
-    amount: transferForm.value.amount,
-    comment: transferForm.value.comment,
+async function submitTransfer() {
+  await runFinanceAction(async () => {
+    if (!transferForm.value.amount || transferForm.value.amount <= 0) {
+      toastMessage.value = 'Укажите сумму для перевода';
+      return;
+    }
+    if (transferForm.value.sourceAccountId === transferForm.value.targetAccountId) {
+      toastMessage.value = 'Выберите два разных счета для перевода';
+      return;
+    }
+    await store.transferFunds({
+      sourceAccountId: transferForm.value.sourceAccountId,
+      targetAccountId: transferForm.value.targetAccountId,
+      amount: transferForm.value.amount,
+      comment: transferForm.value.comment,
+    });
+    showTransferModal.value = false;
+    toastMessage.value = 'Перевод успешно выполнен';
+
   });
-  showTransferModal.value = false;
-  toastMessage.value = 'Перевод успешно выполнен';
 }
 
 // 4. Инкассация
@@ -1347,25 +1431,34 @@ function openCollectionModal(branchId: string) {
   showCollectionModal.value = true;
 }
 
-function submitCollectionRequest() {
-  if (!selectedCollectionBranch.value || collectionForm.value.amount <= 0) return;
-  store.requestCashCollection({
-    branchId: selectedCollectionBranch.value.id,
-    amount: collectionForm.value.amount,
-    notes: collectionForm.value.notes,
+async function submitCollectionRequest() {
+  await runFinanceAction(async () => {
+    if (!selectedCollectionBranch.value || collectionForm.value.amount <= 0) return;
+    await store.requestCashCollection({
+      branchId: selectedCollectionBranch.value.id,
+      amount: collectionForm.value.amount,
+      notes: collectionForm.value.notes,
+    });
+    showCollectionModal.value = false;
+    toastMessage.value = `Заявка на инкассацию сформирована`;
+
   });
-  showCollectionModal.value = false;
-  toastMessage.value = `Заявка на инкассацию сформирована`;
 }
 
-function confirmCollection(id: string) {
-  store.confirmCashCollection(id);
-  toastMessage.value = 'Инкассация подтверждена и зачислена в Главный сейф';
+async function confirmCollection(id: string) {
+  await runFinanceAction(async () => {
+    await store.confirmCashCollection(id);
+    toastMessage.value = 'Инкассация подтверждена и зачислена в Главный сейф';
+
+  });
 }
 
-function rejectCollection(id: string) {
-  store.rejectCashCollection(id, 'Отклонено кассиром');
-  toastMessage.value = 'Инкассация отклонена. Деньги возвращены в кассу филиала.';
+async function rejectCollection(id: string) {
+  await runFinanceAction(async () => {
+    await store.rejectCashCollection(id, 'Отклонено кассиром');
+    toastMessage.value = 'Инкассация отклонена. Деньги возвращены в кассу филиала.';
+
+  });
 }
 
 // 5. Расход на рейс (COGS)
@@ -1387,16 +1480,19 @@ function openTripExpenseModal(tripId: string) {
   showTripExpenseModal.value = true;
 }
 
-function submitTripExpense() {
-  if (!tripExpenseForm.value.amount || tripExpenseForm.value.amount <= 0) return;
-  store.addTripExpense({
-    tripId: selectedTripId.value,
-    category: tripExpenseForm.value.category,
-    amount: tripExpenseForm.value.amount,
-    comment: tripExpenseForm.value.comment,
+async function submitTripExpense() {
+  await runFinanceAction(async () => {
+    if (!tripExpenseForm.value.amount || tripExpenseForm.value.amount <= 0) return;
+    await store.addTripExpense({
+      tripId: selectedTripId.value,
+      category: tripExpenseForm.value.category,
+      amount: tripExpenseForm.value.amount,
+      comment: tripExpenseForm.value.comment,
+    });
+    showTripExpenseModal.value = false;
+    toastMessage.value = 'Расход на рейс успешно добавлен';
+
   });
-  showTripExpenseModal.value = false;
-  toastMessage.value = 'Расход на рейс успешно добавлен';
 }
 
 // 6. Погашение долга клиента
@@ -1406,15 +1502,19 @@ const debtorPaymentAmount = ref(0);
 
 function openCustomerBalanceModal(debtor: any) {
   selectedDebtor.value = debtor;
+  debtorAccountId.value = store.cashAccounts.find(a => a.type === 'CASH_PVZ' && a.branchId === debtor.preferredBranchId)?.id || store.cashAccounts[0]?.id || '';
   debtorPaymentAmount.value = Math.abs(debtor.balanceUSD || 0);
   showCustomerBalanceModal.value = true;
 }
 
-function submitDebtorPayment() {
-  if (!selectedDebtor.value || debtorPaymentAmount.value <= 0) return;
-  store.adjustCustomerBalance(selectedDebtor.value.id, debtorPaymentAmount.value, 'Погашение долга в кассе');
-  showCustomerBalanceModal.value = false;
-  toastMessage.value = `Долг клиента ${selectedDebtor.value.cargoCode} успешно погашен`;
+async function submitDebtorPayment() {
+  await runFinanceAction(async () => {
+    if (!selectedDebtor.value || debtorPaymentAmount.value <= 0) return;
+    await store.adjustCustomerBalance(selectedDebtor.value.id, debtorPaymentAmount.value, 'Погашение долга в кассе', debtorAccountId.value);
+    showCustomerBalanceModal.value = false;
+    toastMessage.value = `Долг клиента ${selectedDebtor.value.cargoCode} успешно погашен`;
+
+  });
 }
 
 // 7. Тарифы доставки

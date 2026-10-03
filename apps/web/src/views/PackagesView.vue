@@ -595,6 +595,7 @@
 
     <!-- Модальное окно: Смена статуса посылки и оформление возврата товара (БЕЗ случайных наведений) -->
     <AppModal v-model="showStatusModal" title="Управление статусом посылки">
+      <p v-if="returnError" role="alert" class="text-sm text-accent-coral">{{ returnError }}</p>
       <div class="space-y-4 text-xs">
         <!-- Краткая сводка по посылке -->
         <div class="p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-between">
@@ -656,13 +657,7 @@
 
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="text-text-secondary text-[11px] mb-1 block">Сумма к возврату ({{ store.activeCurrency }})</label>
-              <input
-                type="number"
-                step="0.01"
-                v-model.number="returnForm.refundAmount"
-                class="w-full h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white text-xs focus:border-rose-400 focus:outline-none font-mono"
-              />
+              <p class="text-xs text-text-secondary">Возврат денег оформляется владельцем в «Финансах» по исходной оплате.</p>
             </div>
             <div>
               <label class="text-text-secondary text-[11px] mb-1 block">Трек обратной отправки</label>
@@ -684,7 +679,7 @@
           Отмена
         </button>
         <button
-          @click="saveStatusChange"
+          @click="saveStatusChange" :disabled="returnSaving"
           class="px-5 py-2 rounded-xl font-bold text-xs shadow-glow-blue transition cursor-pointer flex items-center gap-1.5"
           :class="statusSelected === 'RETURNED' ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-[0_0_15px_rgba(225,29,72,0.4)]' : 'bg-accent-blue hover:bg-accent-blue/90 text-white'"
         >
@@ -986,31 +981,39 @@ function openChangeStatus(pkg: any) {
   const activeRate = store.ratesToUSD[store.activeCurrency] || 1;
   returnForm.value = {
     reason: pkg.returnReason || 'Брак / Производственный дефект',
-    refundAmount: Math.round((pkg.refundAmountUSD || pkg.costUSD || 0) * activeRate * 100) / 100,
+    refundAmount: 0,
     returnTrackingNumber: pkg.returnTrackingNumber || `RET-${pkg.trackingNumber}`,
   };
   showStatusModal.value = true;
 }
 
-function saveStatusChange() {
-  if (!statusTargetPkg.value) return;
+const returnSaving = ref(false);
+const returnError = ref('');
+async function saveStatusChange() {
+  if (returnSaving.value) return;
+  returnSaving.value = true; returnError.value = "";
+  try {
+    if (!statusTargetPkg.value) return;
 
-  if (statusSelected.value === 'RETURNED') {
-    const activeRate = store.ratesToUSD[store.activeCurrency] || 1;
-    const refundUSD = returnForm.value.refundAmount / activeRate;
-    store.processPackageReturn(
-      statusTargetPkg.value.id,
-      returnForm.value.reason,
-      refundUSD,
-      returnForm.value.returnTrackingNumber
-    );
-    toastMessage.value = `Посылка ${statusTargetPkg.value.trackingNumber} переведена в статус ВОЗВРАТ. Причина: ${returnForm.value.reason}`;
-  } else {
-    store.updatePackageStatus(statusTargetPkg.value.id, statusSelected.value as any);
-    toastMessage.value = `Статус посылки ${statusTargetPkg.value.trackingNumber} обновлен на "${getStatusLabel(statusSelected.value)}"`;
-  }
+    if (statusSelected.value === 'RETURNED') {
+      const activeRate = store.ratesToUSD[store.activeCurrency] || 1;
+      const refundUSD = returnForm.value.refundAmount / activeRate;
+      await store.processPackageReturn(
+        statusTargetPkg.value.id,
+        returnForm.value.reason,
+        refundUSD,
+        returnForm.value.returnTrackingNumber
+      );
+      toastMessage.value = `Посылка ${statusTargetPkg.value.trackingNumber} переведена в статус ВОЗВРАТ. Причина: ${returnForm.value.reason}`;
+    } else {
+      store.updatePackageStatus(statusTargetPkg.value.id, statusSelected.value as any);
+      toastMessage.value = `Статус посылки ${statusTargetPkg.value.trackingNumber} обновлен на "${getStatusLabel(statusSelected.value)}"`;
+    }
 
-  showStatusModal.value = false;
+    showStatusModal.value = false;
+
+  } catch(error) { returnError.value = error instanceof Error ? error.message : "Не удалось оформить возврат"; }
+  finally { returnSaving.value = false; }
 }
 
 function createPackage() {

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { ensureDefaultCashAccounts } from './finance.js';
 
 export function registerHandover(app: any, store: any) {
   app.post('/api/wms/handover', async (request: any, reply: any) => {
@@ -32,18 +33,25 @@ export function registerHandover(app: any, store: any) {
     if (!Number.isSafeInteger(Math.round(amountUSD * 100)) || (branch.cashBalance != null && !Number.isFinite(branch.cashBalance))) return reply.status(409).send({ error: 'Некорректная стоимость или баланс кассы' });
     if (Math.abs(body.amountPaid - amountUSD) > 0.001) return reply.status(409).send({ error: 'Стоимость изменилась. Обновите данные и проверьте сумму', expectedAmountUSD: amountUSD });
     const now = new Date().toISOString();
+    ensureDefaultCashAccounts(store, tenant.id);
+    const cashAccount = store.cashAccounts.find((a: any) => a.tenantId === tenant.id && a.isActive && (body.paymentMethod === 'CASH' ? a.type === 'CASH_PVZ' && a.branchId === branch.id : a.type === 'BANK'));
+    if (!cashAccount || (body.paymentMethod === 'CASH' && Math.round(cashAccount.balance * 100) !== Math.round((branch.cashBalance || 0) * 100))) return reply.status(409).send({ error: 'Проведите сверку кассы перед выдачей' });
+    if (!Number.isFinite(cashAccount.balance) || cashAccount.balance < 0 || !Number.isSafeInteger(Math.round((cashAccount.balance + amountUSD) * 100))) return reply.status(409).send({ error: 'Некорректный остаток счёта' });
+    const balanceBeforeUSD = cashAccount.balance;
     // ponytail: one synchronous store write commits issuance, cash, payment and receipt together; DB transaction when PostgreSQL lands.
     for (const pkg of packages) {
       pkg.status = 'RELEASED'; pkg.releasedAt = now; pkg.updatedAt = now; pkg.storageCellId = null; pkg.shelfLocation = '';
       if (body.handoverPhoto) { pkg.handoverPhoto = body.handoverPhoto; pkg.photos = [...(pkg.photos || []), body.handoverPhoto]; }
     }
     if (body.paymentMethod === 'CASH') branch.cashBalance = Math.round(((branch.cashBalance || 0) + amountUSD) * 100) / 100;
+    cashAccount.balance = Math.round((cashAccount.balance + amountUSD) * 100) / 100; cashAccount.updatedAt = now;
     const payment = { id: store.nextId('pay', store.payments), tenantId: tenant.id, branchId: branch.id, customerId: customer.id,
       cashierUserId: actor.id, amount: amountUSD, currency: 'USD', method: body.paymentMethod === 'TRANSFER' ? 'BANK_TRANSFER' : body.paymentMethod,
-      type: 'DELIVERY_PAYMENT', notes: `Выдача: ${packages.map((p: any) => p.id).join(', ')}`, createdAt: now };
+      type: 'DELIVERY_PAYMENT', accountId: cashAccount.id, packageIds: packages.map((p: any) => p.id), packageAmountsUSD: Object.fromEntries(packages.map((p: any) => [p.id, p.isPaidOnline ? 0 : p.cost])), notes: `Выдача: ${packages.map((p: any) => p.id).join(', ')}`, createdAt: now };
     store.payments.push(payment);
     store.auditLogs.push({ id: store.nextId('audit', store.auditLogs), tenantId: tenant.id, branchId: branch.id,
       userId: actor.id, userName: actor.name || '', userRole: actor.role, entityType: 'PAYMENT', entityId: payment.id, action: 'HANDOVER',
+      oldValues: { accountId: cashAccount.id, balanceUSD: balanceBeforeUSD }, newValues: { accountId: cashAccount.id, balanceUSD: cashAccount.balance },
       details: `Выдано ${packages.length} посылок клиенту ${customer.cargoCode}. Принято: ${amountUSD} USD (${payment.method})`, createdAt: now });
     const response = { success: true, message: 'Посылки успешно выданы', releasedCount: packages.length, paymentId: payment.id, amountUSD, releasedAt: now, branchCashBalanceUSD: branch.cashBalance };
     store.handoverReceipts.push({ tenantId: tenant.id, actorId: actor.id, key, fingerprint, response, createdAt: now });

@@ -86,6 +86,7 @@ export function registerClientSecurity(app: any, store: any) {
       return;
     }
     if (request.body && typeof request.body === 'object') {
+      if (request.method === 'PUT' && ((resource.startsWith('customers/') && ['balance', 'balanceUSD'].some(key => request.body[key] !== undefined)) || (resource.startsWith('branches/') && ['cashBalance', 'cashBalanceUSD'].some(key => request.body[key] !== undefined)) || (resource.startsWith('packages/') && (request.body.status === 'RETURNED' || ['refundAmountUSD', 'returnReason', 'returnTrackingNumber'].some(key => request.body[key] !== undefined))))) return reply.status(400).send({ error: 'Денежные операции и возвраты проводятся через раздел финансов' });
       delete request.body.id;
       delete request.body.tenantId;
       for (const key of ['branchId', 'assignedBranchId', 'currentBranchId', 'targetBranchId', 'originBranchId', 'destinationBranchId', 'preferredBranchId']) {
