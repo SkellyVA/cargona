@@ -1838,33 +1838,20 @@ export const useCargoStore = defineStore('cargo', () => {
   // --- ACTIONS ---
 
   // Создание нового филиала ПВЗ
-  function addBranch(data: Omit<Branch, 'id'>) {
-    const id = nextSeqId('b', rawBranches.value);
-    const newB: Branch = {
-      id,
-      tenantSlug: activeTenantSlug.value,
-      cashBalanceUSD: 0,
-      cells: [],
-      ...data,
-    };
-    rawBranches.value.push(newB);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('cargona_branches', JSON.stringify(rawBranches.value));
-    }
-    addAudit('CREATE', 'Новый филиал', newB.name, `Создан филиал ${newB.name} (${newB.city})`);
-
-    try {
-      const slug = activeTenantSlug.value;
-      if (slug) {
-        fetch(`/api/o/${slug}/branches`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
-        });
-      }
-    } catch {}
-
-    return newB;
+  async function addBranch(data: Omit<Branch, 'id'>) {
+    const slug = activeTenantSlug.value;
+    if (!slug) throw new Error('Не выбрана компания');
+    const response = await fetch('/api/o/' + encodeURIComponent(slug) + '/branches', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok || !result?.success || !result.branch?.id) throw new Error(result?.error || 'Не удалось добавить ПВЗ');
+    const saved = result.branch;
+    const newBranch: Branch = { ...saved, tenantSlug: slug, cashBalanceUSD: saved.cashBalance ?? 0, cells: saved.cells || [] };
+    rawBranches.value.push(newBranch);
+    safeStorageSet('cargona_branches', rawBranches.value);
+    addAudit('CREATE', 'Новый филиал', newBranch.name, 'Создан филиал ' + newBranch.name);
+    return newBranch;
   }
 
   async function updateBranch(id: string, data: Partial<Branch>) {
@@ -1875,6 +1862,10 @@ export const useCargoStore = defineStore('cargo', () => {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
     });
     const result = await response.json();
+    if (response.status === 404) {
+      await syncTenantData(slug, true);
+      throw new Error('ПВЗ не найден на сервере. Список обновлён — откройте филиал заново.');
+    }
     if (!response.ok || !result.success) throw new Error(result.error || 'Не удалось сохранить ПВЗ');
     Object.assign(branch, data);
     safeStorageSet('cargona_branches', rawBranches.value);

@@ -721,6 +721,7 @@
         </button>
         <button
           @click="createBranch"
+          :disabled="isCreatingBranch"
           class="px-5 py-2 rounded-xl bg-accent-blue hover:bg-accent-blue/90 text-white font-bold text-xs shadow-glow-blue transition"
         >
           Создать филиал
@@ -1334,13 +1335,16 @@ const newCell = ref({
   shelf: 'Полка Д-01',
 });
 
-function createBranch() {
-  if (!newBranch.value.name) return;
+const isCreatingBranch = ref(false);
+async function createBranch() {
+  if (!newBranch.value.name.trim() || isCreatingBranch.value) return;
+  isCreatingBranch.value = true;
+  try {
   const allExistingCells = store.branches.flatMap((b) => b.cells || []);
   const cellId1 = store.nextSeqId ? store.nextSeqId('c', allExistingCells) : `c-${Date.now()}-1`;
   const cellId2 = store.nextSeqId ? store.nextSeqId('c', [...allExistingCells, { id: cellId1 }]) : `c-${Date.now()}-2`;
 
-  store.addBranch({
+  await store.addBranch({
     name: newBranch.value.name.trim(),
     city: newBranch.value.city?.trim() || 'Душанбе',
     address: newBranch.value.address?.trim() || '',
@@ -1354,6 +1358,8 @@ function createBranch() {
   newBranch.value = { name: '', city: '', address: '', phone: '' };
   showCreateBranchModal.value = false;
   toastMessage.value = 'Филиал ПВЗ успешно добавлен со стартовыми полками хранения';
+  } catch (error) { toastMessage.value = error instanceof Error ? error.message : 'Не удалось добавить ПВЗ'; }
+  finally { isCreatingBranch.value = false; }
 }
 
 function collectCash(branch: any) {
