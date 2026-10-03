@@ -52,7 +52,7 @@ Income, expenses, transfers, collection transitions, customer balance movements,
 
 Existing money and historical transactions are preserved. Deploy API and web together. Retry receipts, ledger records and balance changes use the same atomic JSON write and survive restart; only one API process may write this JSON store. No server commands or real payment transfers are performed by these changes.
 
-PostgreSQL migration, off-server backups, restore drills, monitoring, the production Compose bundle and the remaining business protections are also pending.
+The PostgreSQL trial-transfer CLI is available; see [the migration runbook](postgres-migration.md). It preserves and verifies the full legacy document without changing the running API. PostgreSQL runtime switching, off-server backups, restore drills, monitoring, the production Compose bundle and the remaining business protections are still pending.
 
 ## Link an existing customer to Telegram
 

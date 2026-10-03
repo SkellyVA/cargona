@@ -2,7 +2,7 @@ import { defineConfig } from 'tsup';
 
 export default defineConfig([
   {
-    entry: { server: 'src/server.ts' },
+    entry: { server: 'src/server.ts', 'state-migration': 'src/state-migration-cli.ts' },
     format: ['esm'],
     target: 'node20',
     platform: 'node',

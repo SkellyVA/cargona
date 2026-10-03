@@ -3,6 +3,7 @@ import postgres from 'postgres';
 import * as schema from './schema.js';
 
 export * from './schema.js';
+export * from './state-migration.js';
 
 export function createDatabaseClient(connectionString: string) {
   const client = postgres(connectionString, { max: 10 });
