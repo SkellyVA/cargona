@@ -74,6 +74,7 @@ class CargonaDataStore {
   public nextCargoCode(tenant: Tenant): string {
     const prefix = (tenant.codePrefix || tenant.slug.substring(0, 3) || 'CRG').toUpperCase().trim();
     let max = 0;
+    max = Math.max(1, Number(this.tenantSettings[tenant.id]?.customerIdStart) || 1) - 1;
     const tenantCustomers = this.customers.filter((c) => c.tenantId === tenant.id);
     for (const c of tenantCustomers) {
       if (!c.cargoCode) continue;

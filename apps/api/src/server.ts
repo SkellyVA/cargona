@@ -546,6 +546,9 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/settings', a
   const tenant = store.tenants.find((t) => t.slug === slug);
   if (!tenant) return reply.status(404).send({ error: 'Organization not found' });
 
+  if (request.body.customerIdStart !== undefined && (!Number.isSafeInteger(request.body.customerIdStart) || request.body.customerIdStart < 1 || request.body.customerIdStart > 999999999)) {
+    return reply.status(400).send({ error: 'Начальный ID должен быть целым числом от 1 до 999999999' });
+  }
   store.tenantSettings[tenant.id] = {
     ...store.tenantSettings[tenant.id],
     ...request.body,
@@ -1044,6 +1047,9 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/customers', 
   } = request.body;
 
   const code = (cargoCode || store.nextCargoCode(tenant)).toUpperCase().trim();
+  const customerIdStart = Number(store.tenantSettings[tenant.id]?.customerIdStart) || 1;
+  const codeNumber = Number(code.match(/(\d+)$/)?.[1]);
+  if (customerIdStart > 1 && (!Number.isSafeInteger(codeNumber) || codeNumber < customerIdStart)) return reply.status(400).send({ error: `ID новых клиентов должен быть не меньше ${customerIdStart}` });
 
   const newCustomer = {
     id: store.nextId('cust', store.customers),
@@ -2874,6 +2880,7 @@ fastify.get<{ Params: { slug: string }; Querystring: { tgUserId?: string; cargoC
         slug: tenant.slug,
         codePrefix: tenant.codePrefix,
         baseCurrency: tenant.baseCurrency || 'USD',
+        customerIdStart: tenantSettings.customerIdStart || 1,
         managerUsername: (tenant as any).managerUsername || tenantSettings.managerUsername || '',
         botUsername: (tenant as any).botUsername || tenantSettings.botUsername || '',
         channelId: (tenant as any).channelId || tenantSettings.channelId || '',

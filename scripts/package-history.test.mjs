@@ -22,7 +22,14 @@ function loadStore() {
   return exports.store;
 }
 let store = loadStore();
+const tenant = { id: 'sequence-test', slug: 'test', codePrefix: 'TEST' };
+store.tenantSettings[tenant.id] = { customerIdStart: 2400 };
+assert.equal(store.nextCargoCode(tenant), 'TEST-2400');
+store.customers.push({ id: 'sequence-customer', tenantId: tenant.id, cargoCode: 'TEST-2500' });
+assert.equal(store.nextCargoCode(tenant), 'TEST-2501');
+assert.equal(store.nextCargoCode({ id: 'other-test', slug: 'other', codePrefix: 'OTHER' }), 'OTHER-001');
 store.saveToFile();
+assert.equal(loadStore().nextCargoCode(tenant), 'TEST-2501', 'Start setting and existing IDs must survive restart');
 assert.equal(store.packageHistory.length, 0, 'Loading old packages must not invent events');
 store.packages.push({ id: 'new', tenantId: 't', trackingNumber: 'NEW', status: 'RECEIVED_AT_ORIGIN' });
 store.saveToFile();

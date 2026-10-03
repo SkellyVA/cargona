@@ -2051,6 +2051,7 @@ async function fetchTenantInfo(slug: string) {
         serverTenant.value = data.tenant;
         store.settings.companyName = data.tenant.name;
         store.settings.codePrefix = data.tenant.codePrefix;
+        store.settings.customerIdStart = data.tenant.customerIdStart || 1;
         if (data.tenant.managerUsername) store.settings.managerUsername = data.tenant.managerUsername;
         if (data.tenant.botUsername) store.settings.botUsername = data.tenant.botUsername;
         if (data.tenant.channelId) store.settings.channelId = data.tenant.channelId;

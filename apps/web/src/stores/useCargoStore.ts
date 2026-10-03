@@ -411,6 +411,7 @@ export const useCargoStore = defineStore('cargo', () => {
   const settings = ref({
     companyName: '',
     codePrefix: '',
+    customerIdStart: 1,
     ownerEmail: '',
     ownerPassword: '',
     baseCurrency: 'USD',
@@ -803,7 +804,7 @@ export const useCargoStore = defineStore('cargo', () => {
   function nextCargoCode(customPrefix?: string): string {
     const rawP = (customPrefix || tenant.value?.codePrefix || settings.value.codePrefix || (activeTenantSlug.value ? activeTenantSlug.value.substring(0, 3) : 'CRG')).trim();
     const p = rawP.toUpperCase();
-    let max = 0;
+    let max = Math.max(1, Number(settings.value.customerIdStart) || 1) - 1;
     for (const c of rawCustomers.value) {
       if (!c.cargoCode) continue;
       const match = c.cargoCode.match(/(\d+)$/);

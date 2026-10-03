@@ -65,6 +65,15 @@
         </div>
       </div>
 
+      <div class="space-y-2 text-xs">
+        <label for="customer-id-start" class="text-text-secondary block">Начальный ID новых клиентов</label>
+        <input id="customer-id-start" v-model="customerIdStart" inputmode="numeric" placeholder="Например: 2400"
+          class="w-full sm:w-64 h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono font-bold" />
+        <p class="text-[10px] text-text-tertiary">Новые ID выдаются начиная с этого числа. Если уже есть больший ID, нумерация продолжится после него. Существующие ID не меняются.</p>
+        <p v-if="customerIdError" class="text-accent-rose">{{ customerIdError }}</p>
+        <button @click="saveCustomerIdStart" :disabled="savingCustomerId" class="px-4 py-2 rounded-xl bg-accent-blue text-white font-bold disabled:opacity-50">{{ savingCustomerId ? 'Сохранение…' : 'Сохранить начальный ID' }}</button>
+      </div>
+
       <div class="flex justify-end pt-1">
         <button
           @click="saveCompanyProfile"
@@ -1566,6 +1575,33 @@ const isSavingBot = ref(false);
 const currentSlug = computed(() => {
   return (route.params.slug as string) || store.activeTenantSlug || store.tenant?.slug || store.tenants[0]?.slug || 'cargona';
 });
+
+const customerIdStart = ref(String(store.settings.customerIdStart || 1));
+const customerIdError = ref('');
+const savingCustomerId = ref(false);
+watch(() => store.settings.customerIdStart, value => { customerIdStart.value = String(value || 1); });
+async function saveCustomerIdStart() {
+  if (savingCustomerId.value) return;
+  const value = Number(customerIdStart.value);
+  customerIdError.value = '';
+  if (!Number.isSafeInteger(value) || value < 1 || value > 999999999) {
+    customerIdError.value = 'Введите целое число от 1 до 999999999';
+    return;
+  }
+  savingCustomerId.value = true;
+  try {
+    const response = await fetch(`/api/o/${currentSlug.value}/settings`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customerIdStart: value }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Не удалось сохранить начальный ID');
+    store.settings.customerIdStart = data.settings.customerIdStart;
+    localStorage.setItem(`cargona_settings_${currentSlug.value}`, JSON.stringify(store.settings));
+    toastMessage.value = `Начальный ID сохранён: ${value}`;
+  } catch (error) {
+    customerIdError.value = error instanceof Error ? error.message : 'Не удалось сохранить начальный ID';
+  } finally { savingCustomerId.value = false; }
+}
 
 function saveCompanyProfile() {
   const name = store.settings.companyName.trim();

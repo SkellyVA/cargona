@@ -44,6 +44,7 @@ const context = {
 };
 // Register the production handlers without starting the server or touching real data/Telegram.
 for (const [start, end] of [
+  ['// --- Settings & Delivery Rates ---', '// --- Loyalty & Referral System (NOOR CLUB) ---'],
   ["fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/packages/:id'", "fastify.delete<{ Params: { slug: string; id: string } }>('/api/o/:slug/packages/:id'"],
   ["fastify.delete<{ Params: { slug: string; id: string } }>('/api/o/:slug/customers/:id'", '// --- Packages Management ---'],
   ["fastify.put<{ Params: { slug: string; id: string }; Body: any }>('/api/o/:slug/branches/:id'", "fastify.post<{ Params: { slug: string; id: string } }>('/api/o/:slug/branches/:id/collection'"],
@@ -61,6 +62,15 @@ for (const [start, end] of [
   vm.runInNewContext(ts.transpileModule(snippet, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
 }
 try {
+  for (const value of [0, -1, 1.5, '2400', 1000000000]) {
+    const result = await app.inject({ method: 'POST', url: '/api/o/noor/settings', payload: { customerIdStart: value } });
+    assert.equal(result.statusCode, 400);
+  }
+  const startSetting = await app.inject({ method: 'POST', url: '/api/o/noor/settings', payload: { customerIdStart: 2400 } });
+  assert.equal(startSetting.statusCode, 200);
+  const reservedId = await app.inject({ method: 'POST', url: '/api/o/noor/customers', payload: { cargoCode: 'NOOR/S2399' } });
+  assert.equal(reservedId.statusCode, 400);
+  delete store.tenantSettings.t.customerIdStart;
   const branchRates = await app.inject({ method: 'PUT', url: '/api/o/noor/branches/b', payload: { deliveryTariffs: { autoRatePerKgUSD: 4, airRatePerKgUSD: 0, minPackageCostUSD: null } } });
   assert.equal(branchRates.statusCode, 200, branchRates.body);
   assert.equal(store.branches[0].deliveryTariffs.autoRatePerKgUSD, 4);
