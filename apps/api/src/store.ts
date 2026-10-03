@@ -81,6 +81,7 @@ class CargonaDataStore {
       const m = c.cargoCode.match(/(\d+)$/);
       if (m) max = Math.max(max, parseInt(m[1], 10));
     }
+    if (/[/\-_:]$/.test(prefix) || prefix.includes('/') || prefix.includes(':')) return `${prefix}${max + 1}`;
     return `${prefix}-${String(max + 1).padStart(3, '0')}`;
   }
 

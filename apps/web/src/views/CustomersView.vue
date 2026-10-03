@@ -296,6 +296,7 @@
     <!-- Модальное окно: Новый клиент -->
     <AppModal v-model="showCreateCustomerModal" title="Зарегистрировать клиента">
       <div class="space-y-3.5 text-xs">
+        <p v-if="createError" class="text-accent-rose">{{ createError }}</p>
         <div>
           <label class="text-text-secondary mb-1 block">ФИО клиента</label>
           <input
@@ -342,9 +343,10 @@
         </button>
         <button
           @click="createCustomer"
+          :disabled="isCreatingCustomer"
           class="px-5 py-2 rounded-xl bg-accent-blue hover:bg-accent-blue/90 text-white font-bold text-xs shadow-glow-blue transition"
         >
-          Создать
+          {{ isCreatingCustomer ? 'Сохранение…' : 'Создать' }}
         </button>
       </template>
     </AppModal>
@@ -518,22 +520,31 @@ function getClientReadyCount(code: string) {
   return packageReadyStats.value.map.get(code.toUpperCase()) || 0;
 }
 
-function createCustomer() {
+const isCreatingCustomer = ref(false);
+const createError = ref('');
+async function createCustomer() {
+  if (isCreatingCustomer.value) return;
   if (!newCustomer.value.fullName || !newCustomer.value.cargoCode) return;
-  store.addCustomer({
+  createError.value = '';
+  isCreatingCustomer.value = true;
+  try {
+  const customer = await store.addCustomer({
     cargoCode: newCustomer.value.cargoCode.toUpperCase(),
     fullName: newCustomer.value.fullName,
     phone: newCustomer.value.phone || '+992 90 000 0000',
     telegramUsername: newCustomer.value.telegramUsername || '',
   });
   showCreateCustomerModal.value = false;
-  toastMessage.value = `Клиент ${newCustomer.value.fullName} зарегистрирован с кодом ${newCustomer.value.cargoCode}`;
+  toastMessage.value = `Клиент ${customer.fullName} зарегистрирован с кодом ${customer.cargoCode}`;
   newCustomer.value = {
     fullName: '',
     phone: '',
     telegramUsername: '',
     cargoCode: store.nextCargoCode(),
   };
+  } catch (error) {
+    createError.value = error instanceof Error ? error.message : 'Не удалось создать клиента';
+  } finally { isCreatingCustomer.value = false; }
 }
 
 function openCustomerCard(c: any) {

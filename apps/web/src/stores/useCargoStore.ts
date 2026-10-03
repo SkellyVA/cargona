@@ -2285,32 +2285,25 @@ export const useCargoStore = defineStore('cargo', () => {
   }
 
   // Создание клиента
-  function addCustomer(data: Omit<Customer, 'id' | 'balanceUSD' | 'isBlocked'>) {
-    const id = nextSeqId('c', rawCustomers.value);
-    rawCustomers.value.unshift({
-      id,
-      tenantSlug: activeTenantSlug.value,
-      ...data,
-      balanceUSD: 0,
-      isBlocked: false,
-      createdAt: new Date().toISOString(),
-      preferredBranchId: data.preferredBranchId || branches.value[0]?.id || 'b-1',
+  async function addCustomer(data: Omit<Customer, 'id' | 'balanceUSD' | 'isBlocked' | 'cargoCode'> & { cargoCode?: string }, tenantSlug = activeTenantSlug.value) {
+    if (!tenantSlug) throw new Error('Компания не выбрана');
+    const response = await fetch(`/api/o/${encodeURIComponent(tenantSlug)}/customers`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
     });
+    const result = await response.json();
+    if (!response.ok || !result.customer) throw new Error(result.error || 'Не удалось создать клиента');
+    const customer: Customer = {
+      ...result.customer,
+      tenantSlug,
+      balanceUSD: result.customer.balance ?? result.customer.balanceUSD ?? 0,
+      isBlocked: result.customer.isBlocked || false,
+    };
+    rawCustomers.value.unshift(customer);
     if (typeof window !== 'undefined') {
       localStorage.setItem('cargona_customers', JSON.stringify(rawCustomers.value));
     }
-    addAudit('CREATE', 'Новый клиент', data.cargoCode, `Зарегистрирован ${data.fullName}, тел: ${data.phone}`);
-
-    try {
-      const slug = activeTenantSlug.value;
-      if (slug) {
-        fetch(`/api/o/${slug}/customers`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
-        });
-      }
-    } catch {}
+    addAudit('CREATE', 'Новый клиент', customer.cargoCode, `Зарегистрирован ${data.fullName}, тел: ${data.phone}`);
+    return customer;
   }
 
   // Привязка и смена предпочитаемого ПВЗ клиента

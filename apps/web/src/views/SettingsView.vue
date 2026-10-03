@@ -69,7 +69,7 @@
         <label for="customer-id-start" class="text-text-secondary block">Начальный ID новых клиентов</label>
         <input id="customer-id-start" v-model="customerIdStart" inputmode="numeric" placeholder="Например: 2400"
           class="w-full sm:w-64 h-10 px-3 rounded-xl bg-[#181B23] border border-white/[0.08] text-white focus:border-accent-cyan focus:outline-none font-mono font-bold" />
-        <p class="text-[10px] text-text-tertiary">Новые ID выдаются начиная с этого числа. Если уже есть больший ID, нумерация продолжится после него. Существующие ID не меняются.</p>
+        <p class="text-[10px] text-text-tertiary">Начальный ID при автоматической выдаче. Если уже есть больший ID, нумерация продолжится после него. При ручном вводе ID может быть ниже. Существующие ID не меняются.</p>
         <p v-if="customerIdError" class="text-accent-rose">{{ customerIdError }}</p>
         <button @click="saveCustomerIdStart" :disabled="savingCustomerId" class="px-4 py-2 rounded-xl bg-accent-blue text-white font-bold disabled:opacity-50">{{ savingCustomerId ? 'Сохранение…' : 'Сохранить начальный ID' }}</button>
       </div>

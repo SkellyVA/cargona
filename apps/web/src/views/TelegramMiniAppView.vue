@@ -180,6 +180,7 @@
 
         <button
           type="submit"
+          :disabled="isRegistering"
           class="w-full h-12 rounded-xl bg-gradient-to-r from-accent-blue to-accent-cyan hover:opacity-95 text-white font-bold text-xs shadow-glow-blue flex items-center justify-center gap-2 transition active:scale-[0.99] mt-2 cursor-pointer"
         >
           <CheckCircle2 class="w-4 h-4" />
@@ -2242,13 +2243,13 @@ watch(
   }
 );
 
-function handleRegister() {
+const isRegistering = ref(false);
+async function handleRegister() {
+  if (isRegistering.value) return;
   if (!regForm.value.fullName || !regPhoneNational.value) return;
 
   const fullPhone = `${selectedCountry.value.dial} ${regPhoneNational.value}`.trim();
   const slugParam = (route.params.slug as string) || store.activeTenantSlug || store.tenant?.slug || store.tenants[0]?.slug || '';
-  const prefix = store.tenant?.codePrefix || store.settings.codePrefix || (slugParam ? slugParam.substring(0, 3).toUpperCase() : 'CRG');
-  const newCargoCode = store.nextCargoCode(prefix);
 
   const chosenBranchId = regForm.value.branchId || store.branches[0]?.id;
   if (!chosenBranchId) {
@@ -2257,24 +2258,25 @@ function handleRegister() {
   }
 
   const newCust = {
-    cargoCode: newCargoCode,
     fullName: regForm.value.fullName.trim(),
     phone: fullPhone,
     telegramUsername: regForm.value.telegramUsername.replace('@', '').trim(),
     telegramUserId: regForm.value.telegramUserId || null,
     preferredBranchId: chosenBranchId,
     invitedByCustomerId: referredByCode.value || undefined,
-    referralCode: newCargoCode,
     bonusBalance: 0,
     notes: referredByCode.value
       ? `Регистрация через Mini App (приглашен: ${referredByCode.value})`
       : 'Зарегистрирован через Telegram Mini App',
   };
 
-  store.addCustomer(newCust);
+  isRegistering.value = true;
+  try {
+  const customer = await store.addCustomer(newCust, slugParam);
+  const newCargoCode = customer.cargoCode;
 
   activeCustomer.value = {
-    id: store.customers.find(c => c.cargoCode === newCargoCode)?.id || '',
+    id: customer.id,
     cargoCode: newCargoCode,
     fullName: newCust.fullName,
     phone: newCust.phone,
@@ -2290,6 +2292,9 @@ function handleRegister() {
 
   isRegistered.value = true;
   safeHaptic('notification', 'success');
+  } catch (error) {
+    miniAppToast.value = error instanceof Error ? error.message : 'Не удалось зарегистрироваться';
+  } finally { isRegistering.value = false; }
 }
 
 function copyAddress() {

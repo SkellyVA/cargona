@@ -1047,9 +1047,9 @@ fastify.post<{ Params: { slug: string }; Body: any }>('/api/o/:slug/customers', 
   } = request.body;
 
   const code = (cargoCode || store.nextCargoCode(tenant)).toUpperCase().trim();
-  const customerIdStart = Number(store.tenantSettings[tenant.id]?.customerIdStart) || 1;
-  const codeNumber = Number(code.match(/(\d+)$/)?.[1]);
-  if (customerIdStart > 1 && (!Number.isSafeInteger(codeNumber) || codeNumber < customerIdStart)) return reply.status(400).send({ error: `ID новых клиентов должен быть не меньше ${customerIdStart}` });
+  if (store.customers.some(c => c.tenantId === tenant.id && (c.cargoCode || '').toUpperCase().trim() === code)) {
+    return reply.status(409).send({ error: 'Этот карго-код уже занят' });
+  }
 
   const newCustomer = {
     id: store.nextId('cust', store.customers),

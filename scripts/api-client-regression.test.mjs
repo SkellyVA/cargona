@@ -42,6 +42,10 @@ const context = {
   fetch: async (_url, options) => { messages.push({ url: _url, body: options.body instanceof FormData ? Object.fromEntries(options.body) : JSON.parse(options.body) }); return new Response(JSON.stringify(telegramFailure ? { ok: false, description: 'Forbidden: bot is not an administrator' } : { ok: true, result: { message_id: 123 } })); },
   Response, FormData, Blob, Buffer, AbortSignal,
 };
+const allocationSource = await readFile(new URL('../apps/api/src/store.ts', import.meta.url), 'utf8');
+const allocationMethod = allocationSource.slice(allocationSource.indexOf('  public nextCargoCode('), allocationSource.indexOf('  public plans:'));
+const allocator = vm.runInNewContext(ts.transpileModule(`class Allocator { ${allocationMethod} }; Allocator.prototype.nextCargoCode`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText);
+store.nextCargoCode = allocator.bind(store);
 // Register the production handlers without starting the server or touching real data/Telegram.
 for (const [start, end] of [
   ['// --- Settings & Delivery Rates ---', '// --- Loyalty & Referral System (NOOR CLUB) ---'],
@@ -66,10 +70,15 @@ try {
     const result = await app.inject({ method: 'POST', url: '/api/o/noor/settings', payload: { customerIdStart: value } });
     assert.equal(result.statusCode, 400);
   }
-  const startSetting = await app.inject({ method: 'POST', url: '/api/o/noor/settings', payload: { customerIdStart: 2400 } });
+  tenant.codePrefix = 'NOOR/S';
+  const startSetting = await app.inject({ method: 'POST', url: '/api/o/noor/settings', payload: { customerIdStart: 2500 } });
   assert.equal(startSetting.statusCode, 200);
-  const reservedId = await app.inject({ method: 'POST', url: '/api/o/noor/customers', payload: { cargoCode: 'NOOR/S2399' } });
-  assert.equal(reservedId.statusCode, 400);
+  const reservedId = await app.inject({ method: 'POST', url: '/api/o/noor/customers', payload: { cargoCode: 'NOOR/S2256' } });
+  assert.equal(reservedId.statusCode, 200, reservedId.body);
+  assert.equal((await app.inject({ method: 'POST', url: '/api/o/noor/customers', payload: { cargoCode: ' noor/s2256 ' } })).statusCode, 409);
+  const automatic = await app.inject({ method: 'POST', url: '/api/o/noor/customers', payload: { fullName: 'Automatic' } });
+  assert.equal(automatic.statusCode, 200, automatic.body);
+  assert.equal(automatic.json().customer.cargoCode, 'NOOR/S2500');
   delete store.tenantSettings.t.customerIdStart;
   const branchRates = await app.inject({ method: 'PUT', url: '/api/o/noor/branches/b', payload: { deliveryTariffs: { autoRatePerKgUSD: 4, airRatePerKgUSD: 0, minPackageCostUSD: null } } });
   assert.equal(branchRates.statusCode, 200, branchRates.body);
