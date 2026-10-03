@@ -70,7 +70,7 @@ export function registerBroadcasts(app: any, store: any, send = callTelegram, pa
       await exclusive(async () => {
         job.status = 'COMPLETED';
         job.completedAt = new Date().toISOString();
-        store.auditLogs.unshift({ id: randomUUID(), tenantId: tenant.id, entityType: 'TENANT', entityId: job.id, action: 'BROADCAST', details: `Рассылка: отправлено ${job.sent}, ошибок ${job.failed}`, createdAt: job.completedAt, userId: actor?.id, userName: actor?.fullName, userRole: actor?.role });
+        store.auditLogs.unshift({ id: randomUUID(), tenantId: tenant.id, entityType: 'TENANT', entityId: job.id, action: 'BROADCAST', details: `Рассылка: отправлено ${job.sent}, ошибок ${job.failed}`, createdAt: job.completedAt, userId: actor?.id, userName: actor?.name || actor?.fullName, userRole: actor?.role });
         await store.saveToFile();
       });
     })().catch(async () => {
