@@ -38,6 +38,7 @@ cp "$source/"* "$work/"
 # Pin the local image so mutable tags cannot change between import and API checks.
 image="$(docker image inspect --format '{{.Id}}' "$image")"
 [[ "$image" =~ ^sha256:[a-f0-9]{64}$ ]] || fail 'API image unavailable'
+utility_user="$(id -u):$(id -g)"
 network="$(docker network create --internal "$name")"
 password="$(openssl rand -hex 24)"
 printf 'POSTGRES_PASSWORD=%s\nPOSTGRES_USER=rehearsal\nPOSTGRES_DB=rehearsal\nDATABASE_URL=postgres://rehearsal:%s@%s:5432/rehearsal\n' "$password" "$password" "$name" >"$work/db.env"
@@ -51,14 +52,14 @@ done
 mode="$(cat "$work/storage")"
 if [[ "$mode" == json ]]; then
   [[ -s "$work/state.json" ]] || fail 'Missing JSON state'
-  docker run --rm --network none -v "$work:/snapshot" "$image" node apps/api/dist/state-migration.mjs inspect /snapshot/state.json >"$work/source-inspection.json"
-  docker run --rm --network "$network" --env-file "$work/db.env" -v "$work:/snapshot" "$image" node apps/api/dist/state-migration.mjs trial /snapshot/state.json >"$work/trial.json"
-  docker run --rm --network "$network" --env-file "$work/db.env" -v "$work:/snapshot" "$image" node apps/api/dist/state-migration.mjs import /snapshot/state.json --confirm-stopped >"$work/import.json"
+  docker run --rm --user "$utility_user" --network none -v "$work:/snapshot" "$image" node apps/api/dist/state-migration.mjs inspect /snapshot/state.json >"$work/source-inspection.json"
+  docker run --rm --user "$utility_user" --network "$network" --env-file "$work/db.env" -v "$work:/snapshot" "$image" node apps/api/dist/state-migration.mjs trial /snapshot/state.json >"$work/trial.json"
+  docker run --rm --user "$utility_user" --network "$network" --env-file "$work/db.env" -v "$work:/snapshot" "$image" node apps/api/dist/state-migration.mjs import /snapshot/state.json --confirm-stopped >"$work/import.json"
 elif [[ "$mode" == postgres ]]; then
   [[ -s "$work/database.dump" ]] || fail 'Missing PostgreSQL archive'
   docker exec -i "$pg" pg_restore --exit-on-error --no-owner --no-privileges -U rehearsal -d rehearsal <"$work/database.dump"
 else fail 'Unknown snapshot storage mode'; fi
-docker run --rm --network "$network" --env-file "$work/db.env" -v "$work:/snapshot" "$image" node apps/api/dist/state-migration.mjs export /snapshot/restored.json >"$work/restored-inspection.json"
+docker run --rm --user "$utility_user" --network "$network" --env-file "$work/db.env" -v "$work:/snapshot" "$image" node apps/api/dist/state-migration.mjs export /snapshot/restored.json >"$work/restored-inspection.json"
 docker exec "$pg" pg_dump -U rehearsal -d rehearsal -Fc >"$work/rehearsed.dump"
 if [[ "$mode" == json ]]; then
   docker run --rm --network none -v "$work:/snapshot:ro" --entrypoint node "$image" -e '
@@ -81,5 +82,5 @@ for n in {1..45}; do
 done
 [[ "$ready" == true ]] || fail 'Restored API did not survive restart'
 docker stop "$api" >/dev/null
-docker run --rm --network "$network" --env-file "$work/db.env" -v "$work:/snapshot" "$image" node apps/api/dist/state-migration.mjs export /snapshot/after-restart.json >"$work/after-restart-inspection.json"
+docker run --rm --user "$utility_user" --network "$network" --env-file "$work/db.env" -v "$work:/snapshot" "$image" node apps/api/dist/state-migration.mjs export /snapshot/after-restart.json >"$work/after-restart-inspection.json"
 echo 'Isolated restore, state checksum and API restart passed. Production was not accessed.'

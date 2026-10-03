@@ -146,7 +146,7 @@ snapshot() {
     dc exec -T postgres sh -c 'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' >"$point/database.dump"
     [[ -s "$point/database.dump" ]] || fail 'Empty PostgreSQL backup'
     dc exec -T postgres pg_restore --list <"$point/database.dump" >"$point/dump-contents"
-    rc "$point" "$point/images.yml" run --rm --no-deps --pull never -v "$point:/snapshot" backend node apps/api/dist/state-migration.mjs export /snapshot/state.json
+    rc "$point" "$point/images.yml" run --rm --no-deps --pull never --user "$(id -u):$(id -g)" -v "$point:/snapshot" backend node apps/api/dist/state-migration.mjs export /snapshot/state.json
     docker run --rm --network none -v "$point:/snapshot:ro" --entrypoint node "$api_image" -e '
       const s=JSON.parse(require("fs").readFileSync("/snapshot/state.json","utf8"));
       if("storageFormat" in s && s.storageFormat!=="cargona-state-v1")process.exit(1);'

@@ -57,6 +57,7 @@ cp "$MOCK_REPO/$(basename "$file")" "$output"
   assert.equal(r.stdout.trim(), password, 'Dotenv values must round trip without execution or interpolation');
   if (process.env.RUNTIME_COMPOSE_CHECK === 'true') {
     const override = path.join(root, 'installation/env-check.yml');
+    fs.mkdirSync(path.join(root, 'installation/data/backend'), { recursive: true });
     fs.writeFileSync(override, 'services:\n  backend:\n    image: node:22-alpine\n');
     const compose = ['compose', '-p', `cargona-env-${path.basename(root).toLowerCase()}`, '--project-directory', path.join(root, 'installation'), '-f', path.join(root, 'installation/docker-compose.yml'), '-f', override];
     try {
