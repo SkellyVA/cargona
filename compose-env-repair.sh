@@ -18,6 +18,8 @@ cat >"$stage/convert.cjs" <<'NODE'
 const fs = require('node:fs');
 const dir = '/repair';
 const config = JSON.parse(fs.readFileSync(`${dir}/resolved.before.json`, 'utf8'));
+// Missing STORAGE_BACKEND means JSON; make that default explicitly configurable.
+config.services.backend.environment.STORAGE_BACKEND ??= 'json';
 const values = new Map();
 const literal = value => String(value ?? '').replaceAll('$$', '$');
 function bind(service, key, variable = key) {
@@ -64,8 +66,9 @@ docker compose --project-directory "$APP_DIR" --env-file "$stage/env.next" \
 docker run --rm --network none --user "$(id -u):$(id -g)" \
   -v "$stage:/repair:ro" --entrypoint node "$image" -e '
   const fs=require("fs"), assert=require("node:assert/strict");
-  assert.deepStrictEqual(JSON.parse(fs.readFileSync("/repair/resolved.after.json")),
-    JSON.parse(fs.readFileSync("/repair/resolved.before.json")));
+  const before=JSON.parse(fs.readFileSync("/repair/resolved.before.json"));
+  before.services.backend.environment.STORAGE_BACKEND ??= "json";
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync("/repair/resolved.after.json")), before);
   console.log("Resolved Compose unchanged; dotenv references verified.");'
 # Keep the candidate configuration separate until both files have been validated.
 cp "$stage/env.next" .env.next

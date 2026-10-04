@@ -27,6 +27,8 @@ try {
   const env = fs.readFileSync(path.join(root, 'env.next'), 'utf8');
   assert.equal(output.services.backend.environment.APP_DOMAIN, '${APP_DOMAIN}');
   assert.equal(output.services.backend.environment.DATA_DIR, '/app/data');
+  assert.equal(output.services.backend.environment.STORAGE_BACKEND, '${STORAGE_BACKEND}');
+  assert.ok(env.includes("STORAGE_BACKEND='json'"));
   assert.deepEqual(output.services.backend.volumes, config.services.backend.volumes);
   assert.equal(output.services.backend.image, 'pinned-api');
   assert.equal(output.services.backend.environment.DATABASE_URL,

@@ -15,7 +15,7 @@ mkdir -p "$target"
 stage="$(mktemp -d "${target%/}.bundle-XXXXXX")"
 trap 'rm -rf -- "$stage"' EXIT
 base="https://raw.githubusercontent.com/SkellyVA/cargona/$sha"
-for file in cargona release.sh update.sh offsite-backup.sh monitor.sh rehearse.sh maintenance.sh runtime-tools.sh Caddyfile init-db.sql; do
+for file in cargona release.sh update.sh offsite-backup.sh monitor.sh rehearse.sh maintenance.sh postgres-migrate.sh runtime-tools.sh Caddyfile init-db.sql; do
   curl --fail --silent --show-error --location --proto '=https' "$base/$file" -o "$stage/$file"
 done
 curl --fail --silent --show-error --location --proto '=https' "$base/docker-compose.runtime.yml" -o "$stage/docker-compose.yml"

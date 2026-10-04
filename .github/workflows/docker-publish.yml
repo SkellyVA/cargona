@@ -59,7 +59,9 @@ jobs:
       - name: Rehearse JSON and PostgreSQL restore before publishing
         env:
           REHEARSAL_API_IMAGE: ${{ env.IMAGE_API }}:${{ github.sha }}
-        run: node scripts/container-rehearsal.test.mjs
+        run: |
+          node scripts/container-rehearsal.test.mjs
+          node scripts/postgres-migrate.test.mjs
 
       - name: Publish verified Backend API Image
         uses: docker/build-push-action@v5

@@ -362,7 +362,7 @@ cmd_install_global() {
 # INTERACTIVE MENU
 interactive_menu() {
   while true; do
-    clear
+    clear 2>/dev/null || true
     echo -e "${CYAN}${BOLD}"
     cat << "EOF"
    ______                                        ____  _____
@@ -396,15 +396,22 @@ EOF
     echo -e " ${BOLD}3)${NC} 🏢 Изменить лимит организаций (Лицензия)"
     echo -e " ${BOLD}4)${NC} 💾 Создать резервную копию (Бэкап БД)"
     echo -e " ${BOLD}5)${NC} 🔄 Восстановить базу из бэкапа"
-    echo -e " ${BOLD}6)${NC} 🚀 Обновить систему до последней версии"
+    echo -e " ${BOLD}6)${NC} 🚀 Обновить приложение до указанной версии (SHA)"
     echo -e " ${BOLD}7)${NC} 🔄 Перезапустить сервисы"
     echo -e " ${BOLD}8)${NC} 🌐 Сменить домен / перевыпустить SSL"
     echo -e " ${BOLD}9)${NC} 🏆 Настройки программы лояльности (NOOR CLUB)"
     echo -e " ${BOLD}10)${NC} 📥 Умный импорт / миграция из MongoDB & JSON"
     echo -e " ${BOLD}11)${NC} 📋 Просмотр системных логов (live logs)"
+    echo -e " ${BOLD}12)${NC} ↩️ Список точек и откат приложения"
+    echo -e " ${BOLD}13)${NC} 🛠 Обновить CLI и скрипты (SHA)"
+    echo -e " ${BOLD}14)${NC} ☁️ Зашифрованные внешние бэкапы"
+    echo -e " ${BOLD}15)${NC} 🔔 Мониторинг и уведомления"
+    echo -e " ${BOLD}16)${NC} 🧪 Пробное восстановление копии"
+    echo -e " ${BOLD}17)${NC} 🗄 Миграция JSON → PostgreSQL"
+    echo -e " ${BOLD}18)${NC} 📖 Все команды и справка"
     echo -e " ${BOLD}0)${NC} 🚪 Выход"
     echo -e "${BLUE}================================================================${NC}"
-    read -p "Выберите действие [0-11]: " choice
+    read -p "Выберите действие [0-18]: " choice
 
     case "$choice" in
       1) cmd_status; read -p "Нажмите Enter для продолжения...";;
@@ -437,7 +444,24 @@ EOF
         fi
         read -p "Нажмите Enter для продолжения..."
         ;;
-      11) cmd_logs;;
+      11)
+        read -r -p 'Сервис для логов (backend/frontend/bot/postgres; Enter — все): ' log_service
+        bash "$APP_DIR/cargona" logs "$log_service" || true;;
+      12)
+        bash "$APP_DIR/cargona" rollback:list || echo 'Не удалось получить список'
+        read -r -p 'ID для отката (Enter — назад; актуальная база сохраняется): ' release_id
+        if [[ -n "$release_id" ]]; then bash "$APP_DIR/cargona" rollback "$release_id" || echo 'Откат завершился ошибкой'; fi;;
+      13)
+        read -r -p 'Полный SHA версии скриптов: ' tools_sha
+        bash "$APP_DIR/cargona" tools:update "$tools_sha" || echo 'Обновление скриптов завершилось ошибкой';;
+      14) operations_menu offsite;;
+      15) operations_menu monitor;;
+      16)
+        read -r -p 'Абсолютный путь к копии: ' snapshot_dir
+        read -r -p 'Образ API (ghcr.io/skellyva/cargona-api:SHA): ' api_image
+        bash "$APP_DIR/cargona" rehearse "$snapshot_dir" "$api_image" || echo 'Репетиция завершилась ошибкой';;
+      17) operations_menu postgres;;
+      18) bash "$APP_DIR/cargona" help; read -r -p 'Нажмите Enter...' ;;
       0) echo -e "\nДо свидания!\n"; exit 0;;
       *) echo -e "${RED}Неверный пункт меню${NC}"; sleep 1;;
     esac
@@ -448,6 +472,45 @@ EOF
 run_importer() {
   bash "$APP_DIR/maintenance.sh" import "$@"
 }
+# Additional interactive menus use the same CLI routes as typed commands.
+operations_menu() {
+  local kind="$1" choice command argument image
+  while true; do
+    case "$kind" in
+      offsite)
+        printf '\nВнешние копии: 1) Настроить 2) Инициализировать 3) Создать сейчас\n4) Включить расписание 5) Отключить 6) Статус 7) Список\n8) Проверить целостность 9) Очистить старые 10) Скачать копию 0) Назад\n'
+        read -r -p 'Действие: ' choice
+        case "$choice" in
+          1) command=offsite:configure;; 2) command=offsite:init;; 3) command=offsite:run;;
+          4) command=offsite:enable;; 5) command=offsite:disable;; 6) command=offsite:status;;
+          7) command=offsite:list;; 8) command=offsite:check;; 9) command=offsite:prune;;
+          10) read -r -p 'ID копии (рабочая база не заменяется): ' argument
+              bash "$APP_DIR/cargona" offsite:restore "$argument" || echo 'Операция завершилась ошибкой'
+              continue;;
+          0) return;; *) echo 'Неверный пункт'; continue;;
+        esac;;
+      monitor)
+        printf '\nМониторинг: 1) Настроить 2) Проверить сейчас 3) Включить\n4) Отключить 5) Статус 0) Назад\n'
+        read -r -p 'Действие: ' choice
+        case "$choice" in
+          1) command=monitor:configure;; 2) command=monitor:run;; 3) command=monitor:enable;;
+          4) command=monitor:disable;; 5) command=monitor:status;;
+          0) return;; *) echo 'Неверный пункт'; continue;;
+        esac;;
+      postgres)
+        printf '\nJSON → PostgreSQL: 1) Текущий режим 2) Проверить JSON\n3) Пробная транзакция (откат) 4) Изолированная репетиция\n5) Перенести данные и переключить API 0) Назад\n'
+        echo 'Применение создаёт бэкап, проверяет восстановление, останавливает запись и сверяет полный экспорт.'
+        read -r -p 'Действие: ' choice
+        case "$choice" in
+          1) command=migration:status;; 2) command=migration:inspect;; 3) command=migration:trial;;
+          4) command=migration:rehearse;; 5) command=migration:apply;;
+          0) return;; *) echo 'Неверный пункт'; continue;;
+        esac;;
+    esac
+    bash "$APP_DIR/cargona" "$command" || echo 'Операция завершилась ошибкой; проверьте вывод выше'
+  done
+}
+
 # CLI Router
 cmd_install_global 2>/dev/null || true
 
@@ -471,6 +534,7 @@ case "$1" in
   monitor:*) bash "${APP_DIR}/monitor.sh" "${1#monitor:}" ;;
   rehearse) bash "${APP_DIR}/rehearse.sh" "${2:-}" "${3:-}" ;;
   "tools:update") bash "${APP_DIR}/runtime-tools.sh" "${2:-}" ;;
+  migration:*) bash "${APP_DIR}/postgres-migrate.sh" "${1#migration:}" ;;
   update) cmd_update "${2:-}" ;;
   rollback) bash "${APP_DIR}/release.sh" rollback "${2:-}" ;;
   "rollback:list") bash "${APP_DIR}/release.sh" list ;;
@@ -501,9 +565,11 @@ case "$1" in
     echo -e "  backup:restore   - Восстановить базу из бэкапа"
     echo -e "  offsite:configure - Настроить зашифрованные копии в B2"
     echo -e "  offsite:init|run|enable|disable|status|list|check|prune - Автобэкапы"
+    echo -e "  offsite:restore ID - Скачать копию отдельно от рабочей базы"
     echo -e "  monitor:configure|enable|disable|run|status - Мониторинг и уведомления"
     echo -e "  rehearse DIR IMAGE - Пробное восстановление в изолированной среде"
     echo -e "  tools:update SHA - Обновить CLI и скрипты без клонирования репозитория"
+    echo -e "  migration:status|inspect|trial|rehearse|apply - JSON → PostgreSQL"
     echo -e "  update SHA       - Обновить на конкретную версию Docker-образов"
     echo -e "  rollback:list    - Список сохранённых версий и бэкапов"
     echo -e "  rollback ID      - Вернуть образы приложения, сохранив актуальную базу"
