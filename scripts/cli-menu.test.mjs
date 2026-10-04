@@ -13,10 +13,11 @@ try {
   for(const name of ['postgres-migrate.sh','offsite-backup.sh','monitor.sh','release.sh','runtime-tools.sh','rehearse.sh','update.sh'])
     fs.writeFileSync(path.join(root,name),`#!/usr/bin/env bash\nprintf '%s ' '${name}' "$@" >>"$TEST_ROOT/calls"\nprintf '\\n' >>"$TEST_ROOT/calls"\n`);
   const sha='a'.repeat(40);
+  fs.writeFileSync(path.join(root,'version-select.sh'),`#!/usr/bin/env bash\nprintf '%s\\n' '${sha}'\n`);
   const input=['17','1','2','3','4','5','0',
     '14','1','2','3','4','5','6','7','8','9','10','abcdef12','0',
-    '15','1','2','3','4','5','0','6',sha,'',
-    '12','release-id','13',sha,'16','/snapshot','image:sha','18','','0'].join('\n')+'\n';
+    '15','1','2','3','4','5','0','6','',
+    '12','release-id','13','16','/snapshot','image:sha','18','','0'].join('\n')+'\n';
   const r=spawnSync(bash,[path.join(root,'cargona')],{input,encoding:'utf8',
     env:{...process.env,TEST_ROOT:root.replaceAll('\\','/')},timeout:30000});
   assert.ifError(r.error);

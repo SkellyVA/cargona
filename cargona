@@ -255,7 +255,7 @@ cmd_backup_restore() (
 cmd_update() {
   if [ -f "${APP_DIR}/update.sh" ]; then
     local target="${1:-}"
-    if [ -z "$target" ]; then read -p 'Полный SHA версии Docker-образов из GitHub: ' target; fi
+    if [ -z "$target" ]; then target="$(bash "$APP_DIR/version-select.sh")" || return 1; fi
     bash "${APP_DIR}/update.sh" "$target"
   else
     echo 'Безопасный updater не установлен. Обновление не выполнено.' >&2
@@ -396,14 +396,14 @@ EOF
     echo -e " ${BOLD}3)${NC} 🏢 Изменить лимит организаций (Лицензия)"
     echo -e " ${BOLD}4)${NC} 💾 Создать резервную копию (Бэкап БД)"
     echo -e " ${BOLD}5)${NC} 🔄 Восстановить базу из бэкапа"
-    echo -e " ${BOLD}6)${NC} 🚀 Обновить приложение до указанной версии (SHA)"
+    echo -e " ${BOLD}6)${NC} 🚀 Выбрать версию и обновить приложение"
     echo -e " ${BOLD}7)${NC} 🔄 Перезапустить сервисы"
     echo -e " ${BOLD}8)${NC} 🌐 Сменить домен / перевыпустить SSL"
     echo -e " ${BOLD}9)${NC} 🏆 Настройки программы лояльности (NOOR CLUB)"
     echo -e " ${BOLD}10)${NC} 📥 Умный импорт / миграция из MongoDB & JSON"
     echo -e " ${BOLD}11)${NC} 📋 Просмотр системных логов (live logs)"
     echo -e " ${BOLD}12)${NC} ↩️ Список точек и откат приложения"
-    echo -e " ${BOLD}13)${NC} 🛠 Обновить CLI и скрипты (SHA)"
+    echo -e " ${BOLD}13)${NC} 🛠 Выбрать версию CLI и обновить скрипты"
     echo -e " ${BOLD}14)${NC} ☁️ Зашифрованные внешние бэкапы"
     echo -e " ${BOLD}15)${NC} 🔔 Мониторинг и уведомления"
     echo -e " ${BOLD}16)${NC} 🧪 Пробное восстановление копии"
@@ -452,7 +452,7 @@ EOF
         read -r -p 'ID для отката (Enter — назад; актуальная база сохраняется): ' release_id
         if [[ -n "$release_id" ]]; then bash "$APP_DIR/cargona" rollback "$release_id" || echo 'Откат завершился ошибкой'; fi;;
       13)
-        read -r -p 'Полный SHA версии скриптов: ' tools_sha
+        tools_sha="$(bash "$APP_DIR/version-select.sh")" || continue
         bash "$APP_DIR/cargona" tools:update "$tools_sha" || echo 'Обновление скриптов завершилось ошибкой';;
       14) operations_menu offsite;;
       15) operations_menu monitor;;
@@ -533,7 +533,10 @@ case "$1" in
   offsite:*) bash "${APP_DIR}/offsite-backup.sh" "${1#offsite:}" "${@:2}" ;;
   monitor:*) bash "${APP_DIR}/monitor.sh" "${1#monitor:}" ;;
   rehearse) bash "${APP_DIR}/rehearse.sh" "${2:-}" "${3:-}" ;;
-  "tools:update") bash "${APP_DIR}/runtime-tools.sh" "${2:-}" ;;
+  "tools:update")
+    tools_sha="${2:-}"
+    if [[ -z "$tools_sha" ]]; then tools_sha="$(bash "$APP_DIR/version-select.sh")"; fi
+    bash "${APP_DIR}/runtime-tools.sh" "$tools_sha" ;;
   migration:*) bash "${APP_DIR}/postgres-migrate.sh" "${1#migration:}" ;;
   update) cmd_update "${2:-}" ;;
   rollback) bash "${APP_DIR}/release.sh" rollback "${2:-}" ;;
@@ -568,9 +571,9 @@ case "$1" in
     echo -e "  offsite:restore ID - Скачать копию отдельно от рабочей базы"
     echo -e "  monitor:configure|enable|disable|run|status - Мониторинг и уведомления"
     echo -e "  rehearse DIR IMAGE - Пробное восстановление в изолированной среде"
-    echo -e "  tools:update SHA - Обновить CLI и скрипты без клонирования репозитория"
+    echo -e "  tools:update [SHA] - Выбрать версию CLI и обновить скрипты"
     echo -e "  migration:status|inspect|trial|rehearse|apply - JSON → PostgreSQL"
-    echo -e "  update SHA       - Обновить на конкретную версию Docker-образов"
+    echo -e "  update [SHA]     - Выбрать опубликованную версию Docker-образов"
     echo -e "  rollback:list    - Список сохранённых версий и бэкапов"
     echo -e "  rollback ID      - Вернуть образы приложения, сохранив актуальную базу"
     echo -e "  restart          - Перезапустить контейнеры"

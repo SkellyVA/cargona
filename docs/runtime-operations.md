@@ -2,6 +2,12 @@
 
 Новая установка использует только опубликованные Docker-образы одной версии, Compose, Caddyfile, init-db.sql, CLI и скрипты обслуживания. Node/pnpm/Git и исходники приложения на сервере не требуются. Нужны Linux, Docker Compose v2, Bash, curl, openssl, util-linux; Restic и systemd нужны для автобэкапов.
 
+Запуск `curl -fsSL https://raw.githubusercontent.com/SkellyVA/cargona/main/install.sh | bash`
+открывает меню до десяти версий из успешных публикаций GitHub Actions. Enter выбирает
+последнюю успешную; доступны другая версия, ручной SHA и отмена. Ввод читается из
+терминала. Для разбора ответа GitHub API используется контейнер `node:22-alpine`.
+`cargona update` и `cargona tools:update` без SHA открывают такое же меню.
+
 ```bash
 # Скачайте install.sh из доверенной версии и проверьте файл перед запуском.
 bash install.sh FULL_40_CHARACTER_GIT_SHA /opt/cargona

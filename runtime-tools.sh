@@ -10,7 +10,7 @@ exec 9>"$APP_DIR/data/releases/.lock"
 flock -n 9 || { echo 'Another release operation is running' >&2; exit 1; }
 stage="$(mktemp -d "$APP_DIR/data/tools/download-XXXXXX")"
 trap 'rm -rf -- "$stage"' EXIT
-files=(cargona release.sh update.sh offsite-backup.sh monitor.sh rehearse.sh maintenance.sh postgres-migrate.sh runtime-tools.sh)
+files=(cargona release.sh update.sh offsite-backup.sh monitor.sh rehearse.sh maintenance.sh postgres-migrate.sh version-select.sh runtime-tools.sh)
 for file in "${files[@]}"; do
   curl --fail --silent --show-error --location --proto '=https' "https://raw.githubusercontent.com/SkellyVA/cargona/$sha/$file" -o "$stage/$file"
   bash -n "$stage/$file"
