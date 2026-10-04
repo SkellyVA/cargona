@@ -148,28 +148,8 @@ cmd_set_limit() {
 
 # 4. BACKUP CREATE
 cmd_backup_create() {
-  if [ -f "${APP_DIR}/release.sh" ]; then
-    bash "${APP_DIR}/release.sh" backup
-    return
-  fi
-  echo -e "\n${CYAN}=== Создание резервной копии базы данных ===${NC}"
-  local ts=$(date +%Y%m%d_%H%M%S)
-  local bkp_file="${BACKUP_DIR}/cargona_backup_${ts}.json"
-  local env_bkp="${BACKUP_DIR}/env_backup_${ts}.env"
-
-  if [ -f "$STORE_FILE" ]; then
-    cp "$STORE_FILE" "$bkp_file"
-    echo -e "${GREEN}✓ База данных сохранена:${NC} ${bkp_file}"
-  else
-    echo -e "${YELLOW}[!] Файл базы данных не найден по пути $STORE_FILE${NC}"
-  fi
-
-  if [ -f "$ENV_FILE" ]; then
-    cp "$ENV_FILE" "$env_bkp"
-    echo -e "${GREEN}✓ Конфигурация сохранена:${NC} ${env_bkp}"
-  fi
-
-  echo -e "${GREEN}${BOLD}Резервная копия успешно создана!${NC}\n"
+  [[ -f "$APP_DIR/release.sh" ]] || { echo 'Скрипт проверенного бэкапа отсутствует. Сначала обновите CLI через tools:update.' >&2; return 1; }
+  bash "$APP_DIR/release.sh" backup
 }
 
 # 5. BACKUP RESTORE
@@ -353,32 +333,54 @@ cmd_logs() {
 # 12. INSTALL AS GLOBAL COMMAND
 cmd_install_global() {
   if [ "$EUID" -eq 0 ]; then
-    ln -sf "${APP_DIR}/cargona" /usr/local/bin/cargona
-    chmod +x /usr/local/bin/cargona
-    echo -e "${GREEN}✓ Команда 'cargona' теперь доступна глобально из любой папки в терминале!${NC}\n"
+    if [[ "$(readlink -f /usr/local/bin/cargona 2>/dev/null || true)" != "$APP_DIR/cargona" ]]; then
+      ln -sf "${APP_DIR}/cargona" /usr/local/bin/cargona
+      chmod +x /usr/local/bin/cargona
+    fi
   fi
+}
+
+menu_screen() {
+  if [[ -t 1 ]]; then clear 2>/dev/null || true; fi
+  printf '\n============================================================\n  CargonaOS · %s\n============================================================\n\n' "$1"
+}
+menu_pause() { read -r -p 'Нажмите Enter, чтобы вернуться в меню...' _ || return 1; }
+menu_run() {
+  printf '\n------------------------------------------------------------\n'
+  if bash "$APP_DIR/cargona" "$@"; then
+    printf '\n✓ Операция завершена.\n'
+  else
+    printf '\nНе выполнено. Причина и дальнейшие действия указаны выше.\n'
+  fi
+  menu_pause
+}
+cmd_doctor() {
+  local tool missing=false
+  echo 'Проверка окружения (без установки и изменения настроек)'
+  for tool in docker curl openssl flock sha256sum; do
+    if command -v "$tool" >/dev/null; then printf '  ✓ %s\n' "$tool";
+    else printf '  ✗ %s — не найден\n' "$tool"; missing=true; fi
+  done
+  if docker compose version >/dev/null 2>&1; then echo '  ✓ Docker Compose v2';
+  else echo '  ✗ Docker Compose v2 недоступен'; missing=true; fi
+  if docker info >/dev/null 2>&1; then echo '  ✓ Docker daemon доступен';
+  else echo '  ✗ Docker daemon недоступен'; missing=true; fi
+  if command -v restic >/dev/null; then restic version;
+  else echo '  ○ Restic не установлен — нужен только для внешних копий (меню 14 → 11)'; fi
+  if command -v systemctl >/dev/null && systemctl show --property=Version --value >/dev/null 2>&1; then echo '  ✓ systemd доступен';
+  else echo '  ○ systemd недоступен — расписания не смогут работать'; fi
+  [[ "$missing" == false ]]
 }
 
 # INTERACTIVE MENU
 interactive_menu() {
   while true; do
-    clear 2>/dev/null || true
-    echo -e "${CYAN}${BOLD}"
-    cat << "EOF"
-   ______                                        ____  _____
-  / ____/___ _____________ _____  ____  ____ _   / __ \/ ___/
- / /   / __ `/ ___/ __  // __ \/ __ \/ __ `/  / / / /\__ \ 
-/ /___/ /_/ / /  / /_/ // /_/ / / / / /_/ /  / /_/ /___/ / 
-\____/\__,_/_/   \__, / \____/_/ /_/\__,_/   \____//____/  
-                /____/                                     
-           Server Administration Console & Tool
-EOF
-    echo -e "${NC}"
+    menu_screen 'Управление сервером'
     local domain=$(get_env_var "APP_DOMAIN")
     local limit=$(get_env_var "MAX_TENANTS_LIMIT")
     local loyalty=$(get_env_var "ENABLE_NOOR_CLUB")
     [ -z "$limit" ] && limit="0"
-    [ -z "$loyalty" ] && loyalty="true"
+    [ -z "$loyalty" ] && loyalty="false"
 
     local limit_label="Безлимит"
     if [ "$limit" -gt 0 ] 2>/dev/null; then
@@ -392,7 +394,7 @@ EOF
     echo -e "🌐 Домен: ${BOLD}https://${domain:-cargona.local}${NC} | 🏢 Лимит: ${BOLD}${limit_label}${NC} | 🏆 Клуб: ${BOLD}${loyalty_label}${NC}"
     echo -e "${BLUE}================================================================${NC}"
     echo -e " ${BOLD}1)${NC} 📊 Статус системы и контейнеров"
-    echo -e " ${BOLD}2)${NC} 🔑 Сменить пароль / email Супер-Админа"
+    echo -e " ${BOLD}2)${NC} 🔑 Пароль и email супер-админа / владельца"
     echo -e " ${BOLD}3)${NC} 🏢 Изменить лимит организаций (Лицензия)"
     echo -e " ${BOLD}4)${NC} 💾 Создать резервную копию (Бэкап БД)"
     echo -e " ${BOLD}5)${NC} 🔄 Восстановить базу из бэкапа"
@@ -409,20 +411,21 @@ EOF
     echo -e " ${BOLD}16)${NC} 🧪 Пробное восстановление копии"
     echo -e " ${BOLD}17)${NC} 🗄 Миграция JSON → PostgreSQL"
     echo -e " ${BOLD}18)${NC} 📖 Все команды и справка"
+    echo -e " ${BOLD}19)${NC} 🩺 Проверка зависимостей и окружения"
     echo -e " ${BOLD}0)${NC} 🚪 Выход"
     echo -e "${BLUE}================================================================${NC}"
-    read -p "Выберите действие [0-18]: " choice
+    read -p "Выберите действие [0-19]: " choice || return
 
     case "$choice" in
-      1) cmd_status; read -p "Нажмите Enter для продолжения...";;
-      2) cmd_reset_admin; read -p "Нажмите Enter для продолжения...";;
-      3) cmd_set_limit; read -p "Нажмите Enter для продолжения...";;
-      4) cmd_backup_create; read -p "Нажмите Enter для продолжения...";;
-      5) cmd_backup_restore; read -p "Нажмите Enter для продолжения...";;
-      6) cmd_update; read -p "Нажмите Enter для продолжения...";;
-      7) cmd_restart; read -p "Нажмите Enter для продолжения...";;
-      8) cmd_domain; read -p "Нажмите Enter для продолжения...";;
-      9) cmd_loyalty; read -p "Нажмите Enter для продолжения...";;
+      1) menu_run status || return;;
+      2) menu_run admin:reset || return;;
+      3) menu_run limit || return;;
+      4) menu_run backup || return;;
+      5) menu_run backup:restore || return;;
+      6) menu_run update || return;;
+      7) menu_run restart || return;;
+      8) menu_run domain || return;;
+      9) menu_run loyalty || return;;
       10)
         echo -e "\n${CYAN}=== Умный импорт данных в CargonaOS ===${NC}"
         read -p "Тип источника (1 - MongoDB URI, 2 - Папка с JSON файлами): " imp_type
@@ -435,33 +438,35 @@ EOF
           echo -e "${YELLOW}[!] Режим: Полная замена старой базы на новую${NC}"
         fi
         if [ "$imp_type" = "1" ]; then
-          read -p "MongoDB URI (например: mongodb://user:pass@host:27017/db): " imp_uri
-          run_importer --mongo "$imp_uri" --tenant "$imp_tenant" $wipe_flag
-        else
+          read -r -s -p "MongoDB URI (ввод скрыт): " imp_uri; printf '\n'
+          menu_run import --mongo "$imp_uri" --tenant "$imp_tenant" $wipe_flag || return
+        elif [[ "$imp_type" == 2 ]]; then
           read -p "Путь к папке с JSON (по умолчанию ./dumps): " imp_dir
           imp_dir=${imp_dir:-./dumps}
-          run_importer --dir "$imp_dir" --tenant "$imp_tenant" $wipe_flag
+          menu_run import --dir "$imp_dir" --tenant "$imp_tenant" $wipe_flag || return
+        else
+          echo 'Выберите 1 — MongoDB или 2 — JSON'; menu_pause || return
         fi
-        read -p "Нажмите Enter для продолжения..."
         ;;
       11)
         read -r -p 'Сервис для логов (backend/frontend/bot/postgres; Enter — все): ' log_service
-        bash "$APP_DIR/cargona" logs "$log_service" || true;;
+        menu_run logs "$log_service" || return;;
       12)
         bash "$APP_DIR/cargona" rollback:list || echo 'Не удалось получить список'
         read -r -p 'ID для отката (Enter — назад; актуальная база сохраняется): ' release_id
-        if [[ -n "$release_id" ]]; then bash "$APP_DIR/cargona" rollback "$release_id" || echo 'Откат завершился ошибкой'; fi;;
+        if [[ -n "$release_id" ]]; then menu_run rollback "$release_id" || return; fi;;
       13)
         tools_sha="$(bash "$APP_DIR/version-select.sh")" || continue
-        bash "$APP_DIR/cargona" tools:update "$tools_sha" || echo 'Обновление скриптов завершилось ошибкой';;
+        menu_run tools:update "$tools_sha" || return;;
       14) operations_menu offsite;;
       15) operations_menu monitor;;
       16)
         read -r -p 'Абсолютный путь к копии: ' snapshot_dir
         read -r -p 'Образ API (ghcr.io/skellyva/cargona-api:SHA): ' api_image
-        bash "$APP_DIR/cargona" rehearse "$snapshot_dir" "$api_image" || echo 'Репетиция завершилась ошибкой';;
+        menu_run rehearse "$snapshot_dir" "$api_image" || return;;
       17) operations_menu postgres;;
       18) bash "$APP_DIR/cargona" help; read -r -p 'Нажмите Enter...' ;;
+      19) menu_run doctor || return;;
       0) echo -e "\nДо свидания!\n"; exit 0;;
       *) echo -e "${RED}Неверный пункт меню${NC}"; sleep 1;;
     esac
@@ -474,40 +479,50 @@ run_importer() {
 }
 # Additional interactive menus use the same CLI routes as typed commands.
 operations_menu() {
-  local kind="$1" choice command argument image
+  local kind="$1" choice command argument
   while true; do
+    argument=''
     case "$kind" in
       offsite)
-        printf '\nВнешние копии: 1) Настроить 2) Инициализировать 3) Создать сейчас\n4) Включить расписание 5) Отключить 6) Статус 7) Список\n8) Проверить целостность 9) Очистить старые 10) Скачать копию 0) Назад\n'
-        read -r -p 'Действие: ' choice
+        menu_screen 'Внешние резервные копии'
+        if command -v restic >/dev/null; then echo '  Restic: установлен';
+        else echo '  Restic: не установлен → пункт 11'; fi
+        if [[ -f "$APP_DIR/data/offsite/restic.env" ]]; then echo '  Хранилище: настроено';
+        else echo '  Хранилище: не настроено'; fi
+        printf '\n  Первый запуск: 11 → 1 → 2 → 3 → 4\n\n'
+        printf '   1) Настроить Backblaze B2 и шифрование\n   2) Инициализировать хранилище\n   3) Создать копию сейчас\n\n   4) Включить расписание (каждые 15 минут)\n   5) Отключить расписание\n   6) Статус и последние запуски\n\n   7) Список копий\n   8) Проверить целостность (может занять время)\n   9) Очистить старые копии по правилам хранения\n  10) Скачать копию в отдельный каталог\n  11) Установить Restic (Debian/Ubuntu)\n\n   0) Назад\n\n'
+        read -r -p 'Выберите действие: ' choice || return
         case "$choice" in
           1) command=offsite:configure;; 2) command=offsite:init;; 3) command=offsite:run;;
           4) command=offsite:enable;; 5) command=offsite:disable;; 6) command=offsite:status;;
           7) command=offsite:list;; 8) command=offsite:check;; 9) command=offsite:prune;;
-          10) read -r -p 'ID копии (рабочая база не заменяется): ' argument
-              bash "$APP_DIR/cargona" offsite:restore "$argument" || echo 'Операция завершилась ошибкой'
-              continue;;
-          0) return;; *) echo 'Неверный пункт'; continue;;
+          10) read -r -p 'ID копии (рабочая база не заменяется): ' argument || return
+              command=offsite:restore;;
+          11) command=offsite:install-restic;;
+          0) return;; *) echo 'Неверный пункт'; menu_pause || return; continue;;
         esac;;
       monitor)
-        printf '\nМониторинг: 1) Настроить 2) Проверить сейчас 3) Включить\n4) Отключить 5) Статус 0) Назад\n'
-        read -r -p 'Действие: ' choice
+        menu_screen 'Мониторинг и уведомления'
+        if [[ -f "$APP_DIR/data/monitor/telegram.env" ]]; then echo '  Telegram: настроен'; else echo '  Telegram: не настроен'; fi
+        printf '\n   1) Настроить отдельного бота и личный чат\n   2) Проверить систему сейчас\n   3) Включить проверки каждые 2 минуты\n   4) Отключить расписание\n   5) Статус мониторинга\n\n   0) Назад\n\n'
+        read -r -p 'Выберите действие: ' choice || return
         case "$choice" in
           1) command=monitor:configure;; 2) command=monitor:run;; 3) command=monitor:enable;;
           4) command=monitor:disable;; 5) command=monitor:status;;
-          0) return;; *) echo 'Неверный пункт'; continue;;
+          0) return;; *) echo 'Неверный пункт'; menu_pause || return; continue;;
         esac;;
       postgres)
-        printf '\nJSON → PostgreSQL: 1) Текущий режим 2) Проверить JSON\n3) Пробная транзакция (откат) 4) Изолированная репетиция\n5) Перенести данные и переключить API 0) Назад\n'
-        echo 'Применение создаёт бэкап, проверяет восстановление, останавливает запись и сверяет полный экспорт.'
-        read -r -p 'Действие: ' choice
+        menu_screen 'Миграция JSON → PostgreSQL'
+        printf '  Проверка и репетиция не переключают рабочее хранилище.\n  Применение потребует подтверждения и остановит доступ.\n\n   1) Текущий режим хранения\n   2) Проверить исходный JSON\n   3) Пробная транзакция с откатом\n   4) Изолированная репетиция восстановления\n   5) Перенести данные и переключить API\n\n   0) Назад\n\n'
+        read -r -p 'Выберите действие: ' choice || return
         case "$choice" in
           1) command=migration:status;; 2) command=migration:inspect;; 3) command=migration:trial;;
           4) command=migration:rehearse;; 5) command=migration:apply;;
-          0) return;; *) echo 'Неверный пункт'; continue;;
+          0) return;; *) echo 'Неверный пункт'; menu_pause || return; continue;;
         esac;;
     esac
-    bash "$APP_DIR/cargona" "$command" || echo 'Операция завершилась ошибкой; проверьте вывод выше'
+    if [[ -n "$argument" ]]; then menu_run "$command" "$argument" || return;
+    else menu_run "$command" || return; fi
   done
 }
 
@@ -516,6 +531,7 @@ cmd_install_global 2>/dev/null || true
 
 case "$1" in
   status) cmd_status ;;
+  doctor) cmd_doctor ;;
   "admin:reset"|"admin:password") cmd_reset_admin ;;
   "license:limit"|"limit")
     if [ -n "$2" ]; then
@@ -561,12 +577,14 @@ case "$1" in
     echo -e "Использование: cargona [команда]"
     echo -e "Команды:"
     echo -e "  status           - Показать статус системы и контейнеров"
+    echo -e "  doctor           - Проверить зависимости и доступность Docker"
     echo -e "  admin:reset      - Сбросить email/пароль Супер-Админа"
     echo -e "  limit [N]        - Установить лимит организаций"
     echo -e "  loyalty          - Управление программой лояльности (NOOR CLUB)"
     echo -e "  backup           - Создать резервную копию базы"
     echo -e "  backup:restore   - Восстановить базу из бэкапа"
     echo -e "  offsite:configure - Настроить зашифрованные копии в B2"
+    echo -e "  offsite:install-restic - Установить Restic на Debian/Ubuntu с подтверждением"
     echo -e "  offsite:init|run|enable|disable|status|list|check|prune - Автобэкапы"
     echo -e "  offsite:restore ID - Скачать копию отдельно от рабочей базы"
     echo -e "  monitor:configure|enable|disable|run|status - Мониторинг и уведомления"

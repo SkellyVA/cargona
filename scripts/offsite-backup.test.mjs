@@ -27,9 +27,9 @@ if [[ "$1" == backup ]]; then
 fi
 `, { mode: 0o755 });
   if (process.platform === 'win32') fs.writeFileSync(path.join(directory, 'bin/flock'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
-  function run(operation, extra = {}) {
+  function run(operation, extra = {}, input = '') {
     const r = spawnSync(bash, ['-c', 'export PATH="$MOCK_ROOT/bin:$PATH"; bash "$MOCK_ROOT/offsite-backup.sh" "$@"', 'test', operation], {
-      env: { ...process.env, MOCK_ROOT: unix(directory), MOCK_UPLOAD_FAIL: '', ...extra }, encoding: 'utf8', timeout: 30000, windowsHide: true,
+      input, env: { ...process.env, MOCK_ROOT: unix(directory), MOCK_UPLOAD_FAIL: '', ...extra }, encoding: 'utf8', timeout: 30000, windowsHide: true,
     });
     assert.ifError(r.error);
     assert.ok(!`${r.stdout}${r.stderr}`.includes('fixture-secret'));
@@ -59,6 +59,33 @@ fi
   r = run('run');
   assert.notEqual(r.status, 0);
   assert.ok(!fs.existsSync(path.join(directory, 'hacked')));
+  const hideRestic = path.join(directory, 'hide-restic.sh');
+  fs.writeFileSync(hideRestic, 'command() { if [[ "$*" == "-v restic" ]]; then return 1; fi; builtin command "$@"; }\n');
+  r = run('status', { BASH_ENV: unix(hideRestic) });
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(r.stdout.includes('Restic: не установлен'));
+  fs.unlinkSync(config);
+  r = run('status', { BASH_ENV: unix(hideRestic) });
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(r.stdout.includes('Хранилище: не настроено'));
+  r = run('configure', { BASH_ENV: unix(hideRestic) });
+  assert.notEqual(r.status, 0);
+  assert.ok(r.stderr.includes('пункт 11'));
+  assert.ok(!fs.existsSync(config), 'Missing dependency must not leave partial credentials');
+  // Emulate elevation only in this disposable copy; apt is a logging stub.
+  fs.writeFileSync(path.join(directory, 'offsite-backup.sh'), fs.readFileSync('offsite-backup.sh', 'utf8')
+    .replace('[[ "$EUID" == 0 ]]', 'true'));
+  fs.writeFileSync(path.join(directory, 'bin/apt-get'), '#!/usr/bin/env bash\nprintf "%s\\n" "$*" >>"$MOCK_ROOT/apt-calls"\n[[ "${MOCK_APT_FAIL:-}" != true ]]\n', {mode:0o755});
+  r = run('install-restic', { BASH_ENV: unix(hideRestic) }, 'n\n');
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(!fs.existsSync(path.join(directory, 'apt-calls')), 'Declined installation must not invoke apt');
+  r = run('install-restic', { BASH_ENV: unix(hideRestic) }, 'y\n');
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(fs.readFileSync(path.join(directory, 'apt-calls'), 'utf8'), 'update\ninstall -y restic\n');
+  fs.unlinkSync(path.join(directory, 'apt-calls'));
+  r = run('install-restic', { BASH_ENV: unix(hideRestic), MOCK_APT_FAIL:'true' }, 'y\n');
+  assert.notEqual(r.status, 0);
+  assert.equal(fs.readFileSync(path.join(directory, 'apt-calls'), 'utf8'), 'update\n', 'Failed apt update must abort installation');
   console.log('Offsite backup orchestration checks passed (mock storage and Docker).');
   if (process.env.RESTIC_ROUNDTRIP === 'true') {
     const source = path.join(directory, 'plain');

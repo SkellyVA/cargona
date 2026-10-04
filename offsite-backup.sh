@@ -8,24 +8,60 @@ ROOT="$APP_DIR/data/offsite"
 mkdir -p "$ROOT" "$APP_DIR/data/releases"
 chmod 700 "$ROOT"
 fail() { echo "$*" >&2; exit 1; }
-command -v restic >/dev/null || fail 'Install restic before configuring offsite backups'
-command -v flock >/dev/null || fail 'Required: flock (util-linux)'
-exec 9>"$APP_DIR/data/releases/.lock"
-flock -n 9 || fail 'Another backup or release operation is running'
-if [[ "${1:-}" == configure ]]; then
-  [[ ! -f "$ROOT/restic.env" ]] || fail 'Configuration exists; edit the protected file instead'
-  read -r -p 'B2 bucket name: ' bucket
-  [[ "$bucket" =~ ^[a-zA-Z0-9-]+$ ]] || fail 'Invalid bucket name'
-  read -r -p 'B2 application key ID: ' account
-  read -r -s -p 'B2 application key (hidden): ' token; printf '\n'
-  read -r -s -p 'Backup encryption password (hidden): ' password; printf '\n'
-  read -r -s -p 'Repeat encryption password: ' repeated; printf '\n'
-  [[ -n "$account" && -n "$token" && ${#password} -ge 16 && "$password" == "$repeated" ]] || fail 'Keys required; matching password must have at least 16 characters'
-  printf 'RESTIC_REPOSITORY=b2:%s:cargona\nB2_ACCOUNT_ID=%s\nB2_ACCOUNT_KEY=%s\nRESTIC_PASSWORD=%s\n' "$bucket" "$account" "$token" "$password" >"$ROOT/restic.env"
-  echo 'Saved private configuration. Keep an independent copy of the encryption password. Next: offsite:init, offsite:run, offsite:enable.'
+operation="${1:-}"
+[[ "$operation" =~ ^(configure|init|run|list|check|restore|prune|enable|disable|status|install-restic)$ ]] || fail 'Неизвестная команда внешних копий. Используйте cargona help.'
+if [[ "$operation" == install-restic ]]; then
+  if command -v restic >/dev/null; then restic version; exit 0; fi
+  [[ "$EUID" == 0 ]] || fail 'Установка требует root. Для Debian/Ubuntu: sudo apt-get update && sudo apt-get install -y restic'
+  command -v apt-get >/dev/null || fail 'Автоустановка поддерживает Debian/Ubuntu. Установите restic через пакетный менеджер вашей ОС.'
+  echo 'Будет установлен пакет restic через apt. Данные и контейнеры приложения не изменяются.'
+  read -r -p 'Установить restic? [y/N]: ' answer
+  [[ "$answer" =~ ^[Yy]$ ]] || { echo 'Установка отменена'; exit 0; }
+  apt-get update
+  apt-get install -y restic
+  restic version
   exit 0
 fi
-[[ -f "$ROOT/restic.env" ]] || fail 'Configure data/offsite/restic.env first (see docs/offsite-backups.md)'
+if [[ "$operation" == status ]]; then
+  echo 'Внешние резервные копии'
+  if command -v restic >/dev/null; then restic version; else echo 'Restic: не установлен (пункт 11 меню внешних копий)'; fi
+  if [[ -f "$ROOT/restic.env" ]]; then echo 'Хранилище: настроено'; else echo 'Хранилище: не настроено'; fi
+  if [[ -f "$ROOT/last-success" ]]; then printf 'Последняя успешная копия: '; cat "$ROOT/last-success";
+  else echo 'Успешных копий ещё нет'; fi
+  if [[ -f "$ROOT/last-attempt" ]]; then
+    read -r timestamp code <"$ROOT/last-attempt"
+    if [[ "$code" == 0 ]]; then echo "Последняя попытка: $timestamp — успешно";
+    else echo "Последняя попытка: $timestamp — ошибка (код $code)"; fi
+  fi
+  if command -v systemctl >/dev/null && systemctl is-active --quiet cargona-backup.timer; then
+    echo 'Расписание: включено (каждые 15 минут)'
+  else echo 'Расписание: выключено или systemd недоступен'; fi
+  exit 0
+fi
+if [[ "$operation" == disable ]]; then
+  command -v systemctl >/dev/null || fail 'Для расписания нужен systemd'
+  systemctl disable --now cargona-backup.timer
+  exit 0
+fi
+command -v restic >/dev/null || fail $'Restic не установлен. Выберите пункт 11 в меню внешних копий.\nДля Debian/Ubuntu вручную: sudo apt-get update && sudo apt-get install -y restic'
+command -v flock >/dev/null || fail 'Не найден flock. Установите пакет util-linux.'
+exec 9>"$APP_DIR/data/releases/.lock"
+flock -n 9 || fail 'Уже выполняется бэкап, миграция или обновление. Дождитесь завершения.'
+if [[ "${1:-}" == configure ]]; then
+  [[ ! -f "$ROOT/restic.env" ]] || fail "Настройки уже существуют: $ROOT/restic.env. Повторная настройка не заменяет ключи автоматически."
+  printf '\nНастройка Backblaze B2\nНужны bucket, Application Key ID и Application Key с доступом к этому bucket.\nПароль шифрования создайте отдельно и сохраните вне сервера: без него копии не восстановить.\n\n'
+  read -r -p 'Название B2 bucket: ' bucket
+  [[ "$bucket" =~ ^[a-zA-Z0-9-]+$ ]] || fail 'Название bucket может содержать латинские буквы, цифры и дефис'
+  read -r -p 'B2 Application Key ID: ' account
+  read -r -s -p 'B2 Application Key (ввод скрыт): ' token; printf '\n'
+  read -r -s -p 'Пароль шифрования (16+ символов, ввод скрыт): ' password; printf '\n'
+  read -r -s -p 'Повторите пароль: ' repeated; printf '\n'
+  [[ -n "$account" && -n "$token" && ${#password} -ge 16 && "$password" == "$repeated" && "$account$token$password" != *$'\r'* ]] || fail 'Укажите оба ключа и совпадающий пароль от 16 символов без переводов строки'
+  printf 'RESTIC_REPOSITORY=b2:%s:cargona\nB2_ACCOUNT_ID=%s\nB2_ACCOUNT_KEY=%s\nRESTIC_PASSWORD=%s\n' "$bucket" "$account" "$token" "$password" >"$ROOT/restic.env"
+  echo 'Настройки сохранены. Далее: 2 — инициализация, 3 — первая копия, 4 — включить расписание.'
+  exit 0
+fi
+[[ -f "$ROOT/restic.env" ]] || fail 'Хранилище ещё не настроено. Выберите пункт 1 в меню внешних копий.'
 # Docker env-file syntax, deliberately never source executable shell configuration.
 while IFS= read -r line || [[ -n "$line" ]]; do
   line="${line%$'\r'}"
@@ -62,7 +98,6 @@ cleanup() {
   fi
   exit "$result"
 }
-operation="${1:-}"
 trap 'cleanup "$operation"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -137,7 +172,7 @@ case "$operation" in
     ;;
   enable)
     [[ "$APP_DIR" =~ ^/[a-zA-Z0-9_./-]+$ ]] || fail 'Timer installation requires a simple absolute Linux path'
-    [[ -f "$ROOT/last-success" ]] || fail 'Complete an initial successful run before enabling the timer'
+    [[ -f "$ROOT/last-success" ]] || fail 'Сначала создайте первую успешную копию: пункт 3. Затем включите расписание.'
     command -v systemctl >/dev/null || fail 'systemd is required'
     cat >/etc/systemd/system/cargona-backup.service <<EOF
 [Unit]
@@ -165,10 +200,5 @@ EOF
     systemctl daemon-reload
     systemctl enable --now cargona-backup.timer ;;
   disable) systemctl disable --now cargona-backup.timer ;;
-  status)
-    for file in last-success last-attempt; do
-      [[ ! -f "$ROOT/$file" ]] || { printf '%s: ' "$file"; cat "$ROOT/$file"; }
-    done
-    systemctl list-timers cargona-backup.timer --no-pager ;;
   *) fail 'Usage: offsite-backup.sh configure|init|run|list|check|restore <snapshot ID>|prune|enable|disable|status' ;;
 esac

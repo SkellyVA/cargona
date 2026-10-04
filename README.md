@@ -116,6 +116,7 @@ bash /opt/cargona/compose-env-repair.sh
 | 16 | Пробное восстановление в изолированных контейнерах |
 | 17 | JSON → PostgreSQL: режим, проверка, пробная транзакция, репетиция, применение |
 | 18 | Полная справка |
+| 19 | Проверка зависимостей и доступности Docker |
 | 0 | Выход |
 
 ## Команды CLI
@@ -126,6 +127,7 @@ bash /opt/cargona/compose-env-repair.sh
 | Команда | Действие |
 | --- | --- |
 | `cargona status` | Статус контейнеров и настроек |
+| `cargona doctor` | Проверка зависимостей и Docker без изменения настроек |
 | `cargona help` | Справка; также `--help`, `-h` |
 | `cargona logs [service]` | Логи; например `backend`, `frontend`, `bot`, `postgres` |
 | `cargona restart` | Перезапуск сервисов |
@@ -140,6 +142,7 @@ bash /opt/cargona/compose-env-repair.sh
 | `cargona backup` | Проверенная локальная копия с краткой остановкой сервисов |
 | `cargona backup:restore` | Восстановление JSON; заменяет текущие данные |
 | `cargona offsite:configure` | Настройка Backblaze B2 и пароля шифрования |
+| `cargona offsite:install-restic` | Установка Restic на Debian/Ubuntu после подтверждения |
 | `cargona offsite:init` | Инициализация внешнего репозитория |
 | `cargona offsite:run` | Внешняя копия сейчас |
 | `cargona offsite:enable` | Расписание каждые 15 минут |
@@ -263,6 +266,9 @@ CLI поддерживает локальную Compose PostgreSQL; внешня
 Для зашифрованных внешних копий:
 
 ```bash
+cargona doctor
+# Если Restic отсутствует, на Debian/Ubuntu:
+cargona offsite:install-restic
 cargona offsite:configure
 cargona offsite:init
 cargona offsite:run
@@ -274,6 +280,11 @@ cargona offsite:status
 но не Docker-образы. `offsite:restore` скачивает данные отдельно, не заменяя рабочую
 базу. Проверку восстановления выполняйте через `rehearse`.
 Подробности и правила хранения: [внешние бэкапы](docs/offsite-backups.md).
+
+В меню 14 каждое действие отображается отдельной строкой, видны наличие Restic и
+настройки хранилища. Для первого запуска следуйте порядку 11 → 1 → 2 → 3 → 4.
+После выполнения результат остаётся на экране до Enter; ошибка не закрывает меню.
+Статус доступен даже до установки Restic и настройки хранилища.
 
 ```bash
 cargona monitor:configure

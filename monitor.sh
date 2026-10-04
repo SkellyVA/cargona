@@ -15,13 +15,14 @@ dc() {
 }
 case "${1:-}" in
   configure)
-    [[ ! -f "$ROOT/telegram.env" ]] || fail 'Configuration exists; edit the protected file instead'
-    read -r -s -p 'Monitoring bot token (hidden): ' token; printf '\n'
-    read -r -p 'Private Telegram recipient ID (positive numeric ID): ' chat
-    [[ "$token" =~ ^[0-9]+:[a-zA-Z0-9_-]+$ && "$chat" =~ ^[1-9][0-9]*$ ]] || fail 'Use a valid token and a private recipient ID; group chats are not supported'
+    [[ ! -f "$ROOT/telegram.env" ]] || fail "Настройки уже существуют: $ROOT/telegram.env. Они не заменяются автоматически."
+    echo 'Используйте отдельного бота для мониторинга и ID своего личного чата.'
+    read -r -s -p 'Токен бота (ввод скрыт): ' token; printf '\n'
+    read -r -p 'Telegram ID получателя (положительное число): ' chat
+    [[ "$token" =~ ^[0-9]+:[a-zA-Z0-9_-]+$ && "$chat" =~ ^[1-9][0-9]*$ ]] || fail 'Нужны корректный токен и ID личного чата. Группы не поддерживаются.'
     printf '%s\n%s\n' "$token" "$chat" >"$ROOT/telegram.env"
     chmod 600 "$ROOT/telegram.env"
-    echo 'Saved. Notifications will be sent only after monitor:enable or monitor:run.'
+    echo 'Настройки сохранены. Далее: 2 — разовая проверка, 3 — включить расписание.'
     ;;
   run)
     command -v flock >/dev/null
@@ -78,6 +79,7 @@ case "${1:-}" in
     ;;
   enable)
     [[ "$APP_DIR" =~ ^/[a-zA-Z0-9_./-]+$ ]] || fail 'Requires a simple absolute Linux path'
+    command -v systemctl >/dev/null || fail 'Для расписания нужен systemd. Разовая проверка: cargona monitor:run'
     cat >/etc/systemd/system/cargona-monitor.service <<EOF
 [Unit]
 Description=Cargona health and backup monitor
@@ -100,7 +102,16 @@ WantedBy=timers.target
 EOF
     systemctl daemon-reload
     systemctl enable --now cargona-monitor.timer ;;
-  disable) systemctl disable --now cargona-monitor.timer ;;
-  status) [[ ! -f "$ROOT/current" ]] || cat "$ROOT/current"; systemctl list-timers cargona-monitor.timer --no-pager ;;
+  disable)
+    command -v systemctl >/dev/null || fail 'Для расписания нужен systemd'
+    systemctl disable --now cargona-monitor.timer ;;
+  status)
+    if [[ -f "$ROOT/telegram.env" ]]; then echo 'Уведомления: настроены'; else echo 'Уведомления: не настроены'; fi
+    if [[ -f "$ROOT/current" ]]; then
+      if [[ -s "$ROOT/current" ]]; then cat "$ROOT/current"; else echo 'Последняя проверка: проблем не найдено'; fi
+    else echo 'Проверка ещё не запускалась'; fi
+    if command -v systemctl >/dev/null && systemctl is-active --quiet cargona-monitor.timer; then
+      echo 'Расписание: включено (каждые 2 минуты)'
+    else echo 'Расписание: выключено или systemd недоступен'; fi ;;
   *) fail 'Usage: monitor.sh configure|run|enable|disable|status' ;;
 esac
