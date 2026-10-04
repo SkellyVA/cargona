@@ -29,7 +29,7 @@ if (process.argv.includes('--build')) {
     }
   }
 }
-const tests = ['persistence', 'state-migration', 'postgres-runtime', 'package-history', 'package-weight', 'branch-tariffs', 'branch-create', 'shipping-input', 'sw', 'telegram', 'authentication', 'customer-links', 'client-security', 'finance', 'handover', 'broadcasts', 'api-client-regression', 'release', 'offsite-backup', 'operations', 'runtime-tools', 'compose-env-repair', 'cli-menu', 'version-select', 'system-smoke', 'miniapp-config'];
+const tests = ['persistence', 'state-migration', 'postgres-runtime', 'package-history', 'package-weight', 'branch-tariffs', 'branch-create', 'shipping-input', 'sw', 'telegram', 'authentication', 'customer-links', 'client-security', 'finance', 'handover', 'broadcasts', 'api-client-regression', 'release', 'offsite-backup', 'operations', 'runtime-tools', 'compose-env-repair', 'cli-menu', 'version-select', 'system-smoke', 'miniapp-config', 'tenant-registration'];
 // Separate processes isolate filesystem doubles and API fixtures. Four at a time bounds resources.
 for (let index = 0; index < tests.length; index += 4) {
   const names = tests.slice(index, index + 4);

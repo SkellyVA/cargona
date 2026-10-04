@@ -835,12 +835,13 @@ export const useCargoStore = defineStore('cargo', () => {
   const savedTenants = typeof window !== 'undefined' ? localStorage.getItem('cargona_tenants') : null;
   const tenants = ref<Tenant[]>(safeParse<Tenant[]>(savedTenants, []));
   const maxTenantsLimit = ref<number | null>(null);
+  const tenantListError = ref('');
   const isLimitReached = computed(() => maxTenantsLimit.value !== null && maxTenantsLimit.value > 0 && tenants.value.length >= maxTenantsLimit.value);
 
   function upsertTenant(tenantData: Tenant) {
     const cleanEmail = tenantData.ownerEmail?.toLowerCase().trim();
     const existingIndex = tenants.value.findIndex(
-      (t) => t.id === tenantData.id || t.slug === tenantData.slug || (cleanEmail && t.ownerEmail?.toLowerCase().trim() === cleanEmail)
+      (t) => t.id === tenantData.id || t.slug === tenantData.slug
     );
     if (existingIndex !== -1) {
       tenants.value[existingIndex] = { ...tenants.value[existingIndex], ...tenantData };
@@ -880,59 +881,42 @@ export const useCargoStore = defineStore('cargo', () => {
   async function fetchTenantsFromBackend() {
     try {
       const res = await fetch('/api/admin/tenants');
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        tenantListError.value = error.error || `Не удалось получить список компаний (HTTP ${res.status})`;
+        return;
+      }
       if (res.ok) {
         const data = (await res.json()) as any;
         if (data.maxTenantsLimit !== undefined) {
           maxTenantsLimit.value = data.maxTenantsLimit;
         }
         if (Array.isArray(data.tenants)) {
+          // A successful server list is authoritative; discard browser-only ghosts.
+          tenants.value = [];
           for (const t of data.tenants) {
             upsertTenant(t);
           }
+          safeStorageSet('cargona_tenants', tenants.value);
+          tenantListError.value = '';
         }
       }
     } catch (e) {
-      // Backend might be offline or local mode
+      tenantListError.value = 'Нет соединения с сервером. Показанный локальный список компаний может быть устаревшим.';
     }
   }
 
-  function addTenant(tenantData: Omit<Tenant, 'id'>) {
-    const id = nextSeqId('t', tenants.value);
-    const newT: Tenant = { id, ...tenantData };
-    tenants.value.push(newT);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('cargona_tenants', JSON.stringify(tenants.value));
-    }
-
-    // Создаем единственного сотрудника: Владелец
-    rawStaff.value.push({
-      id: nextSeqId('emp', rawStaff.value),
-      fullName: `${newT.name} (Владелец)`,
-      email: newT.ownerEmail,
-      password: newT.ownerPassword,
-      role: 'OWNER',
-      phone: '+992 90 000 0000',
-      branchId: '',
-      branchName: 'Главный офис',
-      isActive: true,
-      tenantSlug: newT.slug,
+  async function addTenant(tenantData: Omit<Tenant, 'id'>) {
+    const response = await fetch('/api/admin/tenants', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tenantData),
     });
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('cargona_staff', JSON.stringify(rawStaff.value));
-    }
-
-    rawAuditLogs.value.unshift({
-      id: nextSeqId('log', rawAuditLogs.value),
-      time: new Date().toLocaleTimeString('ru-RU'),
-      action: 'CREATE',
-      actionLabel: 'Создание организации',
-      target: tenantData.name,
-      user: currentUser.value?.name || 'admin',
-      details: `Организация ${tenantData.name} (${tenantData.codePrefix}) успешно создана в CargonaOS`,
-      tenantSlug: newT.slug,
-    });
-
-    return newT;
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `Не удалось создать компанию (HTTP ${response.status})`);
+    if (!data.tenant?.id || !data.tenant?.slug) throw new Error('Сервер не подтвердил создание компании');
+    const { ownerPassword: _secret, ...created } = data.tenant;
+    upsertTenant({ ...created, isActive: created.isActive ?? created.status === 'ACTIVE' });
+    return tenants.value.find(t => t.id === created.id)!;
   }
 
   function updateTenant(tenantIdOrSlug: string, data: Partial<Tenant>) {
@@ -1080,6 +1064,7 @@ export const useCargoStore = defineStore('cargo', () => {
   let isSyncing = false;
   const isSyncingRef = ref(false);
   const isDataLoading = ref(false);
+  const tenantSyncError = ref<{ slug: string; status: number; message: string } | null>(null);
   let lastSyncTime = 0;
   let lastSyncedSlug = '';
 
@@ -1096,9 +1081,17 @@ export const useCargoStore = defineStore('cargo', () => {
     try {
       const clientMode = typeof window !== 'undefined' && /\/app\/?$/.test(window.location.pathname);
       const res = await fetch(clientMode ? `/api/app/${slug}/bootstrap` : `/api/o/${slug}/all`);
-      if (!res.ok) return;
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        tenantSyncError.value = { slug, status: res.status,
+          message: res.status === 404
+            ? 'Компания не найдена на сервере. Ссылка могла устареть или создание компании не завершилось.'
+            : error.error || `Не удалось загрузить данные компании (HTTP ${res.status})` };
+        return;
+      }
       const data = (await res.json()) as any;
       if (!data) return;
+      if (tenantSyncError.value?.slug === slug) tenantSyncError.value = null;
       clientReferralStats.value = clientMode ? data.referralStats || null : null;
 
       lastSyncTime = Date.now();
@@ -1304,7 +1297,7 @@ export const useCargoStore = defineStore('cargo', () => {
         }
       }
     } catch {
-      // Backend offline fallback
+      tenantSyncError.value = { slug, status: 0, message: 'Нет соединения с сервером. Данные компании не удалось обновить.' };
     } finally {
       isSyncing = false;
       isSyncingRef.value = false;
@@ -3037,6 +3030,8 @@ export const useCargoStore = defineStore('cargo', () => {
     addTripExpense,
     exportFinancialReportToCsv,
     syncTenantData,
+    tenantSyncError,
+    tenantListError,
     isDataLoading,
     isSyncing: isSyncingRef,
     nextSeqId,

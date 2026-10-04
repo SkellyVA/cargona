@@ -1,5 +1,6 @@
 <template>
   <div class="space-y-6 max-w-full min-w-0 overflow-x-hidden">
+    <p v-if="store.tenantListError" role="alert" class="rounded-xl border border-accent-coral/25 bg-accent-coral/10 p-4 text-sm text-accent-coral">{{ store.tenantListError }}</p>
     <!-- Шапка панели управления Cargona -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
       <div>
@@ -17,7 +18,7 @@
 
         <button
           v-if="!isLimitReached"
-          @click="showCreateTenantModal = true"
+          @click="showCreateTenantModal = true; createTenantError = ''"
           class="flex items-center justify-center gap-2 px-3.5 py-2.5 sm:px-4 rounded-xl bg-accent-blue hover:bg-accent-blue/90 text-white font-semibold text-xs shadow-glow-blue transition whitespace-nowrap w-full sm:w-auto cursor-pointer"
         >
           <Plus class="w-4 h-4" />
@@ -228,6 +229,7 @@
     <!-- Модальное окно: Подключить карго-компанию -->
     <AppModal v-model="showCreateTenantModal" title="Подключить карго">
       <div class="space-y-3.5 text-xs">
+        <p v-if="createTenantError" role="alert" class="rounded-xl border border-accent-coral/25 bg-accent-coral/10 p-3 text-accent-coral">{{ createTenantError }}</p>
         <div>
           <label class="text-text-secondary mb-1 block">Название компании</label>
           <input
@@ -298,9 +300,10 @@
         </button>
         <button
           @click="createTenant"
+          :disabled="isCreatingTenant"
           class="px-5 py-2 rounded-xl bg-accent-blue hover:bg-accent-blue/90 text-white font-bold text-xs shadow-glow-blue transition"
         >
-          Создать
+          {{ isCreatingTenant ? 'Создание…' : 'Создать' }}
         </button>
       </template>
     </AppModal>
@@ -589,13 +592,17 @@ const newTenant = ref({
   planId: 'pro',
 });
 
+const isCreatingTenant = ref(false);
+const createTenantError = ref('');
 async function createTenant() {
+  if (isCreatingTenant.value) return;
+  createTenantError.value = '';
   if (isLimitReached.value) {
-    toastMessage.value = `Достигнут лимит лицензии на количество организаций (${maxTenantsLimit.value})`;
+    createTenantError.value = `Достигнут лимит лицензии на количество организаций (${maxTenantsLimit.value})`;
     return;
   }
   if (!newTenant.value.name || !newTenant.value.slug || !newTenant.value.ownerEmail || !newTenant.value.ownerPassword) {
-    toastMessage.value = 'Заполните все поля, включая email и пароль владельца';
+    createTenantError.value = 'Заполните все поля, включая email и пароль владельца';
     return;
   }
   const chosenPlan = store.saasPlans.find((p) => p.slug === newTenant.value.planId) || store.saasPlans[0];
@@ -611,25 +618,18 @@ async function createTenant() {
     isActive: true,
   };
 
-  // Sync with backend API first
+  isCreatingTenant.value = true;
+  let created;
   try {
-    const res = await fetch('/api/admin/tenants', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      if (errData?.error) {
-        toastMessage.value = errData.error;
-        return;
-      }
-    }
-  } catch (e) {
-    console.warn('[Admin] Backend sync deferred:', e);
+    created = await store.addTenant(payload);
+  } catch (error) {
+    createTenantError.value = error instanceof TypeError
+      ? 'Не получено подтверждение сервера. Проверьте соединение и повторите попытку.'
+      : error instanceof Error ? error.message : 'Не удалось создать компанию. Проверьте соединение.';
+    return;
+  } finally {
+    isCreatingTenant.value = false;
   }
-
-  const created = store.addTenant(payload);
 
   newTenant.value = {
     name: '',

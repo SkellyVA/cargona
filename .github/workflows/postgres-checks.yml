@@ -83,3 +83,4 @@ jobs:
           pnpm --filter @cargona/web build
           pnpm exec playwright install --with-deps chromium
           node scripts/miniapp-config.test.mjs
+          node scripts/tenant-registration.test.mjs

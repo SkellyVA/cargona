@@ -61,7 +61,17 @@
 
       <!-- Контент страниц -->
       <main class="flex-1 px-3 py-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto pb-24 md:pb-8 min-w-0 overflow-x-hidden">
-        <router-view />
+        <div v-if="tenantError" class="rounded-2xl border border-accent-coral/25 bg-[#181B23] p-6 space-y-4" role="alert">
+          <h1 class="text-lg font-semibold">{{ tenantError.status === 404 ? 'Компания не найдена' : 'Не удалось загрузить данные' }}</h1>
+          <p class="text-sm text-text-secondary">{{ tenantError.message }}</p>
+          <p class="text-xs text-text-tertiary">Компания: {{ route.params.slug }}</p>
+          <div class="flex flex-wrap gap-3">
+            <button class="px-4 py-2 rounded-xl bg-accent-blue text-white text-sm disabled:opacity-50" :disabled="store.isSyncing" @click="store.syncTenantData(String(route.params.slug), true)">Повторить загрузку</button>
+            <router-link v-if="['SUPER_ADMIN', 'SUPERADMIN'].includes(store.currentUser?.role || '')" to="/admin" class="px-4 py-2 rounded-xl bg-white/[0.06] text-sm">К списку организаций</router-link>
+            <router-link v-else to="/login" class="px-4 py-2 rounded-xl bg-white/[0.06] text-sm">Войти заново</router-link>
+          </div>
+        </div>
+        <router-view v-else />
       </main>
 
       <!-- Мобильный нижний бар навигации (Bottom Bar) с быстрыми действиями -->
@@ -132,6 +142,7 @@ const store = useCargoStore();
 const { t } = useI18n();
 const slug = computed(() => (route.params.slug as string) || store.activeTenantSlug || store.tenants[0]?.slug || '');
 const isMobileMenuOpen = ref(false);
+const tenantError = computed(() => route.params.slug && store.tenantSyncError?.slug === route.params.slug ? store.tenantSyncError : null);
 
 watch(
   () => route.params.slug,
