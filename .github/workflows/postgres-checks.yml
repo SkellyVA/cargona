@@ -60,12 +60,13 @@ jobs:
           node scripts/handover.test.mjs
           node scripts/broadcasts.test.mjs
           node scripts/api-client-regression.test.mjs
-          for script in release.sh update.sh offsite-backup.sh monitor.sh rehearse.sh maintenance.sh runtime-tools.sh bundle-install.sh install.sh cargona; do bash -n "$script"; done
+          for script in release.sh update.sh offsite-backup.sh monitor.sh rehearse.sh maintenance.sh runtime-tools.sh compose-env-repair.sh bundle-install.sh install.sh cargona; do bash -n "$script"; done
           node scripts/release.test.mjs
           node scripts/offsite-backup.test.mjs
           node scripts/operations.test.mjs
           node scripts/system-smoke.test.mjs
           node scripts/runtime-tools.test.mjs
+          node scripts/compose-env-repair.test.mjs
       - name: Encrypted backup round trip
         env:
           RESTIC_ROUNDTRIP: 'true'
