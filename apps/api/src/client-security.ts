@@ -1,4 +1,5 @@
 import { telegramIdentity, webhookSecret } from './telegram-identity.js';
+import { randomBytes } from 'node:crypto';
 
 const pick = (value: any, keys: string[]) => Object.fromEntries(keys.filter(key => value?.[key] !== undefined).map(key => [key, value[key]]));
 const publicTenantKeys = ['id', 'name', 'slug', 'codePrefix', 'baseCurrency', 'timezone', 'logoUrl'];
@@ -6,6 +7,7 @@ const publicSettingsKeys = ['companyName', 'codePrefix', 'customerIdStart', 'bas
 
 export function registerClientSecurity(app: any, store: any) {
   const loginAttempts = new Map<string, { count: number; expiresAt: number }>();
+  const clientSessions = new Map<string, { tenantId: string; customerId: string; expiresAt: number }>();
   const companyFor = (slug: string) => store.tenants.find((t: any) => t.slug === slug);
   const botFor = (tenant: any) => store.botConfigs.find((b: any) => b.tenantId === tenant?.id && b.isActive && b.botToken);
   const owns = (pkg: any, client: any) => pkg && client && pkg.tenantId === client.tenantId && (pkg.customerId === client.id || pkg.customerCargoCode === client.cargoCode);
@@ -61,13 +63,16 @@ export function registerClientSecurity(app: any, store: any) {
     const init = request.headers['x-telegram-init-data'];
     const user = typeof init === 'string' ? telegramIdentity(init, botFor(tenant)?.botToken || '') : null;
     if (init && !user) return reply.status(401).send({ error: 'Проверка Telegram не пройдена. Откройте приложение заново через бота.' });
-    const customer = user && store.customers.find((c: any) => c.tenantId === tenant.id && Number(c.telegramUserId) === user.id && !c.isBlocked);
-    if (user && store.customers.some((c: any) => c.tenantId === tenant.id && Number(c.telegramUserId) === user.id && c.isBlocked)) return reply.status(403).send({ error: 'Клиентский аккаунт заблокирован' });
+    const sessionToken = request.headers['x-cargona-client-session'];
+    const session = typeof sessionToken === 'string' ? clientSessions.get(sessionToken) : null;
+    const sessionCustomer = session && session.tenantId === tenant.id && session.expiresAt > Date.now()
+      ? store.customers.find((c: any) => c.tenantId === tenant.id && c.id === session.customerId && !c.isBlocked) : null;
+    const customer = sessionCustomer || (user && store.customers.find((c: any) => c.tenantId === tenant.id && Number(c.telegramUserId) === user.id && !c.isBlocked));
+    if (!sessionCustomer && resource !== 'auth/login' && user && store.customers.some((c: any) => c.tenantId === tenant.id && Number(c.telegramUserId) === user.id && c.isBlocked)) return reply.status(403).send({ error: 'Клиентский аккаунт заблокирован' });
     request.telegramUser = user;
     request.clientCustomer = customer || null;
     if (surface === 'app') {
       if (resource === 'auth/login' && request.method === 'POST') {
-        if (!user) return reply.status(401).send({ error: 'Откройте приложение через Telegram для входа' });
         return;
       }
       if (['customer/link', 'customer/link/preview'].includes(resource) && request.method === 'POST') {
@@ -75,17 +80,17 @@ export function registerClientSecurity(app: any, store: any) {
         return;
       }
       if (resource === 'bootstrap' || resource === 'me') {
-        request.query = { ...(request.query || {}), tgUserId: user ? String(user.id) : undefined, cargoCode: customer?.cargoCode };
+        request.query = { ...(request.query || {}), tgUserId: !sessionCustomer && user ? String(user.id) : undefined, cargoCode: customer?.cargoCode };
         return;
       }
-      if (!user || !customer) return reply.status(401).send({ error: 'Откройте личный кабинет через Telegram' });
+      if (!customer) return reply.status(401).send({ error: 'Войдите по Cargo ID' });
       if (resource === 'auth/lookup') {
         const query = String(request.query.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
         const code = customer.cargoCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
         if (query !== code && query !== code.replace(/\D+/g, '')) return reply.status(403).send({ error: 'Нет доступа к этому клиенту' });
       } else if (resource === 'customer/branch') {
         request.body.cargoCode = customer.cargoCode;
-        request.body.telegramUserId = user.id;
+        request.body.telegramUserId = customer.telegramUserId;
         if (!store.branches.some((b: any) => b.tenantId === tenant.id && b.id === request.body.branchId)) return reply.status(400).send({ error: 'ПВЗ не найден' });
       } else return reply.status(403).send({ error: 'Этот клиентский маршрут недоступен' });
       return;
@@ -101,9 +106,10 @@ export function registerClientSecurity(app: any, store: any) {
       if (request.body.originWarehouseId && !store.originWarehouses.some((w: any) => w.id === request.body.originWarehouseId && w.tenantId === tenant.id)) return reply.status(400).send({ error: 'Склад не принадлежит компании' });
       if (request.body.manifestItems && (!Array.isArray(request.body.manifestItems) || request.body.manifestItems.some((item: any) => item.packageId && !store.packages.some((p: any) => p.id === item.packageId && p.tenantId === tenant.id)))) return reply.status(400).send({ error: 'Некорректный состав рейса' });
     }
-    if (user) {
+    if (user || sessionCustomer) {
       if (resource === 'loyalty' && request.method === 'GET') return;
       if (resource === 'customers' && request.method === 'POST') {
+        if (!user) return reply.status(401).send({ error: 'Для регистрации откройте приложение через Telegram' });
         if (store.customers.some((c: any) => c.tenantId === tenant.id && Number(c.telegramUserId) === user.id)) return reply.status(409).send({ error: 'Вы уже зарегистрированы. Откройте приложение заново.' });
         request.body = { ...pick(request.body, ['fullName', 'phone', 'preferredBranchId', 'invitedByCustomerId']), telegramUserId: user.id, telegramUsername: user.username || '', notes: 'Регистрация через Telegram Mini App' };
         if (request.body.preferredBranchId && !store.branches.some((b: any) => b.tenantId === tenant.id && b.id === request.body.preferredBranchId)) return reply.status(400).send({ error: 'ПВЗ не найден' });
@@ -179,13 +185,12 @@ export function registerClientSecurity(app: any, store: any) {
   });
   app.post('/api/app/:slug/auth/login', async (request: any, reply: any) => {
     const tenant = companyFor(request.params.slug);
-    const user = request.telegramUser;
     const input = String(request.body?.cargoCode || '').trim().toUpperCase();
     const last4 = String(request.body?.phoneLast4 || '');
     if (!input || input.length > 128 || !/^\d{4}$/.test(last4)) return reply.status(400).send({ error: 'Укажите Cargo ID и последние 4 цифры телефона' });
     const now = Date.now();
     for (const [key, attempt] of loginAttempts) if (attempt.expiresAt <= now) loginAttempts.delete(key);
-    const key = `${tenant.id}:${user.id}`;
+    const key = `${tenant.id}:${request.ip}:${input.replace(/[^A-Z0-9]/g, '')}`;
     const attempt = loginAttempts.get(key) || { count: 0, expiresAt: now + 15 * 60 * 1000 };
     if (attempt.count >= 5) return reply.status(429).send({ error: 'Слишком много попыток. Попробуйте через 15 минут' });
     attempt.count++; loginAttempts.set(key, attempt);
@@ -198,15 +203,11 @@ export function registerClientSecurity(app: any, store: any) {
     if (!customer || String(customer.phone || '').replace(/\D/g, '').length < 4 || String(customer.phone).replace(/\D/g, '').slice(-4) !== last4) {
       return reply.status(401).send({ error: 'Cargo ID или последние 4 цифры телефона неверны' });
     }
-    if ((customer.telegramUserId && Number(customer.telegramUserId) !== user.id) ||
-      store.customers.some((c: any) => c.tenantId === tenant.id && c.id !== customer.id && Number(c.telegramUserId) === user.id)) {
-      return reply.status(409).send({ error: 'Аккаунт уже привязан к другому Telegram. Обратитесь к менеджеру' });
-    }
-    customer.telegramUserId = user.id;
-    customer.telegramUsername = user.username || '';
-    await store.saveToFile();
+    for (const [token, session] of clientSessions) if (session.expiresAt <= now) clientSessions.delete(token);
+    const sessionToken = randomBytes(32).toString('hex');
+    clientSessions.set(sessionToken, { tenantId: tenant.id, customerId: customer.id, expiresAt: now + 12 * 60 * 60 * 1000 });
     loginAttempts.delete(key);
-    return { success: true, customer };
+    return { success: true, customer, sessionToken };
   });
   app.get('/api/app/:slug/bootstrap', async (request: any, reply: any) => {
     const tenant = companyFor(request.params.slug);

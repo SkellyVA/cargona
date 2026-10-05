@@ -13,6 +13,9 @@ window.fetch = (input, init) => {
     const csrf = document.cookie.split(';').map(item => item.trim()).find(item => item.startsWith('cargona_csrf='))?.slice('cargona_csrf='.length);
     if (csrf) headers.set('x-cargona-csrf', csrf);
     const initData = (window as any).Telegram?.WebApp?.initData;
+    const miniAppSlug = window.location.pathname.match(/^\/o\/([^/]+)\/app\/?$/)?.[1] || window.location.pathname.match(/^\/app\/([^/]+)\/?$/)?.[1];
+    const clientSession = miniAppSlug && localStorage.getItem(`cargona_client_session_${decodeURIComponent(miniAppSlug)}`);
+    if (clientSession) headers.set('x-cargona-client-session', clientSession);
     if (/\/app(?:\/[^/]+)?\/?$/.test(window.location.pathname) && initData) headers.set('x-telegram-init-data', initData);
     return originalFetch(input, { ...init, headers });
   }

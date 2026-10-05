@@ -1835,6 +1835,7 @@ async function handleLoginSubmit() {
     const data = await response.json();
     if (!response.ok || !data.success || !data.customer) throw new Error(data.error || 'Не удалось войти');
     activeCustomer.value = data.customer;
+    if (data.sessionToken) localStorage.setItem(`cargona_client_session_${slug}`, data.sessionToken);
     localStorage.setItem(`cargona_client_cargo_code_${slug}`, data.customer.cargoCode);
     if (data.customer.preferredBranchId) localStorage.setItem(`cargona_client_branch_${slug}`, data.customer.preferredBranchId);
     isRegistered.value = true;
@@ -1855,6 +1856,7 @@ function handleLogout() {
   const slugParam = (route.params.slug as string) || store.activeTenantSlug || store.tenant?.slug || store.tenants[0]?.slug || '';
   if (typeof window !== 'undefined' && slugParam) {
     localStorage.removeItem(`cargona_client_cargo_code_${slugParam}`);
+    localStorage.removeItem(`cargona_client_session_${slugParam}`);
   }
   isRegistered.value = false;
   authTab.value = 'login';

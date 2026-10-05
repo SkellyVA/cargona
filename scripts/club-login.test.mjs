@@ -31,13 +31,13 @@ try {
       logged=true;return route.fulfill({json:{success:true,customer}});
     }
     if(url.pathname==='/api/app/noor/auth/login'){
-      assert.equal(request.headers()['x-telegram-init-data'],'signed-test');
       assert.equal(request.postDataJSON().cargoCode,'2256');
       if(request.postDataJSON().phoneLast4!=='1234')return route.fulfill({status:401,json:{error:'Cargo ID или последние 4 цифры телефона неверны'}});
-      logged=true;return route.fulfill({json:{success:true,customer}});
+      logged=true;return route.fulfill({json:{success:true,customer,sessionToken:'browser-session'}});
     }
     if(url.pathname==='/api/app/noor/bootstrap'){
-      assert.equal(request.headers()['x-telegram-init-data'],'signed-test');bootstrapCount++;
+      if(logged&&url.pathname==='/api/app/noor/bootstrap'&&await page.evaluate(()=>!!localStorage.getItem('cargona_client_session_noor')))assert.equal(request.headers()['x-cargona-client-session'],'browser-session');
+      bootstrapCount++;
       return route.fulfill({json:{...data,customer:logged?customer:null,customers:logged?[customer]:[],referralStats:logged?{cargoCode:customer.cargoCode,total:1,active:0}:null}});
     }
     return route.fulfill({json:{...data,customer:logged?customer:null}});
@@ -46,6 +46,7 @@ try {
   await page.goto(`${base}/app/noor?ref=NOOR%2FS7`);
   await page.waitForFunction(()=>sessionStorage.getItem('cargona_pending_referral_noor')==='NOOR/S7');
   await page.goto(`${base}/app/noor`);
+  await page.evaluate(()=>{delete window.Telegram;});
   assert.equal(await page.evaluate(()=>sessionStorage.getItem('cargona_pending_referral_noor')),'NOOR/S7');
   await page.getByRole('button',{name:'Вход по Cargo ID',exact:true}).click();
   await page.getByPlaceholder('Например: CRG-001 или 001').fill('2256');

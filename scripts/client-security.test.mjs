@@ -31,7 +31,7 @@ app.addHook('preHandler', async request => {
 const exports = {};
 const source = await readFile(new URL('../apps/api/src/client-security.ts', import.meta.url), 'utf8');
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText,
-  { exports, require: () => ({ telegramIdentity, webhookSecret }), URL });
+  { exports, require: name => name === 'node:crypto' ? require(name) : ({ telegramIdentity, webhookSecret }), URL });
 exports.registerClientSecurity(app, store);
 app.get('/api/app/:slug/me', request => request.query);
 app.get('/api/app/:slug/auth/lookup', () => ({ success: true }));
@@ -59,13 +59,21 @@ try {
   assert.equal((await cargoLogin(4,'2256','0000')).statusCode,401);
   assert.equal(store.customers.at(-1).telegramUserId,undefined);
   assert.equal((await cargoLogin(4,'2256','1234')).statusCode,200);
-  assert.equal(store.customers.at(-1).telegramUserId,4);
-  assert.deepEqual((await app.inject({url:'/api/app/noor/bootstrap',headers:{'x-telegram-init-data':signed(4)}})).json().customers.map(c=>c.id),['manual']);
-  assert.equal((await cargoLogin(5,'NOOR/S2256','1234')).statusCode,409);
-  assert.equal((await cargoLogin(1,'NOOR/S2256','1234')).statusCode,409);
+  assert.equal(store.customers.at(-1).telegramUserId,undefined);
+  store.customers.at(-1).telegramUserId=4;
+  assert.equal((await cargoLogin(5,'NOOR/S2256','1234')).statusCode,200);
+  assert.equal(store.customers.at(-1).telegramUserId,4,'Login must preserve the existing notification recipient');
+  const switched=await cargoLogin(1,'NOOR/S2256','1234');
+  assert.equal(switched.statusCode,200);
+  const sessionHeaders={'x-cargona-client-session':switched.json().sessionToken,'x-telegram-init-data':signed(1)};
+  assert.deepEqual((await app.inject({url:'/api/app/noor/bootstrap',headers:sessionHeaders})).json().customers.map(c=>c.id),['manual']);
+  assert.equal((await app.inject({url:'/api/app/noor/me',headers:sessionHeaders})).json().tgUserId,undefined);
+  const browserLogin=await app.inject({method:'POST',url:'/api/app/noor/auth/login',payload:{cargoCode:'2256',phoneLast4:'1234'}});
+  assert.equal(browserLogin.statusCode,200);
+  assert.deepEqual((await app.inject({url:'/api/app/noor/bootstrap',headers:{'x-cargona-client-session':browserLogin.json().sessionToken}})).json().customers.map(c=>c.id),['manual']);
+  assert.deepEqual((await app.inject({url:'/api/app/noor/bootstrap',headers:{'x-cargona-client-session':'fake-token'}})).json().customers,[]);
   for(let n=0;n<5;n++) assert.equal((await cargoLogin(6,'2256','0000')).statusCode,401);
   assert.equal((await cargoLogin(6,'2256','1234')).statusCode,429);
-  assert.equal((await app.inject({method:'POST',url:'/api/app/noor/auth/login',payload:{cargoCode:'2256',phoneLast4:'1234'}})).statusCode,401);
   store.customers.pop();
   store.customers.push(
     { id: 'c3', tenantId: 't', telegramUserId: 3, cargoCode: 'NOOR/S3', invitedByCustomerId: 'noors1' },

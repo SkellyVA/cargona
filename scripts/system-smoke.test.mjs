@@ -47,9 +47,10 @@ try {
   assert.equal(automatic.customer.invitedByCustomerId, manual.customer.cargoCode);
   const inviterInit = new URLSearchParams({auth_date:String(Math.floor(Date.now()/1000)),user:JSON.stringify({id:124,first_name:'Inviter'})});
   inviterInit.set('hash',createHmac('sha256',secret).update([...inviterInit.entries()].sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>`${k}=${v}`).join('\n')).digest('hex'));
-  const inviterHeaders = {'content-type':'application/json','x-telegram-init-data':inviterInit.toString()};
+  const inviterHeaders = {'content-type':'application/json'};
   const loginByCode = await json(await fetch(`${base}/api/app/test/auth/login`, {method:'POST',headers:inviterHeaders,body:JSON.stringify({cargoCode:'2256',phoneLast4:'6789'})}));
   assert.equal(loginByCode.customer.id,manual.customer.id);
+  inviterHeaders['x-cargona-client-session']=loginByCode.sessionToken;
   const inviterBootstrap = await json(await fetch(`${base}/api/app/test/bootstrap`, {headers:inviterHeaders}));
   assert.deepEqual(inviterBootstrap.referralStats,{cargoCode:'TEST/S2256',total:1,active:0});
   assert.deepEqual(inviterBootstrap.customers.map(c=>c.id),[manual.customer.id]);
