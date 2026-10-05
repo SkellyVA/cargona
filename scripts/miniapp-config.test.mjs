@@ -62,6 +62,8 @@ try {
     let bulkRequest;
     let failBulk = false;
     let failClubRefresh = false;
+    let failBranchSave = true;
+    let branchWrites = 0;
     let savedBranchTariffs;
     let failDelete = true;
     let broadcastStarts = 0;
@@ -73,6 +75,12 @@ try {
     let failFirstExpense = true;
     await page.route('**/api/**', route => {
       const requestUrl = new URL(route.request().url());
+      if (requestUrl.pathname.endsWith('/customer/branch')) {
+        branchWrites++;
+        if (failBranchSave) return route.fulfill({status:503,json:{error:'ПВЗ не сохранён'}});
+        customer.preferredBranchId = route.request().postDataJSON().branchId;
+        return route.fulfill({json:{success:true,preferredBranchId:customer.preferredBranchId,customer}});
+      }
       if (failClubRefresh && requestUrl.pathname.endsWith('/bootstrap')) return route.fulfill({status:503,json:{error:'Клуб временно недоступен'}});
       if (requestUrl.pathname.includes('/finance/')) {
         const key = route.request().headers()['idempotency-key'];
@@ -165,6 +173,27 @@ try {
     await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
     await invited.getByText('3 чел.', {exact:true}).waitFor();
     assert.ok((await page.locator('body').innerText()).includes('1 / 4'));
+    data.branches.push({id:'pickup-second',name:'Second pickup',city:'Boston',address:'Second street'});
+    await page.getByRole('button',{name:'Обновить данные клуба',exact:true}).click();
+    await page.waitForFunction(()=>JSON.parse(localStorage.getItem('cargona_branches') || '[]').length === 2);
+    await page.getByRole('button',{name:'Выбрать',exact:true}).first().click();
+    await page.getByText('Second pickup',{exact:true}).click();
+    await page.getByText('ПВЗ не сохранён',{exact:true}).waitFor();
+    assert.equal(customer.preferredBranchId,'pickup-custom');
+    assert.equal(await page.evaluate(()=>localStorage.getItem('cargona_client_branch_acme')),'pickup-custom');
+    failBranchSave = false;
+    await page.getByText('Second pickup',{exact:true}).click();
+    await page.getByRole('heading',{name:'Выбор пункта выдачи (ПВЗ)',exact:true}).waitFor({state:'hidden'});
+    await page.reload();
+    await page.getByText('Second pickup',{exact:true}).first().waitFor();
+    assert.equal(await page.evaluate(()=>localStorage.getItem('cargona_client_branch_acme')),'pickup-second');
+    await page.getByRole('button',{name:'Выбрать',exact:true}).first().click();
+    await page.getByText('Configured pickup',{exact:true}).last().click();
+    await page.getByRole('heading',{name:'Выбор пункта выдачи (ПВЗ)',exact:true}).waitFor({state:'hidden'});
+    assert.equal(branchWrites,3);
+    data.branches.splice(1);
+    await page.getByRole('button',{name:'Обновить данные клуба',exact:true}).click();
+    await page.waitForFunction(()=>JSON.parse(localStorage.getItem('cargona_branches') || '[]').length === 1);
     await page.getByRole('button', { name: 'QR-код', exact: true }).click();
     await page.locator('canvas').waitFor();
     const pixels = await page.locator('canvas').evaluate(canvas => {
@@ -229,7 +258,7 @@ try {
     await page.getByText('ПВЗ / склад: Не указан → Configured pickup', { exact: true }).waitFor();
     assert.deepEqual(pageErrors, []);
     await page.goto(`http://127.0.0.1:${server.address().port}/o/acme/branches`);
-    await page.getByTitle('Редактировать филиал ПВЗ', { exact: true }).click();
+    await page.getByTitle('Редактировать филиал ПВЗ', { exact: true }).first().click();
     await page.locator('#tariff-autoRate').fill('4.25');
     await page.locator('#tariff-airRate').fill('0');
     await page.locator('#tariff-minimumCost').fill('');
@@ -270,7 +299,7 @@ try {
     assert.equal(fixtureStore.financialTransactions.length, 1);
     assert.equal(fixtureStore.branches[0].cashBalance, 10);
     await page.getByRole('button', { name: 'Кассы и Инкассация', exact: true }).click();
-    await page.getByRole('button', { name: 'Инкассировать', exact: true }).click();
+    await page.getByRole('button', { name: 'Инкассировать', exact: true }).first().click();
     const collectionModal = page.getByRole('heading', { name: 'Инкассация кассы ПВЗ', exact: true }).locator('../..');
     await collectionModal.locator('input[type="number"]').fill('3');
     await collectionModal.getByRole('button', { name: /Создать|инкассацию|Сформировать/ }).last().click();

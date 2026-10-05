@@ -2231,7 +2231,17 @@ export const useCargoStore = defineStore('cargo', () => {
   }
 
   // Привязка и смена предпочитаемого ПВЗ клиента
-  function setCustomerPreferredBranch(cargoCode: string, branchId: string) {
+  async function setCustomerPreferredBranch(cargoCode: string, branchId: string) {
+    const slug = activeTenantSlug.value;
+    if (!slug) throw new Error('Компания не выбрана');
+    const response = await fetch(`/api/app/${slug}/customer/branch`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cargoCode, branchId }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.success || result.preferredBranchId !== branchId) {
+      throw new Error(result.error || 'Не удалось сохранить пункт выдачи');
+    }
     const cleanCode = (cargoCode || '').trim().toUpperCase();
     const c = rawCustomers.value.find((cust) => (cust.cargoCode || '').toUpperCase() === cleanCode);
     if (c) {
@@ -2253,24 +2263,7 @@ export const useCargoStore = defineStore('cargo', () => {
     const branch = rawBranches.value.find((b) => b.id === branchId);
     addAudit('UPDATE', 'Смена ПВЗ клиента', cargoCode, `Назначен пункт выдачи: ${branch?.name || branchId}`);
 
-    try {
-      const slug = activeTenantSlug.value;
-      if (slug) {
-        fetch(`/api/app/${slug}/customer/branch`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cargoCode, branchId, telegramUserId: c?.telegramUserId }),
-        }).catch(() => {});
-
-        if (c && c.id) {
-          fetch(`/api/o/${slug}/customers/${c.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ preferredBranchId: branchId }),
-          }).catch(() => {});
-        }
-      }
-    } catch {}
+    return result;
   }
 
   // Корректировка баланса клиента (пополнение или списание)

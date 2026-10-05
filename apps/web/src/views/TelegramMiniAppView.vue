@@ -917,6 +917,8 @@
     <!-- МОДАЛЬНОЕ ОКНО: КАСТОМНЫЙ ВЫБОР ПУНКТА ВЫДАЧИ (ПВЗ) -->
     <AppModal v-model="showBranchModal" title="Выбор пункта выдачи (ПВЗ)">
       <div class="space-y-2.5 py-1">
+        <p v-if="branchSaveError" role="alert" class="text-xs text-accent-coral">{{ branchSaveError }}</p>
+        <p v-if="isSavingBranch" class="text-xs text-text-secondary">Сохраняем пункт выдачи…</p>
         <div class="text-xs text-text-secondary mb-2">
           Выберите удобный филиал для доставки ваших товаров:
         </div>
@@ -1991,24 +1993,29 @@ const currentCustomerBranch = computed(() => {
   };
 });
 
-function selectBranch(branchId: string) {
+const isSavingBranch = ref(false);
+const branchSaveError = ref('');
+async function selectBranch(branchId: string) {
+  if (isSavingBranch.value) return;
+  branchSaveError.value = '';
   const slugParam = (route.params.slug as string) || store.activeTenantSlug || store.tenant?.slug || '';
-  if (typeof window !== 'undefined' && slugParam) {
-    localStorage.setItem(`cargona_client_branch_${slugParam}`, branchId);
-  }
 
   if (!isRegistered.value) {
     regForm.value.branchId = branchId;
+    if (slugParam) localStorage.setItem(`cargona_client_branch_${slugParam}`, branchId);
     showBranchModal.value = false;
     return;
   }
   if (!activeCustomer.value) return;
-  activeCustomer.value.preferredBranchId = branchId;
-  store.setCustomerPreferredBranch(activeCustomer.value.cargoCode, branchId);
-  showBranchModal.value = false;
-  if (showQrModal.value) {
-    drawModalQr();
-  }
+  isSavingBranch.value = true;
+  try {
+    await store.setCustomerPreferredBranch(activeCustomer.value.cargoCode, branchId);
+    activeCustomer.value.preferredBranchId = branchId;
+    showBranchModal.value = false;
+    if (showQrModal.value) drawModalQr();
+  } catch (error) {
+    branchSaveError.value = error instanceof Error ? error.message : 'Не удалось сохранить пункт выдачи';
+  } finally { isSavingBranch.value = false; }
 }
 
 function packageBranchName(pkg: any) {
