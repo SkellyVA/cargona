@@ -54,6 +54,22 @@ try {
   assert.deepEqual(mine.json().packages.map(p => p.id), ['p1']);
   assert.deepEqual(mine.json().referralStats, { cargoCode: 'NOOR/S1', total: 1, active: 1 });
   assert.ok(!mine.body.includes('NOOR/S2'), 'Referral statistics must not disclose invited customer records');
+  store.customers.push(
+    { id: 'c3', tenantId: 't', telegramUserId: 3, cargoCode: 'NOOR/S3', invitedByCustomerId: 'noors1' },
+    { id: 'c4', tenantId: 'other', cargoCode: 'OTHER1', invitedByCustomerId: 'c1' }
+  );
+  const registeredFriend = await app.inject({ url: '/api/app/noor/bootstrap', headers: { 'x-telegram-init-data': signed(1) } });
+  assert.deepEqual(registeredFriend.json().referralStats, { cargoCode: 'NOOR/S1', total: 2, active: 1 });
+  assert.deepEqual(registeredFriend.json().customers.map(c => c.id), ['c1']);
+  store.packages.push({ id: 'p3', tenantId: 't', customerCargoCode: 'NOOR/S3', status: 'READY_FOR_PICKUP' });
+  assert.equal((await app.inject({ url: '/api/app/noor/bootstrap', headers: { 'x-telegram-init-data': signed(1) } })).json().referralStats.active, 1);
+  store.packages.at(-1).status = 'RELEASED';
+  assert.deepEqual((await app.inject({ url: '/api/app/noor/bootstrap', headers: { 'x-telegram-init-data': signed(1) } })).json().referralStats, { cargoCode: 'NOOR/S1', total: 2, active: 2 });
+  store.tenantSettings.t.loyaltySettings = { activeReferralMinPackages: 2 };
+  assert.equal((await app.inject({ url: '/api/app/noor/bootstrap', headers: { 'x-telegram-init-data': signed(1) } })).json().referralStats.active, 0);
+  delete store.tenantSettings.t.loyaltySettings;
+  store.customers.splice(2);
+  store.packages.pop();
   const spoof = await app.inject('/api/app/noor/me?tgUserId=2&cargoCode=NOOR/S2');
   assert.ok(!spoof.body.includes('NOOR/S2'));
   assert.equal((await app.inject('/api/o/noor/all')).statusCode, 401);

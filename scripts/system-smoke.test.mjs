@@ -42,8 +42,9 @@ try {
   const signed = new URLSearchParams({ auth_date: String(Math.floor(Date.now() / 1000)), user: JSON.stringify({ id: 123, first_name: 'Synthetic' }) });
   const secret = createHmac('sha256', 'WebAppData').update(token).digest();
   signed.set('hash', createHmac('sha256', secret).update([...signed.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join('\n')).digest('hex'));
-  const automatic = await json(await post('customers', { cargoCode: 'TEST/S1', fullName: 'Automatic', phone: '123' }, { 'content-type': 'application/json', 'x-telegram-init-data': signed.toString() }));
+  const automatic = await json(await post('customers', { cargoCode: 'TEST/S1', fullName: 'Automatic', phone: '123', invitedByCustomerId: manual.customer.cargoCode }, { 'content-type': 'application/json', 'x-telegram-init-data': signed.toString() }));
   assert.ok(Number(automatic.customer.cargoCode.replace(/\D/g, '')) >= 2500);
+  assert.equal(automatic.customer.invitedByCustomerId, manual.customer.cargoCode);
   const tracks = Array.from({ length: 601 }, (_, n) => `SMOKE${n}`);
   const bulk = await json(await post('packages/bulk', { trackingNumbers: tracks, shippedAt: '2026-10-03' }));
   assert.equal(bulk.createdCount, 601);
@@ -55,6 +56,7 @@ try {
   const repeat = await json(await post('packages/bulk', { trackingNumbers: tracks, skipExisting: true }));
   assert.equal(repeat.createdCount, 0);
   const saved = JSON.parse(fs.readFileSync(path.join(root, 'cargona-store.json')));
+  assert.equal(saved.customers.find(c => c.id === automatic.customer.id).invitedByCustomerId, manual.customer.cargoCode, 'MiniApp referral must survive persistence');
   assert.equal(saved.packages.find(p => p.id === pkg.id).cost, 8);
   assert.equal(saved.packages.find(p => p.id === pkg.id).weightKg, 2);
   assert.deepEqual(saved.futureField, state.futureField);

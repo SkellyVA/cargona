@@ -568,6 +568,17 @@
           </div>
         </div>
 
+        <div class="flex items-center justify-between gap-3 rounded-2xl bg-[#181B23]/80 p-3 border border-white/[0.06]" aria-label="Приглашённые друзья">
+          <div>
+            <div class="text-[11px] text-text-secondary">Зарегистрировались по вашей ссылке</div>
+            <div class="text-sm font-bold text-white mt-1">{{ loyaltyInfo.totalReferralsCount }} чел.</div>
+          </div>
+          <button type="button" @click="refreshClubData" :disabled="isRefreshingClub" aria-label="Обновить данные клуба" class="text-xs font-semibold text-accent-cyan rounded-xl px-3 py-2 bg-accent-cyan/10 border border-accent-cyan/20 disabled:opacity-50">
+            {{ isRefreshingClub ? 'Обновление…' : 'Обновить' }}
+          </button>
+        </div>
+        <p v-if="clubRefreshError" role="alert" class="text-xs text-accent-coral">{{ clubRefreshError }}</p>
+
         <!-- Прогресс-бар рефералов -->
         <div class="space-y-1.5 bg-[#181B23]/80 p-3 rounded-2xl border border-white/[0.06]">
           <div class="flex items-center justify-between text-[11px]">
@@ -625,7 +636,7 @@
         <!-- Кнопка раскрытия подробностей правил и истории -->
         <div class="pt-1">
           <button
-            @click="showLoyaltyDetailsModal = true"
+            @click="showLoyaltyDetailsModal = true; refreshClubData()"
             class="w-full py-2 text-center text-[11px] text-accent-cyan hover:underline flex items-center justify-center gap-1 cursor-pointer font-semibold"
           >
             <span>История бонусов и правила программы</span>
@@ -1285,7 +1296,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import QRCode from 'qrcode';
 import {
@@ -1415,6 +1426,25 @@ function openPhotoPreview(url: string) {
 
 // NOOR CLUB & Реферальная программа
 const showLoyaltyDetailsModal = ref(false);
+const isRefreshingClub = ref(false);
+const clubRefreshError = ref('');
+async function refreshClubData() {
+  if (isRefreshingClub.value || !isRegistered.value) return;
+  const slug = String(route.params.slug || store.activeTenantSlug || '');
+  if (!slug) return;
+  isRefreshingClub.value = true;
+  clubRefreshError.value = '';
+  try {
+    await store.syncTenantData(slug, true);
+    if (store.tenantSyncError?.slug === slug) clubRefreshError.value = store.tenantSyncError.message;
+  } catch {
+    clubRefreshError.value = 'Не удалось обновить данные клуба. Попробуйте ещё раз.';
+  } finally { isRefreshingClub.value = false; }
+}
+function refreshClubOnReturn() {
+  if (document.visibilityState === 'visible') refreshClubData();
+}
+onUnmounted(() => document.removeEventListener('visibilitychange', refreshClubOnReturn));
 const referredByCode = ref('');
 const referralActivationText = computed(() => {
   const minimum = store.settings.loyaltySettings?.activeReferralMinPackages || 1;
@@ -2161,6 +2191,7 @@ async function fetchTenantInfo(slug: string) {
 }
 
 onMounted(() => {
+  document.addEventListener('visibilitychange', refreshClubOnReturn);
   // 1. Telegram WebApp Integration - CALL READY IMMEDIATELY TO PREVENT WHITE SCREEN
   if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp) {
     const tg = (window as any).Telegram.WebApp;

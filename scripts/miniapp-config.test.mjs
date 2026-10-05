@@ -41,7 +41,7 @@ try {
     };
     const warehouses = [{ id: 'warehouse-custom', name: 'Warehouse', country: 'USA', countryCode: 'US', city: 'Boston', address: 'Configured street {code}', isActive: true }];
     const data = {
-      settings, loyalty: settings.loyaltySettings, customer, customers: [customer],
+      settings, loyalty: settings.loyaltySettings, customer, customers: [customer], referralStats: { cargoCode: customer.cargoCode, total: 1, active: 0 },
       tenant: { id: 't', slug: 'acme', name: 'ACME', codePrefix: 'ACME/S', baseCurrency: 'USD', botUsername: 'AcmeTestBot' },
       branches: [{ id: 'pickup-custom', name: 'Configured pickup', city: 'Boston', address: 'Street' }],
       warehouses, originWarehouses: warehouses,
@@ -61,6 +61,7 @@ try {
     vm.runInNewContext(ts.transpileModule(apiSource.slice(bulkStart, bulkEnd), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, { fastify: bulkApi, store: fixtureStore, shippingDate });
     let bulkRequest;
     let failBulk = false;
+    let failClubRefresh = false;
     let savedBranchTariffs;
     let failDelete = true;
     let broadcastStarts = 0;
@@ -72,6 +73,7 @@ try {
     let failFirstExpense = true;
     await page.route('**/api/**', route => {
       const requestUrl = new URL(route.request().url());
+      if (failClubRefresh && requestUrl.pathname.endsWith('/bootstrap')) return route.fulfill({status:503,json:{error:'Клуб временно недоступен'}});
       if (requestUrl.pathname.includes('/finance/')) {
         const key = route.request().headers()['idempotency-key'];
         if (key) financeKeys.push(key);
@@ -148,6 +150,21 @@ try {
     assert.ok(text.includes('Минимум выданных посылок у каждого друга: 3'));
     assert.ok(text.includes('Boston'));
     assert.ok(!text.includes('State: DE') && !text.includes('~10-14') && !text.includes('~3-5'));
+    const invited = page.getByLabel('Приглашённые друзья', {exact:true});
+    assert.ok((await invited.innerText()).includes('1 чел.'));
+    data.referralStats.total = 2;
+    await page.getByRole('button', {name:'Обновить данные клуба',exact:true}).click();
+    await invited.getByText('2 чел.', {exact:true}).waitFor();
+    failClubRefresh = true;
+    await page.getByRole('button', {name:'Обновить данные клуба',exact:true}).click();
+    await page.getByText('Клуб временно недоступен',{exact:true}).waitFor();
+    assert.ok((await invited.innerText()).includes('2 чел.'), 'Failed refresh preserves last confirmed counts');
+    failClubRefresh = false;
+    data.referralStats.total = 3;
+    data.referralStats.active = 1;
+    await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+    await invited.getByText('3 чел.', {exact:true}).waitFor();
+    assert.ok((await page.locator('body').innerText()).includes('1 / 4'));
     await page.getByRole('button', { name: 'QR-код', exact: true }).click();
     await page.locator('canvas').waitFor();
     const pixels = await page.locator('canvas').evaluate(canvas => {
