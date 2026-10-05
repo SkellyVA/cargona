@@ -64,6 +64,7 @@ try {
     let failClubRefresh = false;
     let failBranchSave = true;
     let branchWrites = 0;
+    const singlePackageRequests = [];
     let savedBranchTariffs;
     let failDelete = true;
     let broadcastStarts = 0;
@@ -75,6 +76,10 @@ try {
     let failFirstExpense = true;
     await page.route('**/api/**', route => {
       const requestUrl = new URL(route.request().url());
+      if (requestUrl.pathname === '/api/o/acme/packages' && route.request().method() === 'POST') {
+        const payload = route.request().postDataJSON(); singlePackageRequests.push(payload);
+        return route.fulfill({json:{success:true,package:payload}});
+      }
       if (requestUrl.pathname.endsWith('/customer/branch')) {
         branchWrites++;
         if (failBranchSave) return route.fulfill({status:503,json:{error:'ПВЗ не сохранён'}});
@@ -251,6 +256,20 @@ try {
     assert.ok(fixtureStore.packages.some(p => p.trackingNumber === 'ORIGIN1' && p.shippedAt === '2026-09-28' && p.weightPending));
     await page.reload();
     await page.getByRole('button', { name: 'ORIGIN1', exact: true }).filter({ visible: true }).waitFor();
+    await page.getByRole('button',{name:'Создать посылку',exact:true}).click();
+    await page.getByPlaceholder('SF9928182910',{exact:true}).fill('NO-PVZ');
+    const unassignedRequest = page.waitForRequest(r=>r.url().endsWith('/api/o/acme/packages'));
+    await page.getByRole('button',{name:'Создать',exact:true}).click();
+    await unassignedRequest;
+    assert.equal(singlePackageRequests[0].branchId,'', 'Creating without a pickup choice must not select the first branch');
+    await page.getByRole('button',{name:'Создать посылку',exact:true}).click();
+    await page.getByRole('button',{name:'Не назначен',exact:true}).click();
+    await page.getByText(/Configured pickup/).last().click();
+    await page.getByPlaceholder('SF9928182910',{exact:true}).fill('EXPLICIT-PVZ');
+    const createdRequest = page.waitForRequest(r=>r.url().endsWith('/api/o/acme/packages'));
+    await page.getByRole('button',{name:'Создать',exact:true}).click();
+    await createdRequest;
+    assert.equal(singlePackageRequests[1].branchId,'pickup-custom');
     await page.getByRole('button', { name: 'TRACK123', exact: true }).filter({ visible: true }).click();
     await page.getByText('История посылки TRACK123', { exact: true }).waitFor();
     await page.getByText('Статус: В пути → Готова к выдаче', { exact: true }).waitFor();

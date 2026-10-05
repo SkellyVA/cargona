@@ -356,11 +356,11 @@
         </div>
 
         <div>
-          <label class="text-text-secondary mb-1 block">Филиал / ПВЗ назначения</label>
+          <label class="text-text-secondary mb-1 block">Филиал / ПВЗ назначения (необязательно)</label>
           <AppDropdown
             v-model="newPkg.branchId"
-            :options="branchOptions"
-            placeholder="Выберите ПВЗ"
+            :options="[{ value: '', label: 'Не назначен' }, ...branchOptions]"
+            placeholder="Не назначен"
             class="w-full"
           />
         </div>
@@ -898,7 +898,7 @@ const newPkg = ref({
   lengthCm: 30,
   widthCm: 20,
   heightCm: 15,
-  branchId: store.branches[0]?.id || 'b-1',
+  branchId: '',
 });
 
 // Живой расчет WMS показателей объема и плотности
@@ -1046,7 +1046,7 @@ function createPackage() {
     densityKgM3,
     volumetricWeightKg,
     shelfLocation: '',
-    branchId: newPkg.value.branchId || store.branches[0]?.id || 'b-1',
+    branchId: newPkg.value.branchId,
     status: 'RECEIVED_AT_ORIGIN',
   });
   showCreatePackageModal.value = false;
@@ -1060,7 +1060,7 @@ function createPackage() {
     lengthCm: 30,
     widthCm: 20,
     heightCm: 15,
-    branchId: store.branches[0]?.id || 'b-1',
+    branchId: '',
   };
 }
 
