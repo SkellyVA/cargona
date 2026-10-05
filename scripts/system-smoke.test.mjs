@@ -36,7 +36,7 @@ try {
   const csrf = cookies.find(c => c.startsWith('cargona_csrf=')).split(';')[0].slice('cargona_csrf='.length);
   const headers = { 'content-type': 'application/json', cookie, 'x-cargona-csrf': csrf };
   const post = (resource, body, custom = headers) => fetch(`${base}/api/o/test/${resource}`, { method: 'POST', headers: custom, body: JSON.stringify(body) });
-  const manual = await json(await post('customers', { cargoCode: 'TEST/S2256', fullName: 'Manual', phone: '123' }));
+  const manual = await json(await post('customers', { cargoCode: 'TEST/S2256', fullName: 'Manual', phone: '+992 90 001 6789' }));
   assert.equal(manual.customer.cargoCode, 'TEST/S2256');
   assert.equal((await post('customers', { cargoCode: 'TEST/S2256', fullName: 'Duplicate' })).status, 409);
   const signed = new URLSearchParams({ auth_date: String(Math.floor(Date.now() / 1000)), user: JSON.stringify({ id: 123, first_name: 'Synthetic' }) });
@@ -45,6 +45,14 @@ try {
   const automatic = await json(await post('customers', { cargoCode: 'TEST/S1', fullName: 'Automatic', phone: '123', invitedByCustomerId: manual.customer.cargoCode }, { 'content-type': 'application/json', 'x-telegram-init-data': signed.toString() }));
   assert.ok(Number(automatic.customer.cargoCode.replace(/\D/g, '')) >= 2500);
   assert.equal(automatic.customer.invitedByCustomerId, manual.customer.cargoCode);
+  const inviterInit = new URLSearchParams({auth_date:String(Math.floor(Date.now()/1000)),user:JSON.stringify({id:124,first_name:'Inviter'})});
+  inviterInit.set('hash',createHmac('sha256',secret).update([...inviterInit.entries()].sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>`${k}=${v}`).join('\n')).digest('hex'));
+  const inviterHeaders = {'content-type':'application/json','x-telegram-init-data':inviterInit.toString()};
+  const loginByCode = await json(await fetch(`${base}/api/app/test/auth/login`, {method:'POST',headers:inviterHeaders,body:JSON.stringify({cargoCode:'2256',phoneLast4:'6789'})}));
+  assert.equal(loginByCode.customer.id,manual.customer.id);
+  const inviterBootstrap = await json(await fetch(`${base}/api/app/test/bootstrap`, {headers:inviterHeaders}));
+  assert.deepEqual(inviterBootstrap.referralStats,{cargoCode:'TEST/S2256',total:1,active:0});
+  assert.deepEqual(inviterBootstrap.customers.map(c=>c.id),[manual.customer.id]);
   const tracks = Array.from({ length: 601 }, (_, n) => `SMOKE${n}`);
   const bulk = await json(await post('packages/bulk', { trackingNumbers: tracks, shippedAt: '2026-10-03' }));
   assert.equal(bulk.createdCount, 601);

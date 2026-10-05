@@ -5,6 +5,7 @@ const publicTenantKeys = ['id', 'name', 'slug', 'codePrefix', 'baseCurrency', 't
 const publicSettingsKeys = ['companyName', 'codePrefix', 'customerIdStart', 'baseCurrency', 'chinaWarehouseAddress', 'chinaContactPhone', 'chinaContactName', 'botUsername', 'managerUsername', 'channelId', 'reviewsChannelId', 'paymentRequisites', 'autoDeliveryRatePerKgUSD', 'airDeliveryRatePerKgUSD', 'minPackageCostUSD', 'freeStorageDays', 'loyaltySettings'];
 
 export function registerClientSecurity(app: any, store: any) {
+  const loginAttempts = new Map<string, { count: number; expiresAt: number }>();
   const companyFor = (slug: string) => store.tenants.find((t: any) => t.slug === slug);
   const botFor = (tenant: any) => store.botConfigs.find((b: any) => b.tenantId === tenant?.id && b.isActive && b.botToken);
   const owns = (pkg: any, client: any) => pkg && client && pkg.tenantId === client.tenantId && (pkg.customerId === client.id || pkg.customerCargoCode === client.cargoCode);
@@ -65,6 +66,10 @@ export function registerClientSecurity(app: any, store: any) {
     request.telegramUser = user;
     request.clientCustomer = customer || null;
     if (surface === 'app') {
+      if (resource === 'auth/login' && request.method === 'POST') {
+        if (!user) return reply.status(401).send({ error: 'Откройте приложение через Telegram для входа' });
+        return;
+      }
       if (['customer/link', 'customer/link/preview'].includes(resource) && request.method === 'POST') {
         if (!user) return reply.status(401).send({ error: 'Откройте ссылку через Telegram' });
         return;
@@ -171,6 +176,37 @@ export function registerClientSecurity(app: any, store: any) {
       return;
     }
     return reply.status(403).send({ error: 'Изменение доступно администратору или владельцу' });
+  });
+  app.post('/api/app/:slug/auth/login', async (request: any, reply: any) => {
+    const tenant = companyFor(request.params.slug);
+    const user = request.telegramUser;
+    const input = String(request.body?.cargoCode || '').trim().toUpperCase();
+    const last4 = String(request.body?.phoneLast4 || '');
+    if (!input || input.length > 128 || !/^\d{4}$/.test(last4)) return reply.status(400).send({ error: 'Укажите Cargo ID и последние 4 цифры телефона' });
+    const now = Date.now();
+    for (const [key, attempt] of loginAttempts) if (attempt.expiresAt <= now) loginAttempts.delete(key);
+    const key = `${tenant.id}:${user.id}`;
+    const attempt = loginAttempts.get(key) || { count: 0, expiresAt: now + 15 * 60 * 1000 };
+    if (attempt.count >= 5) return reply.status(429).send({ error: 'Слишком много попыток. Попробуйте через 15 минут' });
+    attempt.count++; loginAttempts.set(key, attempt);
+    const clean = input.replace(/[^A-Z0-9]/g, '');
+    const candidates = store.customers.filter((c: any) => c.tenantId === tenant.id && !c.isBlocked && (
+      String(c.cargoCode).toUpperCase().replace(/[^A-Z0-9]/g, '') === clean ||
+      (/^\d+$/.test(input) && String(c.cargoCode).replace(/\D/g, '').replace(/^0+/, '') === input.replace(/^0+/, ''))
+    ));
+    const customer = candidates.length === 1 ? candidates[0] : null;
+    if (!customer || String(customer.phone || '').replace(/\D/g, '').length < 4 || String(customer.phone).replace(/\D/g, '').slice(-4) !== last4) {
+      return reply.status(401).send({ error: 'Cargo ID или последние 4 цифры телефона неверны' });
+    }
+    if ((customer.telegramUserId && Number(customer.telegramUserId) !== user.id) ||
+      store.customers.some((c: any) => c.tenantId === tenant.id && c.id !== customer.id && Number(c.telegramUserId) === user.id)) {
+      return reply.status(409).send({ error: 'Аккаунт уже привязан к другому Telegram. Обратитесь к менеджеру' });
+    }
+    customer.telegramUserId = user.id;
+    customer.telegramUsername = user.username || '';
+    await store.saveToFile();
+    loginAttempts.delete(key);
+    return { success: true, customer };
   });
   app.get('/api/app/:slug/bootstrap', async (request: any, reply: any) => {
     const tenant = companyFor(request.params.slug);

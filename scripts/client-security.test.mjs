@@ -23,7 +23,7 @@ const store = {
   customers: [{ id: 'c1', tenantId: 't', telegramUserId: 1, cargoCode: 'NOOR/S1', fullName: 'First', preferredBranchId: 'b1' }, { id: 'c2', tenantId: 't', telegramUserId: 2, cargoCode: 'NOOR/S2', invitedByCustomerId: 'c1' }],
   packages: [{ id: 'p1', tenantId: 't', customerId: 'c1', currentBranchId: 'b1', status: 'READY_FOR_PICKUP' }, { id: 'p2', tenantId: 't', customerId: 'c2', currentBranchId: 'b2', status: 'RELEASED' }],
   branches: [{ id: 'b1', tenantId: 't', name: 'One' }, { id: 'b2', tenantId: 't', name: 'Two' }],
-  users: [{ id: 'u', tenantId: 't', assignedBranchId: 'b1' }], originWarehouses: [], trips: [],
+  users: [{ id: 'u', tenantId: 't', assignedBranchId: 'b1' }], originWarehouses: [], trips: [], saveToFile() {},
 };
 app.addHook('preHandler', async request => {
   if (request.headers['test-staff']) request.authUser = { id: 'u', role: 'OPERATOR', organizationSlug: 'noor' };
@@ -54,6 +54,19 @@ try {
   assert.deepEqual(mine.json().packages.map(p => p.id), ['p1']);
   assert.deepEqual(mine.json().referralStats, { cargoCode: 'NOOR/S1', total: 1, active: 1 });
   assert.ok(!mine.body.includes('NOOR/S2'), 'Referral statistics must not disclose invited customer records');
+  store.customers.push({id:'manual',tenantId:'t',cargoCode:'NOOR/S2256',phone:'+992 90 001 1234',fullName:'Manual'});
+  const cargoLogin = (id, code, last4) => app.inject({method:'POST',url:'/api/app/noor/auth/login',headers:{'x-telegram-init-data':signed(id)},payload:{cargoCode:code,phoneLast4:last4}});
+  assert.equal((await cargoLogin(4,'2256','0000')).statusCode,401);
+  assert.equal(store.customers.at(-1).telegramUserId,undefined);
+  assert.equal((await cargoLogin(4,'2256','1234')).statusCode,200);
+  assert.equal(store.customers.at(-1).telegramUserId,4);
+  assert.deepEqual((await app.inject({url:'/api/app/noor/bootstrap',headers:{'x-telegram-init-data':signed(4)}})).json().customers.map(c=>c.id),['manual']);
+  assert.equal((await cargoLogin(5,'NOOR/S2256','1234')).statusCode,409);
+  assert.equal((await cargoLogin(1,'NOOR/S2256','1234')).statusCode,409);
+  for(let n=0;n<5;n++) assert.equal((await cargoLogin(6,'2256','0000')).statusCode,401);
+  assert.equal((await cargoLogin(6,'2256','1234')).statusCode,429);
+  assert.equal((await app.inject({method:'POST',url:'/api/app/noor/auth/login',payload:{cargoCode:'2256',phoneLast4:'1234'}})).statusCode,401);
+  store.customers.pop();
   store.customers.push(
     { id: 'c3', tenantId: 't', telegramUserId: 3, cargoCode: 'NOOR/S3', invitedByCustomerId: 'noors1' },
     { id: 'c4', tenantId: 'other', cargoCode: 'OTHER1', invitedByCustomerId: 'c1' }

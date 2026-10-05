@@ -221,8 +221,7 @@
             <div class="p-3 rounded-2xl bg-accent-blue/10 border border-accent-blue/20 flex items-start gap-2.5">
               <ShieldCheck class="w-4 h-4 text-accent-cyan shrink-0 mt-0.5" />
               <div class="text-[11px] text-text-secondary leading-relaxed">
-                Аккаунт найден: <strong class="text-white">{{ matchedLoginCustomer?.fullName }}</strong> ({{ matchedLoginCustomer?.cargoCode }}).
-                <br />Подтвердите номер: <span class="font-mono text-accent-cyan">{{ getMaskedPhone(matchedLoginCustomer?.phone) }}</span>
+                Подтвердите вход: введите последние 4 цифры телефона, указанного в вашем аккаунте. Cargo ID и номер проверит сервер.
               </div>
             </div>
 
@@ -277,10 +276,11 @@
             </button>
             <button
               type="submit"
+              :disabled="isCheckingCargoId"
               class="flex-1 h-12 rounded-xl bg-gradient-to-r from-accent-blue to-accent-cyan hover:opacity-95 text-white font-bold text-xs shadow-glow-blue flex items-center justify-center gap-2 transition active:scale-[0.99] cursor-pointer"
             >
               <ShieldCheck class="w-4 h-4" />
-              <span>Войти в аккаунт</span>
+              <span>{{ isCheckingCargoId ? 'Проверяем…' : 'Войти в аккаунт' }}</span>
             </button>
           </div>
         </div>
@@ -1815,90 +1815,35 @@ const isCheckingCargoId = ref(false);
 
 async function handleCheckCargoId() {
   loginError.value = '';
-  const rawInput = loginCargoIdInput.value.trim().toUpperCase();
-  if (!rawInput) {
-    loginError.value = 'Введите ваш Карго ID';
-    return;
-  }
+  if (!loginCargoIdInput.value.trim()) { loginError.value = 'Введите ваш Cargo ID'; return; }
+  loginStep.value = 'phone';
+  loginPhoneLast4.value = '';
+}
 
+async function handleLoginSubmit() {
+  if (isCheckingCargoId.value) return;
+  loginError.value = '';
+  const phoneLast4 = loginPhoneLast4.value.replace(/\D/g, '');
+  if (phoneLast4.length !== 4) { loginError.value = 'Введите 4 последние цифры номера телефона'; return; }
+  const slug = String(route.params.slug || store.activeTenantSlug || '');
   isCheckingCargoId.value = true;
   try {
-    const rawClean = rawInput.replace(/[^A-Z0-9]/g, '');
-    const numPart = rawInput.replace(/\D+/g, '');
-
-    // 1. Поиск клиента в локальном массиве клиентов
-    let found = store.customers.find((c) => {
-      if (!c.cargoCode) return false;
-      const cCode = c.cargoCode.toUpperCase();
-      if (cCode === rawInput) return true;
-      if (cCode.replace(/[^A-Z0-9]/g, '') === rawClean) return true;
-      const cNum = cCode.replace(/\D+/g, '');
-      return numPart && cNum && (numPart === cNum || parseInt(numPart, 10) === parseInt(cNum, 10));
+    const response = await fetch(`/api/app/${slug}/auth/login`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cargoCode: loginCargoIdInput.value.trim(), phoneLast4 }),
     });
-
-    // 2. Если не найден в кэше, запрашиваем бэкенд
-    if (!found) {
-      const slugParam = (route.params.slug as string) || store.activeTenantSlug || store.tenant?.slug || store.tenants[0]?.slug || '';
-      if (slugParam) {
-        try {
-          const res = await fetch(`/api/app/${slugParam}/auth/lookup?code=${encodeURIComponent(rawInput)}`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data.customer) {
-              found = data.customer;
-              const exists = store.customers.some((c) => c.id === data.customer.id || c.cargoCode === data.customer.cargoCode);
-              if (!exists) store.customers.push(data.customer);
-            }
-          }
-        } catch (_) {}
-      }
-    }
-
-    if (!found) {
-      loginError.value = `Карго ID «${rawInput}» не найден. Проверьте правильность или зарегистрируйтесь.`;
-      safeHaptic('notification', 'error');
-      return;
-    }
-
-    matchedLoginCustomer.value = found;
-    loginStep.value = 'phone';
-    loginPhoneLast4.value = '';
-    safeHaptic('impact', 'medium');
-  } finally {
-    isCheckingCargoId.value = false;
-  }
+    const data = await response.json();
+    if (!response.ok || !data.success || !data.customer) throw new Error(data.error || 'Не удалось войти');
+    activeCustomer.value = data.customer;
+    localStorage.setItem(`cargona_client_cargo_code_${slug}`, data.customer.cargoCode);
+    if (data.customer.preferredBranchId) localStorage.setItem(`cargona_client_branch_${slug}`, data.customer.preferredBranchId);
+    isRegistered.value = true;
+    await store.syncTenantData(slug, true);
+    safeHaptic('notification', 'success');
+  } catch (error) {
+    loginError.value = error instanceof Error ? error.message : 'Не удалось войти';
+  } finally { isCheckingCargoId.value = false; }
 }
-
-function handleLoginSubmit() {
-  loginError.value = '';
-  if (!matchedLoginCustomer.value) return;
-
-  const inputDigits = loginPhoneLast4.value.replace(/\D/g, '').trim();
-  if (inputDigits.length < 4) {
-    loginError.value = 'Введите 4 последние цифры номера телефона';
-    return;
-  }
-
-  const custPhoneDigits = (matchedLoginCustomer.value.phone || '').replace(/\D/g, '');
-  const custLast4 = custPhoneDigits.slice(-4);
-
-  if (custLast4 !== inputDigits) {
-    loginError.value = 'Неверные 4 цифры номера телефона. Попробуйте снова.';
-    safeHaptic('notification', 'error');
-    return;
-  }
-
-  // Успешный вход в систему!
-  activeCustomer.value = matchedLoginCustomer.value;
-  isRegistered.value = true;
-  const slugParam = (route.params.slug as string) || store.activeTenantSlug || store.tenant?.slug || store.tenants[0]?.slug || '';
-  if (typeof window !== 'undefined' && slugParam) {
-    localStorage.setItem(`cargona_client_cargo_code_${slugParam}`, matchedLoginCustomer.value.cargoCode);
-  }
-
-  safeHaptic('notification', 'success');
-}
-
 function resetLogin() {
   loginStep.value = 'id';
   matchedLoginCustomer.value = null;
@@ -2300,6 +2245,11 @@ onMounted(() => {
   };
 
   checkTelegramUser();
+  if (slugParam && !isRegistered.value) {
+    const referralKey = `cargona_pending_referral_${slugParam}`;
+    if (referredByCode.value) sessionStorage.setItem(referralKey, referredByCode.value);
+    else referredByCode.value = sessionStorage.getItem(referralKey) || '';
+  }
 
   // Fast boot: fetch lightweight tenant info and display UI instantly
   if (slugParam) {
@@ -2379,6 +2329,8 @@ async function handleRegister() {
   }
 
   isRegistered.value = true;
+  await store.syncTenantData(slugParam, true);
+  sessionStorage.removeItem(`cargona_pending_referral_${slugParam}`);
   safeHaptic('notification', 'success');
   } catch (error) {
     miniAppToast.value = error instanceof Error ? error.message : 'Не удалось зарегистрироваться';

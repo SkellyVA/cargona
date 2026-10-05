@@ -1079,7 +1079,7 @@ export const useCargoStore = defineStore('cargo', () => {
       isDataLoading.value = true;
     }
     try {
-      const clientMode = typeof window !== 'undefined' && /\/app\/?$/.test(window.location.pathname);
+      const clientMode = typeof window !== 'undefined' && /\/app(?:\/[^/]+)?\/?$/.test(window.location.pathname);
       const res = await fetch(clientMode ? `/api/app/${slug}/bootstrap` : `/api/o/${slug}/all`);
       if (!res.ok) {
         const error = await res.json().catch(() => ({}));
