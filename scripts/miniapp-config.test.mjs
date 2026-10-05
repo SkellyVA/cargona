@@ -349,7 +349,21 @@ try {
     await page.getByText('Сверка сохранена в аудите', { exact: true }).waitFor();
     assert.equal(fixtureStore.branches[0].cashBalance, 5);
     assert.deepEqual(pageErrors, []);
+    data.customers.push(...Array.from({length:60},(_,i)=>({id:`search-${i}`,cargoCode:`ACME/S${900+i}`,fullName:i===59?'Семён Алиев':`Fixture ${i}`,phone:i===59?'+992 (90) 001-12-34':'',balanceUSD:0})));
     await page.goto(`http://127.0.0.1:${server.address().port}/o/acme/customers`);
+    await page.getByRole('button',{name:'Вперед',exact:true}).click();
+    await page.getByText('2 / 2',{exact:true}).waitFor();
+    const clientSearch=page.getByPlaceholder('Поиск по имени, карго-коду, телефону...');
+    await clientSearch.fill('Test Customer');
+    await page.getByText('Test Customer',{exact:true}).filter({visible:true}).first().waitFor();
+    for(const query of ['алиев семен','992900011234','acme-s959']){
+      await clientSearch.fill(query);
+      await page.getByText('Семён Алиев',{exact:true}).filter({visible:true}).first().waitFor();
+    }
+    await clientSearch.fill('нет такого клиента');
+    await page.getByText('Клиентов не найдено',{exact:true}).filter({visible:true}).first().waitFor();
+    data.customers=[customer];
+    await page.reload();
     await page.getByText('Test Customer', { exact: true }).filter({ visible: true }).first().click();
     await page.getByRole('button', { name: 'Привязать Telegram', exact: true }).click();
     await page.getByText('https://t.me/AcmeTestBot?startapp=link_test', { exact: true }).waitFor();

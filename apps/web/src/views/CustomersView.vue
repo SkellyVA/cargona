@@ -361,7 +361,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import {
   Search,
@@ -378,6 +378,7 @@ import AppModal from '../components/ui/AppModal.vue';
 import CustomerDetailsModal from '../components/CustomerDetailsModal.vue';
 import { useCargoStore } from '../stores/useCargoStore';
 import { useI18n } from '../locales';
+import { matchesSearch } from '../utils/search.mjs';
 
 const store = useCargoStore();
 const route = useRoute();
@@ -434,13 +435,7 @@ const filteredCustomers = computed(() => {
   const q = searchQuery.value.toLowerCase().trim();
   let list = store.customers;
   if (q) {
-    list = list.filter(
-      (c) =>
-        (c.cargoCode && c.cargoCode.toLowerCase().includes(q)) ||
-        (c.fullName && c.fullName.toLowerCase().includes(q)) ||
-        (c.phone && c.phone.toLowerCase().includes(q)) ||
-        (c.telegramUsername && c.telegramUsername.toLowerCase().includes(q))
-    );
+    list = list.filter(c => matchesSearch(q, [c.cargoCode, c.fullName, c.phone, c.telegramUsername]));
   }
 
   const s = sortBy.value;
@@ -472,6 +467,7 @@ const filteredCustomers = computed(() => {
 });
 
 const totalPages = computed(() => Math.ceil(filteredCustomers.value.length / pageSize.value) || 1);
+watch([searchQuery, sortBy, pageSize], () => { currentPage.value = 1; });
 
 const paginatedCustomers = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value;
