@@ -2,6 +2,7 @@
 # Return a full SHA on stdout; UI goes to stderr, input to the controlling terminal.
 set -Eeuo pipefail
 umask 077
+command -v docker >/dev/null || { echo 'Docker не установлен. Сначала запустите install.sh или установите Docker Engine и Compose v2: https://docs.docker.com/engine/install/' >&2; exit 1; }
 work="$(mktemp -d)"
 trap 'rm -rf -- "$work"' EXIT
 curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \

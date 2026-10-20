@@ -28,7 +28,7 @@ while [[ $# -gt 0 ]]; do
   if [[ "$1" == -e ]]; then exec "$TEST_NODE" -e "$2"; fi
   shift
 done
-exit 99
+exit 0
 `,{mode:0o755});
   const sha='a'.repeat(40), older='b'.repeat(40);
   const good=(head_sha,title)=>({head_sha,display_title:title,head_branch:'main',status:'completed',conclusion:'success',created_at:'2026-10-04T10:00:00Z'});

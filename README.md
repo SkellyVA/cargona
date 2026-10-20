@@ -9,12 +9,17 @@
 Production использует готовые Docker-образы. На сервере не нужны Git, Node.js,
 pnpm или сборка. Нужны Linux, Docker с Compose v2, Bash, curl, openssl,
 util-linux (`flock`) и coreutils. Для внешних копий нужен Restic, для расписаний
-бэкапов и мониторинга — systemd. Установщик не устанавливает эти зависимости.
+бэкапов и мониторинга — systemd. Если Docker отсутствует, `install.sh` при запуске
+от root установит Docker Engine и Compose официальным скриптом `get.docker.com`.
+Для этого нужен доступ к get.docker.com и репозиторию пакетов Docker. Уже установленный
+Docker не переустанавливается. Остальные зависимости нужно установить заранее.
+Перед выбором версии проверяются Compose v2 и доступность Docker daemon.
 
 Без аргументов установщик предлагает меню версий с успешной сборкой и публикацией:
 
 ~~~bash
-curl -fsSL https://raw.githubusercontent.com/SkellyVA/cargona/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/SkellyVA/cargona/main/install.sh -o /tmp/cargona-install.sh
+sudo bash /tmp/cargona-install.sh
 ~~~
 
 Нажмите Enter для последней успешной версии либо выберите другую по номеру.

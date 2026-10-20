@@ -69,6 +69,7 @@ jobs:
           node scripts/compose-env-repair.test.mjs
           node scripts/cli-menu.test.mjs
           node scripts/version-select.test.mjs
+          node scripts/install-bootstrap.test.mjs
       - name: Encrypted backup round trip
         env:
           RESTIC_ROUNDTRIP: 'true'

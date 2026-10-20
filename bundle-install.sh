@@ -9,7 +9,8 @@ target="${2:-/opt/cargona}"
 command -v curl >/dev/null
 command -v openssl >/dev/null
 command -v flock >/dev/null
-docker compose version >/dev/null
+command -v docker >/dev/null || { echo 'Docker не установлен. Запустите install.sh: он подготовит Docker перед установкой Cargona.' >&2; exit 1; }
+docker compose version >/dev/null 2>&1 || { echo 'Не найден Docker Compose v2: https://docs.docker.com/compose/install/linux/' >&2; exit 1; }
 mkdir -p "$target"
 [[ -z "$(find "$target" -mindepth 1 -maxdepth 1 -print -quit)" ]] || { echo 'Installation directory must be empty. Existing installations are never overwritten.' >&2; exit 1; }
 stage="$(mktemp -d "${target%/}.bundle-XXXXXX")"
